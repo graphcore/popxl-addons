@@ -239,7 +239,7 @@ class CallableGraph(CallableMap):
         return ops.call(self._graph, *args, subgraph_in_to_parent_in=self.call_input(), **kwargs)
 
     def call_with_info(self, *args: pir.Tensor, **kwargs: pir.Tensor):
-        return ops.call(self._graph, *args, subgraph_in_to_parent_in=self.call_input(), **kwargs)
+        return ops.call_with_info(self._graph, *args, subgraph_in_to_parent_in=self.call_input(), **kwargs)
 
 
 class ConcreteGraph(VariableDefs):
