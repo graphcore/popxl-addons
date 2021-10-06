@@ -7,7 +7,7 @@ from popart.ir.tensor import Variable, Tensor
 
 from popart_extensions.tuple_map import TupleMap
 
-__all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'VariableDef', 'variable_def', 'graph']
+__all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'variable_def', 'graph']
 
 """
 Evolution of a graph:
@@ -147,19 +147,20 @@ class VariableDef:
                  data: np.ndarray,
                  name: Optional[str] = None):
         self.data = data
-        self.name = name
         # TODO: move auto type detection to `pir.variable`
         self.dtype = pir.dtype.as_dtype(data)
+        self.name = "var" if name is None else name
 
     def create_input(self) -> Tensor:
         return pir.subgraph_input(shape=self.data.shape, dtype=self.dtype, name=self.name)
 
-    def create_variable(self) -> Variable:
-        return pir.variable(data=self.data, dtype=self.dtype, name=self.name)
+    def create_variable(self, prefix: Optional[str] = None):
+        name = self.name if prefix is None else f"{prefix}.{self.name}"
+        return pir.variable(self.data, dtype=self.dtype, name=name)
 
 
-def variable_def(data, name):
-    return VariableDef(data, name)
+def variable_def(data: np.ndarray, name: Optional[str] = None) -> pir.Tensor:
+    return VariableDef(data, name)  # type: ignore
 
 
 class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
@@ -167,18 +168,19 @@ class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
         Can return all variable defs by reference to another tensor."""
 
     @classmethod
-    def _create_variable_map(cls, variable_defs: 'VariableDefs') -> 'CallableMap':
+    def _create_variable_map(cls, variable_defs: 'VariableDefs', prefix: Optional[str] = None) -> 'CallableMap':
         '''Convert VariableDefs in a VariableDefs object to Variables.'''
         variables = CallableMap()
 
         for name, item in variable_defs.items():
             if isinstance(item, tuple):
                 var_def, graph_tensor = item
-                variables[name] = graph_tensor, var_def.create_variable()
+                variables[name] = graph_tensor, var_def.create_variable(prefix)
 
             else:
                 # Assume to be child VaribleDefs
-                variables[name] = cls._create_variable_map(item)
+                child_prefix = name if prefix is None else f"{prefix}.{name}"
+                variables[name] = cls._create_variable_map(item, child_prefix)
 
         return variables
 
@@ -248,10 +250,10 @@ class ConcreteGraph(VariableDefs):
     def graph(self):
         return self._graph
 
-    def to_callable(self, create_variables: bool = False) -> CallableGraph:
+    def to_callable(self, create_variables: bool = False, debug_prefix: Optional[str] = None) -> CallableGraph:
         if create_variables:
             graph = CallableGraph(self._graph, self)
-            graph.insert_all(VariableDefs._create_variable_map(self))
+            graph.insert_all(VariableDefs._create_variable_map(self, debug_prefix))
         else:
             call_map, var_defs = VariableDefs._create_subgraph_map_and_defs(self)
             graph = CallableGraph(self._graph, var_defs)
@@ -259,7 +261,7 @@ class ConcreteGraph(VariableDefs):
         return graph
 
 
-class GenericGraph(VariableDefs):
+class GenericGraph(VariableDefs, pir.Module):
     """Graph function that captures any VariableDef attributes during construction."""
 
     def to_concrete(self, *args: Any, ir: Optional[pir.Ir] = None, **kwargs: Any) -> ConcreteGraph:
@@ -268,10 +270,6 @@ class GenericGraph(VariableDefs):
         cgraph = ConcreteGraph(graph)
         cgraph.insert_all(self)
         return cgraph
-
-    def build(self, *args: pir.Tensor, **kwargs: pir.Tensor) -> Union[pir.Tensor, Tuple[pir.Tensor, ...]]:
-        """Implements a graph"""
-        raise NotImplementedError()
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "_variable_defs") and not isinstance(value, ConcreteGraph):
