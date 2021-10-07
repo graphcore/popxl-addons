@@ -144,6 +144,7 @@ class VariableDef:
     """Description of a Variable."""
 
     def __init__(self,
+                 # TODO: This should be a callable so every variable isn't identical
                  data: np.ndarray,
                  name: Optional[str] = None):
         self.data = data
@@ -178,9 +179,9 @@ class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
                 variables[name] = graph_tensor, var_def.create_variable(prefix)
 
             else:
-                # Assume to be child VaribleDefs
                 child_prefix = name if prefix is None else f"{prefix}.{name}"
-                variables[name] = cls._create_variable_map(item, child_prefix)
+                # Assume to be child VaribleDefs
+                variables[name] = cls._create_variable_map(item, child_prefix)  # type: ignore
 
         return variables
 
@@ -266,7 +267,7 @@ class GenericGraph(VariableDefs, pir.Module):
 
     def to_concrete(self, *args: Any, ir: Optional[pir.Ir] = None, **kwargs: Any) -> ConcreteGraph:
         ir = ir if ir is not None else pir.gcg().ir()
-        graph = ir.create_graph(self.build, *args, **kwargs)
+        graph = ir.create_graph(self, *args, **kwargs)
         cgraph = ConcreteGraph(graph)
         cgraph.insert_all(self)
         return cgraph
