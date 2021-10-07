@@ -56,12 +56,11 @@ class TupleMap(Generic[A, B]):
 
     def __getattr__(self, key: str):
         """Returns 2nd value of tuple or child TupleMap"""
-        if key == "_map":
-            return self.__getattribute__(key)
-        if key in self._map and isinstance(self._map[key], tuple):
-            return self._map[key][1]
-        if key in self._map and isinstance(self._map[key], TupleMap):
-            return self._map[key]
+        _map = self.__getattribute__("_map")
+        if key in _map and isinstance(_map[key], tuple):
+            return _map[key][1]
+        if key in _map and isinstance(_map[key], TupleMap):
+            return _map[key]
         return self.__getattribute__(key)
 
     def __getitem__(self, key: str):
