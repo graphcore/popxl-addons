@@ -5,9 +5,10 @@ import numpy as np
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.streams import HostToDeviceStream, DeviceToHostStream
+from .utils import HostTensor
 
 
-def host_load(t: np.ndarray, dtype: pir.dtype, name: str) -> Tuple[np.ndarray, HostToDeviceStream, pir.Tensor]:
+def host_load(t: HostTensor, dtype: pir.dtype, name: str) -> Tuple[HostTensor, HostToDeviceStream, pir.Tensor]:
     """Create a HostToDeviceStream and HostLoadOp at the same time."""
     x_h2d = pir.h2d_stream(t.shape, dtype, name=f"{name}_stream")
     return t, x_h2d, ops.host_load(x_h2d, name)

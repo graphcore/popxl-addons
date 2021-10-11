@@ -11,8 +11,8 @@ from tests.unit.utils import ops_of_type
 
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "scale")
-        return x * self.scale
+        scale = self.add_var_input("scale", np.ones(x.shape, x.dtype.as_numpy()))
+        return x * scale
 
 
 def test_accumulator_ops_added():
@@ -45,5 +45,5 @@ def test_accumulator_ops_added():
     # One weight and one accumulator
     assert len(main.get_variables()) == 2
 
-    d_ops = d_scale_graph.graph._pb_graph.getOps()
+    d_ops = d_scale_graph._pb_graph.getOps()
     assert ops_of_type(d_ops, _ir.op.AccumulateOp) == 1

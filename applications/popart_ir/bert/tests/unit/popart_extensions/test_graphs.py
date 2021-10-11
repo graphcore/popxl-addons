@@ -9,29 +9,8 @@ import popart_extensions as pir_ext
 
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "scale")
-        return x * self.scale
-
-
-class ScaleAndShift(pir_ext.GenericGraph):
-    def __init__(self):
-        super().__init__()
-        self.scale = Scale()
-
-    def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.shift = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "shift")
-        return self.scale.build(x) + self.shift
-
-
-class OutlinedScaleAndInlineShift(pir_ext.GenericGraph):
-    def __init__(self, scale_graph: pir_ext.ConcreteGraph):
-        super().__init__()
-        self.scale_graph = scale_graph
-
-    def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = self.scale_graph.to_callable()
-        self.shift = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "shift")
-        return self.scale.call(x) + self.shift
+        scale = self.add_var_input("scale", np.ones(x.shape, x.dtype.as_numpy()))
+        return x * scale
 
 
 def test_variable_explictly_created_with_subgraph():
@@ -65,10 +44,8 @@ def test_add_variables_post_construction():
         scale_graph = Scale().to_concrete(x)
 
         # Do some transformations...
-        with scale_graph.graph:
-            new_variable = pir_ext.variable_def(np.ones(1, np.float32), "shift")
-            new_input = new_variable.create_input()
-        scale_graph.insert("shift", (new_variable, new_input))
+        with scale_graph as g:
+            g.add_var_input("shift", np.ones(1, np.float32))
 
         # Create variables for each input including our new one.
         scale = scale_graph.to_callable(create_variables=True)
@@ -106,8 +83,8 @@ class ScaleAndShift(pir_ext.GenericGraph):
         self.scale = Scale()
 
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.shift = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "shift")
-        return self.scale.build(x) + self.shift
+        shift = self.add_var_input("shift", np.ones(x.shape, x.dtype.as_numpy()))
+        return self.scale.build(x) + shift
 
 
 def test_inline_child_variables():
@@ -134,8 +111,8 @@ class OutlinedScaleAndInlineShift(pir_ext.GenericGraph):
 
     def build(self, x: pir.Tensor) -> pir.Tensor:
         self.scale = self.scale_graph.to_callable(create_variables=False)
-        self.shift = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "shift")
-        return self.scale.call(x) + self.shift
+        shift = self.add_var_input("shift", np.ones(x.shape, x.dtype.as_numpy()))
+        return self.scale.call(x) + shift
 
 
 def test_outline_child_variables():

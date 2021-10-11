@@ -11,8 +11,8 @@ from tests.unit.utils import ops_of_type
 
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "scale")
-        return x * self.scale
+        scale = self.add_var_input("scale", np.ones(x.shape, x.dtype.as_numpy()))
+        return x * scale
 
 
 def test_autodiff_patterns_executed():
@@ -26,7 +26,7 @@ def test_autodiff_patterns_executed():
 
         grad_scale_graph = pir_ext.autodiff(scale_graph)
 
-    grad_ops = grad_scale_graph.graph._pb_graph.getOps()
+    grad_ops = grad_scale_graph._pb_graph.getOps()
 
     mul_inplace_ops = ops_of_type(grad_ops, _ir.op.MulRhsInplaceOp) + ops_of_type(grad_ops, _ir.op.MulLhsInplaceOp)
     assert mul_inplace_ops == 2

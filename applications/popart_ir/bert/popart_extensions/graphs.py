@@ -1,13 +1,13 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from typing import Any, Optional, Tuple, Union
+from functools import wraps
 import numpy as np
 import popart.ir as pir
 import popart.ir.ops as ops
-from popart.ir.tensor import Variable, Tensor
 
 from popart_extensions.tuple_map import TupleMap
 
-__all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'variable_def', 'graph']
+__all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'graph']
 
 """
 Evolution of a graph:
@@ -142,7 +142,6 @@ with main:
 
 class VariableDef:
     """Description of a Variable."""
-
     def __init__(self,
                  # TODO: This should be a callable so every variable isn't identical
                  data: np.ndarray,
@@ -152,16 +151,12 @@ class VariableDef:
         self.dtype = pir.dtype.as_dtype(data)
         self.name = "var" if name is None else name
 
-    def create_input(self) -> Tensor:
+    def create_input(self) -> pir.Tensor:
         return pir.subgraph_input(shape=self.data.shape, dtype=self.dtype, name=self.name)
 
     def create_variable(self, prefix: Optional[str] = None):
         name = self.name if prefix is None else f"{prefix}.{self.name}"
         return pir.variable(self.data, dtype=self.dtype, name=name)
-
-
-def variable_def(data: np.ndarray, name: Optional[str] = None) -> pir.Tensor:
-    return VariableDef(data, name)  # type: ignore
 
 
 class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
@@ -204,12 +199,14 @@ class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
         return call_map, parent_defs
 
     @property
-    def _variable_defs(self):
-        return self
-
-    @property
     def tensors(self):
         return self.b_map()
+
+    def name_from_tensor(self, tensor: Any):
+        for name, t in self.tensors.items():
+            if t == tensor:
+                return name
+        return None
 
 
 class CallableMap(TupleMap[pir.Tensor, pir.Tensor]):
@@ -242,47 +239,81 @@ class CallableGraph(CallableMap):
         return ops.call_with_info(self._graph, *args, subgraph_in_to_parent_in=self.call_input(), **kwargs)
 
 
-class ConcreteGraph(VariableDefs):
-    def __init__(self, graph: pir.Graph):
+class ConcreteGraph(pir.Graph):
+    @wraps(pir.Graph.__init__)
+    def __init__(self):
         super().__init__()
-        self._graph = graph
+        self._variable_defs: VariableDefs
+
+    @classmethod
+    def _from_pb(cls, graph, variable_defs: Optional[VariableDefs] = None):
+        # Get the unbound version of _from_pb
+        self = super()._from_pb.__func__(cls, graph)
+        self._variable_defs = variable_defs if variable_defs is not None else VariableDefs()
+        return self
 
     @property
-    def graph(self):
-        return self._graph
+    def variable_defs(self) -> VariableDefs:
+        return self._variable_defs
 
     def to_callable(self, create_variables: bool = False, debug_prefix: Optional[str] = None) -> CallableGraph:
         if create_variables:
-            graph = CallableGraph(self._graph, self)
-            graph.insert_all(VariableDefs._create_variable_map(self, debug_prefix))
+            graph = CallableGraph(self, self.variable_defs)
+            graph.insert_all(VariableDefs._create_variable_map(self.variable_defs, debug_prefix))
         else:
-            call_map, var_defs = VariableDefs._create_subgraph_map_and_defs(self)
-            graph = CallableGraph(self._graph, var_defs)
+            call_map, var_defs = VariableDefs._create_subgraph_map_and_defs(self.variable_defs)
+            graph = CallableGraph(self, var_defs)
             graph.insert_all(call_map)
         return graph
 
+    def __getattr__(self, name: str):
+        try:
+            return getattr(self._variable_defs, name)
+        except AttributeError as e:
+            pass
+        return super().__getattribute__(name)
 
-class GenericGraph(VariableDefs, pir.Module):
-    """Graph function that captures any VariableDef attributes during construction."""
+    def add_var_input(self, name: str, data: np.ndarray) -> pir.Tensor:
+        with self:
+            var_def = VariableDef(data, name)
+            tensor = var_def.create_input()
+        self._variable_defs[name] = (var_def, tensor)
+        return tensor
+
+
+class GenericGraph(pir.Module):
+    """Graph function that captures any variable_def created during construction."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        super().__setattr__("_variable_defs", VariableDefs())
+        self._variable_defs: VariableDefs
 
     def to_concrete(self, *args: Any, ir: Optional[pir.Ir] = None, **kwargs: Any) -> ConcreteGraph:
         ir = ir if ir is not None else pir.gcg().ir()
         graph = ir.create_graph(self, *args, **kwargs)
-        cgraph = ConcreteGraph(graph)
-        cgraph.insert_all(self)
-        return cgraph
+        return ConcreteGraph._from_pb(graph._pb_graph, self._variable_defs)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        if hasattr(value, "_variable_defs") and not isinstance(value, ConcreteGraph):
-            self[name] = value._variable_defs
-
-        if isinstance(value, VariableDef):
-            # TODO: Move this to the VariableDef constructor
-            tensor = value.create_input()
-            self[name] = value, tensor
-            value = tensor
+        _variable_defs = self.__getattribute__("_variable_defs")
+        # Capture child GenericGraphs
+        if isinstance(value, GenericGraph) or isinstance(value, CallableGraph):
+            _variable_defs[name] = value._variable_defs
 
         return super().__setattr__(name, value)
+
+    def __getattr__(self, name: str):
+        try:
+            return getattr(self._variable_defs, name)
+        except AttributeError as e:
+            pass
+        return super().__getattribute__(name)
+
+    def add_var_input(self, name: str, data: np.ndarray) -> pir.Tensor:
+        var_def = VariableDef(data, name)
+        tensor = var_def.create_input()
+        self._variable_defs[name] = (var_def, tensor)
+        return tensor
 
 
 def graph(fn):

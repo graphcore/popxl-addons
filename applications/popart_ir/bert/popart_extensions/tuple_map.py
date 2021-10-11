@@ -1,5 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-# pyright: strict
+import re
 from typing import Generic, Tuple, TypeVar, Union, Dict, ItemsView
 
 A = TypeVar("A")
@@ -7,6 +7,10 @@ B = TypeVar("B")
 
 # for `to_dict` method
 TupleMapDict = Dict[str, Union[Tuple[A, B], 'TupleMapDict[A, B]']]
+
+
+def sanitise(name: str) -> str:
+    return re.sub(r'\W|^(?=\d)', '_', name)
 
 
 class TupleMap(Generic[A, B]):
@@ -113,13 +117,13 @@ class TupleMap(Generic[A, B]):
     def __str__(self) -> str:
         try:
             return str(self.to_dict())
-        except:
+        except TypeError:
             return super().__str__()
 
     def to_dict(self) -> TupleMapDict[A, B]:
         return {k: (v if isinstance(v, tuple) else v.to_dict()) for k, v in self._map.items()}
 
-    def _validate_key(self, key):
+    def _validate_key(self, key: str):
         if key in self._map:
             raise ValueError(f"'{key}' already exists in {self.__repr__()}")
         if not key.isidentifier():
