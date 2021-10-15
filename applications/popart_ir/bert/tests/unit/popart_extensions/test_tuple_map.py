@@ -1,5 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from popart_extensions.tuple_map import TupleMap
+import pytest
 
 
 def test_tuple_map():
@@ -43,3 +44,15 @@ def test_tuple_map_insert_child_with_dunder():
     assert bar.foo == foo
     assert bar.foo.X == "b"
     assert bar.tuple_map() == {"a": "b", "c": "d", "e": "f"}
+
+
+def test_tuple_map_duplicate_keys():
+    foo = TupleMap[str, str]()
+    foo["X"] = "a", "b"
+    foo["Y"] = "c", "d"
+    bar = TupleMap[str, str]()
+    bar["Z"] = "a", "b"
+    bar["foo"] = foo
+
+    with pytest.raises(ValueError):
+        bar.tuple_map()

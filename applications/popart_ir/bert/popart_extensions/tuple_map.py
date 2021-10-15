@@ -94,12 +94,16 @@ class TupleMap(Generic[A, B]):
         assert bar.tuple_map() == {"a": "b", "c": "d", "e": "f"}
         ```
         """
-        # TODO: should we check for name conflicts?
         mapping = {}
         for value in self._map.values():
             if isinstance(value, tuple):
                 mapping[value[0]] = value[1]
             else:
+                # Check for name conflicts
+                nested_tp = value.tuple_map()
+                duplicate_keys = set(mapping.keys()).intersection(nested_tp.keys())
+                if len(duplicate_keys) > 0:
+                    raise ValueError(f"Duplicate keys exist in nested tuplemap: {', '.join(duplicate_keys)}")
                 mapping.update(value.tuple_map())
         return mapping
 

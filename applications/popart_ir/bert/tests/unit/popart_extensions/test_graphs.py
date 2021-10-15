@@ -5,6 +5,7 @@ import popart
 import popart.ir as pir
 import popart.ir.ops as ops
 import popart_extensions as pir_ext
+from popart_extensions.graphs import GenericGraphList
 
 
 class Scale(pir_ext.GenericGraph):
@@ -142,3 +143,54 @@ def test_graph_decorator():
         return x * scale
 
     assert isinstance(scale, pir_ext.GenericGraph)
+
+
+def test_generic_graph_list():
+    gl = GenericGraphList([Scale(), Scale()])
+    assert isinstance(gl.get(0), Scale)
+    assert isinstance(gl.get(1), Scale)
+    assert gl.get(0) == gl.i0
+    assert gl.get(1) == gl.i1
+    assert len(gl) == 2
+    assert gl.get(0) != gl.get(1)
+
+    with pytest.raises(IndexError):
+        gl.get(2)
+
+    with pytest.raises(AttributeError):
+        gl.i2
+
+
+class ScaleTwice(pir_ext.GenericGraph):
+    def __init__(self):
+        super().__init__()
+        self.scales = GenericGraphList([Scale(), Scale()])
+
+    def build(self, x: pir.Tensor) -> pir.Tensor:
+        x = self.scales.get(0).build(x)
+        x = self.scales.get(1).build(x)
+        return x
+
+
+def test_generic_graph_list_nested():
+    ir = pir.Ir()
+    main = ir.main_graph()
+
+    with main:
+        x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
+        x = ops.host_load(x_h2d, "x")
+
+        st_graph = ScaleTwice().to_concrete(x)
+
+        assert st_graph.scales.get(0)
+        assert st_graph.scales.get(1)
+
+        st = st_graph.to_callable(create_variables=True)
+        st.call(x)
+
+    assert st.scales
+    assert st.scales.i0
+    assert st.scales.i1
+
+    assert st.scales.get(0)
+    assert st.scales.get(1)

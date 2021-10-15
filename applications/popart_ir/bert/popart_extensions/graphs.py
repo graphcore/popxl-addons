@@ -1,5 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union, List
 from functools import wraps
 import numpy as np
 import popart.ir as pir
@@ -147,7 +147,6 @@ class VariableDef:
                  data: np.ndarray,
                  name: Optional[str] = None):
         self.data = data
-        # TODO: move auto type detection to `pir.variable`
         self.dtype = pir.dtype.as_dtype(data)
         self.name = "var" if name is None else name
 
@@ -157,56 +156,6 @@ class VariableDef:
     def create_variable(self, prefix: Optional[str] = None):
         name = self.name if prefix is None else f"{prefix}.{self.name}"
         return pir.variable(self.data, dtype=self.dtype, name=name)
-
-
-class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
-    """Container for VariableDefs.
-        Can return all variable defs by reference to another tensor."""
-
-    @classmethod
-    def _create_variable_map(cls, variable_defs: 'VariableDefs', prefix: Optional[str] = None) -> 'CallableMap':
-        '''Convert VariableDefs in a VariableDefs object to Variables.'''
-        variables = CallableMap()
-
-        for name, item in variable_defs.items():
-            if isinstance(item, tuple):
-                var_def, graph_tensor = item
-                variables[name] = graph_tensor, var_def.create_variable(prefix)
-
-            else:
-                child_prefix = name if prefix is None else f"{prefix}.{name}"
-                # Assume to be child VaribleDefs
-                variables[name] = cls._create_variable_map(item, child_prefix)  # type: ignore
-
-        return variables
-
-    @classmethod
-    def _create_subgraph_map_and_defs(cls, variable_defs: 'VariableDefs') -> Tuple['CallableMap', 'VariableDefs']:
-        '''Convert VariableDefs in a TupleMap to input tensors in the current graph.'''
-        call_map = CallableMap()
-        parent_defs = VariableDefs()
-        for name, item in variable_defs.items():
-            if isinstance(item, tuple):
-                var_def, graph_tensor = item
-                parent_input = var_def.create_input()
-                call_map[name] = graph_tensor, parent_input
-                parent_defs[name] = var_def, parent_input
-            else:
-                # Assume to be child VaribleDefs
-                _map, _defs = cls._create_subgraph_map_and_defs(item)  # type: ignore
-                call_map[name] = _map
-                parent_defs[name] = _defs
-        return call_map, parent_defs
-
-    @property
-    def tensors(self):
-        return self.b_map()
-
-    def name_from_tensor(self, tensor: Any):
-        for name, t in self.tensors.items():
-            if t == tensor:
-                return name
-        return None
 
 
 class CallableMap(TupleMap[pir.Tensor, pir.Tensor]):
@@ -221,6 +170,29 @@ class CallableMap(TupleMap[pir.Tensor, pir.Tensor]):
     @property
     def tensors(self):
         return self.b_map()
+
+    def name_from_tensor(self, tensor: Any):
+        for name, t in self.tensors.items():
+            if t == tensor:
+                return name
+        return None
+
+
+class VariableDefs(TupleMap[VariableDef, pir.Tensor]):
+    """Container for VariableDefs.
+        Can return all variable defs by reference to another tensor."""
+
+    _CallableMapType = CallableMap
+
+    @property
+    def tensors(self):
+        return self.b_map()
+
+    def name_from_tensor(self, tensor: Any):
+        for name, t in self.tensors.items():
+            if t == tensor:
+                return name
+        return None
 
 
 class CallableGraph(CallableMap):
@@ -240,6 +212,7 @@ class CallableGraph(CallableMap):
 
 
 class ConcreteGraph(pir.Graph):
+
     @wraps(pir.Graph.__init__)
     def __init__(self):
         super().__init__()
@@ -259,12 +232,45 @@ class ConcreteGraph(pir.Graph):
     def to_callable(self, create_variables: bool = False, debug_prefix: Optional[str] = None) -> CallableGraph:
         if create_variables:
             graph = CallableGraph(self, self.variable_defs)
-            graph.insert_all(VariableDefs._create_variable_map(self.variable_defs, debug_prefix))
+            graph.insert_all(self._create_variable_map(self.variable_defs, debug_prefix))
         else:
-            call_map, var_defs = VariableDefs._create_subgraph_map_and_defs(self.variable_defs)
+            call_map, var_defs = self._create_subgraph_map_and_defs(self.variable_defs)
             graph = CallableGraph(self, var_defs)
             graph.insert_all(call_map)
         return graph
+
+    def _create_variable_map(self, variable_defs: 'VariableDefs', prefix: Optional[str] = None) -> 'CallableMap':
+        '''Convert VariableDefs in a VariableDefs object to Variables.'''
+        variables = variable_defs._CallableMapType()
+
+        for name, item in variable_defs.items():
+            if isinstance(item, tuple):
+                var_def, graph_tensor = item
+                variables[name] = graph_tensor, var_def.create_variable(prefix)
+
+            else:
+                child_prefix = name if prefix is None else f"{prefix}.{name}"
+                # Assume to be child VaribleDefs
+                variables[name] = self._create_variable_map(item, child_prefix)  # type: ignore
+
+        return variables
+
+    def _create_subgraph_map_and_defs(self, variable_defs: 'VariableDefs') -> Tuple['CallableMap', 'VariableDefs']:
+        '''Convert VariableDefs in a TupleMap to input tensors in the current graph.'''
+        call_map = self._CallableMapType()
+        parent_defs = VariableDefs()
+        for name, item in variable_defs.items():
+            if isinstance(item, tuple):
+                var_def, graph_tensor = item
+                parent_input = var_def.create_input()
+                call_map[name] = graph_tensor, parent_input
+                parent_defs[name] = var_def, parent_input
+            else:
+                # Assume to be child VaribleDefs
+                _map, _defs = self._create_subgraph_map_and_defs(item)  # type: ignore
+                call_map[name] = _map
+                parent_defs[name] = _defs
+        return call_map, parent_defs
 
     def __getattr__(self, name: str):
         try:
@@ -324,3 +330,34 @@ def graph(fn):
             return fn(*args, **kwargs)
 
     return FreeFnGraph()
+
+
+class _GraphList:
+    """Abstract class that implements GraphList methods"""
+    def get(self, index):
+        try:
+            return getattr(self, f'i{index}')
+        except AttributeError:
+            raise IndexError(f"Index '{index}' is out of range for length {len(self)}")
+
+    def __len__(self):
+        return len(self._map)
+
+
+class CallableMapList(CallableMap, _GraphList):
+    pass
+
+
+class VariableDefsList(VariableDefs, _GraphList):
+    _CallableMapType = CallableMapList
+
+
+class GenericGraphList(GenericGraph, _GraphList):
+
+    def __init__(self, modules: List['GenericGraph']):
+        super().__init__()
+        super().__setattr__("_variable_defs", VariableDefsList())
+        self._variable_defs: VariableDefsList
+
+        for index, m in enumerate(modules):
+            self.__setattr__(f'i{index}', m)
