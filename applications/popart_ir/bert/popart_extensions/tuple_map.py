@@ -45,18 +45,29 @@ class TupleMap(Generic[A, B]):
     assert foo['a'] == (1, 2)
     assert foo.b == 4
     assert foo.tuple_map() == {1: 2, 3: 4, 5: 6}
+    ```
     """
 
     def __init__(self):
         self._map: Dict[str, Union[Tuple[A, B], 'TupleMap[A, B]']] = {}
 
     def insert_all(self, other: 'TupleMap[A, B]'):
-        """Insert all items from `other` into self"""
+        """
+        Insert all items from `other` into self.
+        Merge duplicate keys that have the same tuple, otherwise throw an error.
+        """
         keys_intersection = set(self._map.keys()).intersection(other._map.keys())
-        if len(keys_intersection) > 0:
-            raise ValueError(
-                f"{self.__repr__()} already contains keys found in {other}: {', '.join(keys_intersection)}")
-        self._map.update(other._map)
+        other_ = other.copy()
+        for key in keys_intersection:
+            if self._map[key] != other._map[key]:
+                if isinstance(self._map[key], TupleMap) and isinstance(other._map[key], TupleMap):
+                    self._map[key].insert_all(other._map[key])
+                    del other_._map[key]
+                else:
+                    raise ValueError(
+                        f"Duplicate key found but with two different values that cannot be merged. Key: {key}. "
+                        f"Self value: {self._map[key]}. Other Value {other._map[key]}")
+        self._map.update(other_._map)
 
     def __getattr__(self, key: str):
         """Returns 2nd value of tuple or child TupleMap"""
@@ -77,6 +88,9 @@ class TupleMap(Generic[A, B]):
         self._map[key] = value
 
     insert = __setitem__
+
+    def __len__(self):
+        return len(self._map)
 
     def tuple_map(self) -> Dict[A, B]:
         """
@@ -121,7 +135,7 @@ class TupleMap(Generic[A, B]):
     def __str__(self) -> str:
         try:
             return str(self.to_dict())
-        except TypeError:
+        except:  # Fail gracefully and always provide a string
             return super().__str__()
 
     def to_dict(self) -> TupleMapDict[A, B]:
@@ -132,3 +146,9 @@ class TupleMap(Generic[A, B]):
             raise ValueError(f"'{key}' already exists in {self.__repr__()}")
         if not key.isidentifier():
             raise ValueError(f"'{key}' is not a valid python identifier")
+
+    def copy(self):
+        """Return shallow copy"""
+        other = TupleMap()
+        other._map = self._map.copy()
+        return other

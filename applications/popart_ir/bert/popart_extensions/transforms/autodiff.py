@@ -1,5 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Dict, Iterable, Mapping, Optional
+from typing import Dict, Iterable, Optional
+
 import numpy as np
 import popart._internal.ir as _ir
 import popart.ir as pir
@@ -12,7 +13,6 @@ from popart.ir.transforms.autodiff import (
 
 import popart_extensions as pir_ext
 from popart_extensions.tuple_map import sanitise
-
 
 __all__ = ["autodiff", "autodiff_with_accumulation", "connect_activations"]
 
@@ -66,7 +66,6 @@ def connect_activations(forward_call_info: CallInfo,
 
 def autodiff_with_accumulation(concrete_graph: pir_ext.ConcreteGraph,
                                tensors_to_accumulate_grads: Iterable[pir.Tensor]) -> ConcreteGradGraph:
-
     # Autodiff the graph.
     grad_graph = autodiff(concrete_graph)
 
@@ -99,7 +98,8 @@ def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
         accum_type = tensor.dtype if accum_type is None else accum_type
 
         with graph:
-            accum = graph.add_var_input("Accum__"+tensor.name, np.zeros(tensor.shape, accum_type.as_numpy()))
+            accum = graph.add_input_tensor(
+                lambda: np.zeros(tensor.shape, accum_type.as_numpy()), "Accum__" + tensor.name)
             ops.accumulate(accum, subgraph_tensor)
 
         variables[tensor] = accum

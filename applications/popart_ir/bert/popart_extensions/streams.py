@@ -1,10 +1,10 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Iterable, Tuple
+from typing import Tuple
 
-import numpy as np
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.streams import HostToDeviceStream, DeviceToHostStream
+
 from .utils import HostTensor
 
 

@@ -1,16 +1,16 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import numpy as np
-
 import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
+
 import popart_extensions as pir_ext
 from popart_extensions.testing_utils import ops_of_type
 
 
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        scale = self.add_var_input("scale", np.ones(x.shape, x.dtype.as_numpy()))
+        scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
         return x * scale
 
 

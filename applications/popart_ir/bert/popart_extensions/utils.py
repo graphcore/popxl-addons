@@ -1,7 +1,7 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from typing import Union
-import numpy as np
 
+import numpy as np
 import torch
 
 HostTensor = Union[np.ndarray, torch.Tensor]
