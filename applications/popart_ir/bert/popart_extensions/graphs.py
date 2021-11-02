@@ -287,10 +287,14 @@ class ConcreteGraph(pir.Graph):
         self._input_tensors: CallableMap = CallableMap()
 
     @classmethod
-    def _from_pb(cls, graph, input_defs: Optional[InputDefs] = None,
-                 input_tensors: Optional[CallableMap] = None):
-        # Get the unbound version of _from_pb
-        self = super()._from_pb.__func__(cls, graph)
+    def _from_pir(cls, graph: pir.Graph, input_defs: Optional[InputDefs] = None,
+                  input_tensors: Optional[CallableMap] = None):
+        # TODO: change popart.ir.Graph to allow this to be accessed via `super()`
+        self: 'ConcreteGraph' = super().__new__(cls)
+        self._pb_graph = graph._pb_graph
+        self._ir = graph.ir()
+        self._ir._graph_cache[graph.id] = self
+
         self._input_defs = input_defs if input_defs is not None else InputDefs()
         self._input_tensors = input_tensors if input_tensors is not None else CallableMap()
         return self
@@ -419,7 +423,7 @@ class GenericGraph(pir.Module):
         """
         ir = ir if ir is not None else pir.gcg().ir()
         graph = ir.create_graph(self, *args, **kwargs)
-        return ConcreteGraph._from_pb(graph._pb_graph, self._input_defs, self._input_tensors)
+        return ConcreteGraph._from_pir(graph, self._input_defs, self._input_tensors)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Inplace another graph and merge it with the current if GenericGraph or CallableGraph.

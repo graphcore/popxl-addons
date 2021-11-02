@@ -51,7 +51,7 @@ def autodiff(
     #       If not, we can end up with lots of outplace identities
     ir.applyInplacePattern(grad_info.graph._pb_graph)
 
-    grad_graph = ConcreteGradGraph._from_pb(grad_info.graph._pb_graph)
+    grad_graph = ConcreteGradGraph._from_pir(grad_info.graph)
     grad_graph.grad_info = grad_info
     return grad_graph
 
