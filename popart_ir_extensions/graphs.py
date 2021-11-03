@@ -8,7 +8,7 @@ import popart.ir.ops as ops
 from more_itertools import peekable
 from popart.ir import dtypes
 
-from popart_extensions.tuple_map import TupleMap
+from popart_ir_extensions.tuple_map import TupleMap
 
 __all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'graph']
 

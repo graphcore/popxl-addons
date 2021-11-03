@@ -4,8 +4,8 @@ import popart.ir as pir
 import pytest
 from popart.ir import ops
 
-import popart_extensions as pir_ext
-from popart_extensions.seeds import SeedBank
+import popart_ir_extensions as pir_ext
+from popart_ir_extensions.seeds import SeedBank
 
 
 class ScaleAndDrop(pir_ext.GenericGraph):

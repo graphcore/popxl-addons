@@ -11,8 +11,8 @@ from popart.ir.transforms.autodiff import (
     GradGraphInfo,
     get_expected_forward_inputs_from_call)
 
-import popart_extensions as pir_ext
-from popart_extensions.tuple_map import sanitise
+import popart_ir_extensions as pir_ext
+from popart_ir_extensions.tuple_map import sanitise
 
 __all__ = ["autodiff", "autodiff_with_accumulation", "connect_activations"]
 

@@ -6,7 +6,7 @@ import numpy as np
 import popart.ir as pir
 from popart.ir import get_current_graph
 
-import popart_extensions as pir_ext
+import popart_ir_extensions as pir_ext
 
 MAX_UINT32 = 2 ** 32 - 1
 

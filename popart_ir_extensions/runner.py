@@ -7,7 +7,7 @@ import popart
 from popart import ir as pir
 from popart.ir.streams import DeviceToHostStream, HostToDeviceStream
 
-from popart_extensions.utils import to_numpy, HostTensor
+from popart_ir_extensions.utils import to_numpy, HostTensor
 
 POPART_CACHE_DIR_ENV = 'POPART_CACHE_DIR'
 

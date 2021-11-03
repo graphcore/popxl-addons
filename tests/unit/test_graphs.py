@@ -5,8 +5,8 @@ import popart.ir as pir
 import popart.ir.ops as ops
 import pytest
 
-import popart_extensions as pir_ext
-from popart_extensions.graphs import GenericGraphList
+import popart_ir_extensions as pir_ext
+from popart_ir_extensions.graphs import GenericGraphList
 
 
 class Scale(pir_ext.GenericGraph):

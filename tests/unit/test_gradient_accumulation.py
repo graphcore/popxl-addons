@@ -4,8 +4,8 @@ import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 
-import popart_extensions as pir_ext
-from popart_extensions.testing_utils import ops_of_type
+import popart_ir_extensions as pir_ext
+from popart_ir_extensions.testing_utils import ops_of_type
 
 
 class Scale(pir_ext.GenericGraph):

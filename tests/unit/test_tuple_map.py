@@ -1,7 +1,7 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import pytest
 
-from popart_extensions.tuple_map import TupleMap
+from popart_ir_extensions.tuple_map import TupleMap
 
 
 def test_tuple_map():
