@@ -5,4 +5,5 @@ install:
 	pip install .
 
 docs:
+	sphinx-apidoc -o docs .
 	sphinx-build -a -E -b html docs docs_html
