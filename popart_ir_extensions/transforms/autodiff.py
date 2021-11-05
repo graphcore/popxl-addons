@@ -6,10 +6,7 @@ import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.ops.call import CallInfo
-from popart.ir.transforms.autodiff import (
-    autodiff as _autodiff,
-    GradGraphInfo,
-    get_expected_forward_inputs_from_call)
+from popart.ir.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo, get_expected_forward_inputs_from_call)
 
 import popart_ir_extensions as pir_ext
 from popart_ir_extensions.tuple_map import sanitise
@@ -23,10 +20,7 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
         self.grad_info: GradGraphInfo
 
 
-def autodiff(
-        graph: pir_ext.ConcreteGraph,
-        *args,
-        **kwargs) -> ConcreteGradGraph:
+def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph:
     """Extension Autodiff.
         This method calls pir.transforms.autodiff and then some required patterns after to ensure the returned
         grad graph is lowerable.
@@ -56,9 +50,10 @@ def autodiff(
     return grad_graph
 
 
-def connect_activations(forward_call_info: CallInfo,
-                        grad_info: GradGraphInfo,  # TODO: try to combine grad_info and callable_grad_graph somehow.
-                        callable_grad_graph: pir_ext.CallableGraph):
+def connect_activations(
+        forward_call_info: CallInfo,
+        grad_info: GradGraphInfo,  # TODO: try to combine grad_info and callable_grad_graph somehow.
+        callable_grad_graph: pir_ext.CallableGraph):
     activations = get_expected_forward_inputs_from_call(forward_call_info, grad_info)
     for sg_tensor, act in activations.items():
         callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
@@ -70,9 +65,7 @@ def autodiff_with_accumulation(concrete_graph: pir_ext.ConcreteGraph,
     grad_graph = autodiff(concrete_graph)
 
     # Modify the graph to have accumulator inputs
-    accumulate_gradients_in_graph(
-        grad_graph,
-        tensors_to_accumulate_grads)
+    accumulate_gradients_in_graph(grad_graph, tensors_to_accumulate_grads)
 
     return grad_graph
 
@@ -98,8 +91,8 @@ def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
         accum_type = tensor.dtype if accum_type is None else accum_type
 
         with graph:
-            accum = graph.add_input_tensor(
-                lambda: np.zeros(tensor.shape, accum_type.as_numpy()), "Accum__" + tensor.name)
+            accum = graph.add_input_tensor(lambda: np.zeros(tensor.shape, accum_type.as_numpy()),
+                                           "Accum__" + tensor.name)
             ops.accumulate(accum, subgraph_tensor)
 
         variables[tensor] = accum

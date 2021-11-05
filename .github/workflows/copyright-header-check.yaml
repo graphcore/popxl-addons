@@ -1,10 +1,13 @@
 name: Graphcore copyright header check
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [master]
 jobs:
   Explore-GitHub-Actions:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v1
       - name: Run test_copyright.py
         run: python3 utils/test_copyright.py

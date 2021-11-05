@@ -14,7 +14,9 @@ __all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'graph']
 
 
 class InputFactory:
-    def __init__(self, data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]], name: Optional[str] = None,
+    def __init__(self,
+                 data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
+                 name: Optional[str] = None,
                  constant: bool = False):
         """
         Generates input tensor for each instance of a callable graph.
@@ -32,6 +34,7 @@ class InputFactory:
         """
 
         if callable(data_iter):
+
             def data_iter_():
                 while True:
                     yield data_iter()
@@ -85,7 +88,6 @@ class CallableMap(TupleMap[pir.Tensor, pir.Tensor]):
     Use to map an input tensor, from another graph, to a tensor on a subgraph.
     name: (subgraph_tensor, tensor)
     """
-
     def call_input(self):
         """Returns a mapping from subgraph_tensors to tensors."""
         return self.tuple_map()
@@ -125,21 +127,22 @@ class InputDefs(TupleMap[InputFactory, pir.Tensor]):
 
 
 class CallableGraph(CallableMap):
-    def __init__(self,
-                 graph: pir.Graph,
-                 input_defs: Optional[InputDefs] = None):
+    def __init__(self, graph: pir.Graph, input_defs: Optional[InputDefs] = None):
         super().__init__()
         self._graph = graph
         # This attribute will be picked up by GenericGraph to inherit InputDefs
         self._input_defs = input_defs if input_defs is not None else InputDefs()
 
-    def call(self, *args: pir.Tensor, subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
+    def call(self,
+             *args: pir.Tensor,
+             subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
              **kwargs: pir.Tensor):
         subgraph_in_to_parent_in = subgraph_in_to_parent_in if subgraph_in_to_parent_in is not None else {}
         subgraph_in_to_parent_in = {**self.call_input(), **subgraph_in_to_parent_in}
         return ops.call(self._graph, *args, subgraph_in_to_parent_in=subgraph_in_to_parent_in, **kwargs)
 
-    def call_with_info(self, *args: pir.Tensor,
+    def call_with_info(self,
+                       *args: pir.Tensor,
                        subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
                        **kwargs: pir.Tensor):
         subgraph_in_to_parent_in = subgraph_in_to_parent_in if subgraph_in_to_parent_in is not None else {}
@@ -148,7 +151,6 @@ class CallableGraph(CallableMap):
 
 
 class ConcreteGraph(pir.Graph):
-
     @wraps(pir.Graph.__init__)
     def __init__(self):
         """Note: `ConcreteGraph` are generally generated from `GenericGraphs`. This method is for advanced users."""
@@ -157,7 +159,9 @@ class ConcreteGraph(pir.Graph):
         self._input_tensors: CallableMap = CallableMap()
 
     @classmethod
-    def _from_pir(cls, graph: pir.Graph, input_defs: Optional[InputDefs] = None,
+    def _from_pir(cls,
+                  graph: pir.Graph,
+                  input_defs: Optional[InputDefs] = None,
                   input_tensors: Optional[CallableMap] = None):
         # TODO: change popart.ir.Graph to allow this to be accessed via `super()`
         self: 'ConcreteGraph' = super().__new__(cls)
@@ -246,10 +250,10 @@ class ConcreteGraph(pir.Graph):
         return super().__getattribute__(name)
 
     def add_input_tensor(
-            self,
-            data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
-            name: Optional[str] = None,
-            constant: bool = False,
+        self,
+        data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
+        name: Optional[str] = None,
+        constant: bool = False,
     ) -> pir.Tensor:
         """
         Add an input tensor (variable or constant) to the `ConcreteGraph`. When the graph is converted to
@@ -279,7 +283,6 @@ class ConcreteGraph(pir.Graph):
 
 class GenericGraph(pir.Module):
     """Graph function that captures any variable_def created during construction."""
-
     def __init__(self) -> None:
         super().__init__()
         super().__setattr__("_input_defs", InputDefs())
@@ -320,7 +323,9 @@ class GenericGraph(pir.Module):
             pass
         return super().__getattribute__(name)
 
-    def add_input_tensor(self, name: str, data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
+    def add_input_tensor(self,
+                         name: str,
+                         data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
                          constant: bool = False) -> pir.Tensor:
         """
         Add an input tensor (variable or constant) to the `GenericGraph`. When the graph is converted to
@@ -374,7 +379,6 @@ class GenericGraph(pir.Module):
 
 def graph(fn):
     """Decorator. Converts a python callable into a GenericGraph"""
-
     class FreeFnGraph(GenericGraph):
         def build(self, *args: pir.Tensor, **kwargs: pir.Tensor) -> Union[pir.Tensor, Tuple[pir.Tensor, ...]]:
             return fn(*args, **kwargs)
@@ -384,7 +388,6 @@ def graph(fn):
 
 class _GraphList:
     """Abstract class that implements GraphList methods"""
-
     def get(self, index):
         try:
             return getattr(self, f'i{index}')
@@ -404,7 +407,6 @@ class InputDefsList(InputDefs, _GraphList):
 
 
 class GenericGraphList(GenericGraph, _GraphList):
-
     def __init__(self, modules: List['GenericGraph']):
         super().__init__()
         super().__setattr__("_input_defs", InputDefsList())

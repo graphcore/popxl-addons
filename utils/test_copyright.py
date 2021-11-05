@@ -101,8 +101,7 @@ def test_copyrights(root_path, amend=False):
                     bad_files.append(file_path)
 
     if len(bad_files) != 0:
-        sys.stderr.write("ERROR: The following files do not have "
-                         "copyright notices:\n\n")
+        sys.stderr.write("ERROR: The following files do not have " "copyright notices:\n\n")
         for f in bad_files:
             sys.stderr.write("    {}\n".format(f))
         raise RuntimeError(f"{len(bad_files)} files do not have copyright notices: {bad_files}")
@@ -112,11 +111,12 @@ def test_copyrights(root_path, amend=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Copyright header test")
-    parser.add_argument('path', nargs='?', default='.', help='Directory to start searching for files. '
-                                                             'Defaults to current working directory.')
-    parser.add_argument("--amend",
-                        action="store_true",
-                        help="Amend copyright headers in files.")
+    parser.add_argument('path',
+                        nargs='?',
+                        default='.',
+                        help='Directory to start searching for files. '
+                        'Defaults to current working directory.')
+    parser.add_argument("--amend", action="store_true", help="Amend copyright headers in files.")
 
     opts = parser.parse_args()
     try:

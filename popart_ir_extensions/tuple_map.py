@@ -47,7 +47,6 @@ class TupleMap(Generic[A, B]):
     assert foo.tuple_map() == {1: 2, 3: 4, 5: 6}
     ```
     """
-
     def __init__(self):
         self._map: Dict[str, Union[Tuple[A, B], 'TupleMap[A, B]']] = {}
 

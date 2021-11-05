@@ -13,10 +13,13 @@ POPART_CACHE_DIR_ENV = 'POPART_CACHE_DIR'
 
 
 class Runner:
-
-    def __init__(self, ir: pir.Ir, outputs: Union[None, DeviceToHostStream, Sequence[DeviceToHostStream]] = None,
-                 weights: Optional[Mapping[pir.Tensor, HostTensor]] = None, device_type: Union[str, int] = "cpu",
-                 engine_caching: bool = True, replicas: Optional[int] = None):
+    def __init__(self,
+                 ir: pir.Ir,
+                 outputs: Union[None, DeviceToHostStream, Sequence[DeviceToHostStream]] = None,
+                 weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
+                 device_type: Union[str, int] = "cpu",
+                 engine_caching: bool = True,
+                 replicas: Optional[int] = None):
         outputs = outputs if outputs is not None else {}
         weights = weights if weights is not None else {}
 
@@ -27,8 +30,8 @@ class Runner:
             outputs = [outputs]
 
         dataFlow = popart.DataFlow(
-            batchesPerStep=1,
-            anchorTensors={output.tensor_id(): popart.AnchorReturnType("All") for output in outputs})
+            batchesPerStep=1, anchorTensors={output.tensor_id(): popart.AnchorReturnType("All")
+                                             for output in outputs})
         _ir = ir._pb_ir
         _ir.logIr()
         _ir.setDataFlow(dataFlow)
@@ -58,17 +61,15 @@ class Runner:
                 device_type = 1
             dm = popart.DeviceManager()
             dm.setOnDemandAttachTimeout(int(1e4))
-            device = dm.acquireAvailableDevice(
-                device_type,
-                connectionType=popart.DeviceConnectionType.OnDemand,
-                selectionCriterion=popart.DeviceSelectionCriterion.Random)
+            device = dm.acquireAvailableDevice(device_type,
+                                               connectionType=popart.DeviceConnectionType.OnDemand,
+                                               selectionCriterion=popart.DeviceSelectionCriterion.Random)
         elif device_type == "cpu":
             device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
         else:
             raise ValueError(f"Do not recognise device type: {device_type}")
 
-        session = popart.InferenceSession.fromIr(
-            ir=_ir, deviceInfo=device)
+        session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=device)
 
         session.prepareDevice()
 
@@ -82,17 +83,15 @@ class Runner:
         self.outputs = outputs
 
     def run(
-            self,
-            inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
+        self,
+        inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
     ) -> Union[None, np.ndarray, Tuple[np.ndarray, ...]]:
         inputs = inputs if inputs is not None else {}
         inputs: Mapping[str, np.ndarray] = {t.tensor_id(): to_numpy(v) for t, v in inputs.items()}
 
         anchors: Dict[str, np.ndarray] = self.session.initAnchorArrays()
 
-        stepio = popart.PyStepIO(
-            inputs=inputs,
-            outputs=anchors)
+        stepio = popart.PyStepIO(inputs=inputs, outputs=anchors)
         self.session.run(stepio)
 
         host_outputs = tuple(anchors[output.tensor_id()] for output in self.outputs)

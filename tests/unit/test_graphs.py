@@ -57,10 +57,7 @@ def test_add_variables_post_construction():
     assert variable
     assert variable.tensor_type() == "Variable"
     assert variable.id == scale.shift.id
-    assert scale.call_input() == {
-        scale_graph.scale: scale.scale,
-        scale_graph.shift: scale.shift
-    }
+    assert scale.call_input() == {scale_graph.scale: scale.scale, scale_graph.shift: scale.shift}
 
 
 def test_variables_no_variable_conflict():
@@ -101,9 +98,7 @@ def test_inline_child_variables():
 
     assert scale.shift
     assert scale.scale.scale
-    assert scale.call_input() == {
-        graph.shift: scale.shift,
-        graph.scale.scale: scale.scale.scale}
+    assert scale.call_input() == {graph.shift: scale.shift, graph.scale.scale: scale.scale.scale}
 
 
 class OutlinedScaleAndInlineShift(pir_ext.GenericGraph):
@@ -135,7 +130,8 @@ def test_outline_child_variables():
     assert scale_n_shift.scale.scale
     assert scale_n_shift.call_input() == {
         scale_n_shift_graph.shift: scale_n_shift.shift,
-        scale_n_shift_graph.scale.scale: scale_n_shift.scale.scale}
+        scale_n_shift_graph.scale.scale: scale_n_shift.scale.scale
+    }
 
 
 def test_graph_decorator():

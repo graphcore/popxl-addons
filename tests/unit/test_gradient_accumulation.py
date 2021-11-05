@@ -23,9 +23,7 @@ def test_accumulator_ops_added():
         x = ops.host_load(x_h2d, "x")
         scale_graph = Scale().to_concrete(x)
 
-        d_scale_graph = pir_ext.autodiff_with_accumulation(
-            scale_graph,
-            [scale_graph.scale])  # type: ignore
+        d_scale_graph = pir_ext.autodiff_with_accumulation(scale_graph, [scale_graph.scale])  # type: ignore
 
         # Construct variables for the graph.
         scale = scale_graph.to_callable(True)

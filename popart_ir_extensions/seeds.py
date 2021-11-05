@@ -8,11 +8,10 @@ from popart.ir import get_current_graph
 
 import popart_ir_extensions as pir_ext
 
-MAX_UINT32 = 2 ** 32 - 1
+MAX_UINT32 = 2**32 - 1
 
 
 class SeedBank:
-
     def __init__(self, seed: pir.Tensor, offset: int = 0):
         """
         Generates new seeds from a input seed. The outputs are incremented from the input seed.
@@ -54,8 +53,9 @@ class SeedBank:
             if cg not in self.subgraph_tensors:
                 # Each subgraph has the same seed input and increments it with a different random number
                 seed_cg = graph.add_static_input_tensor(self.seed.name, self.seed)
-                seed_inc = graph.add_input_tensor(
-                    'seed_inc', lambda: np.random.randint(0, MAX_UINT32, (2,), dtype='uint32'), constant=True)
+                seed_inc = graph.add_input_tensor('seed_inc',
+                                                  lambda: np.random.randint(0, MAX_UINT32, (2, ), dtype='uint32'),
+                                                  constant=True)
                 self.subgraph_tensors[cg] = seed_cg + seed_inc
             seed_parent = self.subgraph_tensors[cg]
         else:
