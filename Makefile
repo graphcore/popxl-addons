@@ -1,8 +1,8 @@
 # Add to PHONY target list so cmds always run even when nothing has changed
-.PHONY: install docs
+.PHONY: install docs lint
 
 install:
-	pip install .
+	pip3 install .
 
 docs:
 	sphinx-apidoc -o docs .
@@ -10,3 +10,4 @@ docs:
 
 lint:
 	yapf --recursive --in-place .
+	python3 utils/test_copyright.py
