@@ -8,6 +8,8 @@ Obligatory package alias:
 import popart_ir_extensions as pir_ext
 ```
 
+For examples please see the user guide or tests.
+
 ## Development
 
 * To reformat code to repo standard: `make lint`
@@ -47,13 +49,18 @@ You define a GenericGraph and this then evolves to a CallableGraph as so:
 
 #### `pir` vs `pir_ext` examples
 
-**Example 2**
+**Example 1**
 * A subgraph is created that performs scale
 * The subgraph is called twice to before the operation twice with the same input varibles
 * The code is outlined as you are reusing the same subgraph
 
 `pir`:
 ```python
+import numpy as np
+import popart.ir as pir
+from popart.ir import ops
+import popart_ir_extensions as pir_ext
+
 def scale_fn(x: pir.Tensor, scale: pir.Tensor):
     return x * scale
 
@@ -74,7 +81,7 @@ with main:
 ```python
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "scale")
+        self.scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
         return x * self.scale
 
 ir = pir.Ir()
@@ -90,7 +97,7 @@ with main:
         z = scale.call(y) # Subgraph A
 ```
 
-**Example 3**:
+**Example 2**:
 * Reuse of the same subgraph but with a different scale variable
 
 `pir`:
@@ -116,7 +123,7 @@ with main:
 ```python
 class Scale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = pir_ext.variable_def(np.ones(x.shape, x.dtype.as_numpy()), "scale")
+        self.scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
         return x * self.scale
 
 ir = pir.Ir()
@@ -141,6 +148,11 @@ Here is an example of subgraph inlining:
 `Scale` is used twice in `InlinedScale`. The GenericGraph detects that the attributes `scale1` and `scale2` are
 GenericGraphs and captures the variable definitions. The result is that a single `pir.Graph` is created.
 ```python
+class Scale(pir_ext.GenericGraph):
+    def build(self, x: pir.Tensor) -> pir.Tensor:
+        self.scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
+        return x * self.scale
+
 class InlinedScale(pir_ext.GenericGraph):
     def __init__(self):
         super().__init__()
@@ -158,7 +170,7 @@ ConcreteGraph, which is then used twice to create two callables with different v
 ```python
 class OutlinedScale(pir_ext.GenericGraph):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        self.scale = Scale().to_concreate(x)  # Outline `Scale`
+        self.scale = Scale().to_concrete(x)  # Outline `Scale`
         self.scale1 = self.scale.to_callable(create_inputs=False)
         self.scale2 = self.scale.to_callable(create_inputs=False)
         x = self.scale1.call(x)
