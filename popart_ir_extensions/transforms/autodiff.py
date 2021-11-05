@@ -19,6 +19,18 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
         super().__init__()
         self.grad_info: GradGraphInfo
 
+    def to_callable_with_mapping(self, *args, **kwargs):
+        graph = super().to_callable_with_mapping(*args, **kwargs)
+        grad_graph = CallableGradGraph(self.grad_info, graph._graph, graph._input_defs)
+        grad_graph.insert_all(graph)
+        return grad_graph
+
+
+class CallableGradGraph(pir_ext.CallableGraph):
+    def __init__(self, grad_info: GradGraphInfo, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.grad_info = grad_info
+
 
 def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph:
     """Extension Autodiff.
@@ -27,13 +39,13 @@ def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph
 
     Args:
         graph (pir.Graph)
-        gradsProvided (Optional[Iterable[pir.Tensor]], optional). Defaults to all outputs of the provided graph.
-        gradsRequired (Optional[Iterable[pir.Tensor]], optional). Defaults to all inputs of the provided graph.
-        calledGraphsGradInfo (Optional[Mapping[pir.Graph, GradGraphInfo]], optional). Defaults to None.
-        returnAllGradGraphs (bool, optional). Defaults to False.
+        grads_provided (Optional[Iterable[pir.Tensor]], optional). Defaults to all outputs of the provided graph.
+        grads_required (Optional[Iterable[pir.Tensor]], optional). Defaults to all inputs of the provided graph.
+        called_graphs_grad_info (Optional[Mapping[pir.Graph, GradGraphInfo]], optional). Defaults to None.
+        return_all_grad_graphs (bool, optional). Defaults to False.
 
     Returns:
-        GradGraphInfo: result of pir.transforms.autodiff
+        ConcreteGradGrad
     """
     grad_info: GradGraphInfo = _autodiff(graph, *args, **kwargs)  # type: ignore
 
@@ -45,22 +57,26 @@ def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph
     #       If not, we can end up with lots of outplace identities
     ir.applyInplacePattern(grad_info.graph._pb_graph)
 
-    grad_graph = ConcreteGradGraph._from_pir(grad_info.graph)
+    grad_graph = ConcreteGradGraph._from_pb(grad_info.graph._pb_graph)
     grad_graph.grad_info = grad_info
     return grad_graph
 
 
-def connect_activations(
-        forward_call_info: CallInfo,
-        grad_info: GradGraphInfo,  # TODO: try to combine grad_info and callable_grad_graph somehow.
-        callable_grad_graph: pir_ext.CallableGraph):
-    activations = get_expected_forward_inputs_from_call(forward_call_info, grad_info)
+def connect_activations(forward_call_info: CallInfo, callable_grad_graph: CallableGradGraph):
+    """Connect the activations from a callsite of a forward graph to a CallableGraph of the associated gradient graph.
+
+    Args:
+        forward_call_info (CallInfo): From `call_with_info` of calling a forward graph.
+        callable_grad_graph: result of converting a ConcreteGradGraph into CallableGradGraph
+    """
+    activations = get_expected_forward_inputs_from_call(forward_call_info, callable_grad_graph.grad_info)
     for sg_tensor, act in activations.items():
         callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
 
 
 def autodiff_with_accumulation(concrete_graph: pir_ext.ConcreteGraph,
                                tensors_to_accumulate_grads: Iterable[pir.Tensor]) -> ConcreteGradGraph:
+    """Calls `pir_ext.autodiff` then `pir_ext.accumulate_gradients_in_graph`."""
     # Autodiff the graph.
     grad_graph = autodiff(concrete_graph)
 

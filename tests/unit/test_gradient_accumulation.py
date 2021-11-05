@@ -34,7 +34,7 @@ def test_accumulator_ops_added():
         fwd = scale.call_with_info(x)
 
         # Connect activations from forward call to gradient graph.
-        pir_ext.connect_activations(fwd, d_scale_graph.grad_info, d_scale)
+        pir_ext.connect_activations(fwd, d_scale)
 
         # Call backward. With seed tensor and connected activations
         d_scale.call(pir.constant(np.ones((2, 2)), pir.float32))

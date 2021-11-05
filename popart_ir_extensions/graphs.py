@@ -8,7 +8,7 @@ import popart.ir.ops as ops
 from more_itertools import peekable
 from popart.ir import dtypes
 
-from popart_ir_extensions.tuple_map import TupleMap
+from popart_ir_extensions.tuple_map import TupleMap, sanitise
 
 __all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'graph']
 
@@ -56,14 +56,15 @@ class InputFactory:
         if not isinstance(data_peek, np.ndarray):
             raise ValueError(f"`data_iter` must generate `np.ndarray`s. It provided: {data_peek}.")
 
-    def create_input(self) -> pir.Tensor:
+    def create_input(self, prefix: Optional[str] = None) -> pir.Tensor:
         """
         Create a subgraph input for the current graph.
         Peaks at the data iterator's next element to determine data type and shape of the input.
         """
         data: np.ndarray = self.data_iter.peek()
         pir_dtype = dtypes.dtype.as_dtype(data)
-        return pir.subgraph_input(shape=data.shape, dtype=pir_dtype, name=self.name)
+        name = self.name if prefix is None else f"{prefix}/{self.name}"
+        return pir.subgraph_input(shape=data.shape, dtype=pir_dtype, name=name)
 
     def create_tensor(self, prefix: Optional[str] = None):
         """
@@ -74,7 +75,7 @@ class InputFactory:
 
         Returns:
         """
-        name = self.name if prefix is None else f"{prefix}.{self.name}"
+        name = self.name if prefix is None else f"{prefix}/{self.name}"
         data = next(self.data_iter)
 
         if not self.constant:
@@ -159,15 +160,9 @@ class ConcreteGraph(pir.Graph):
         self._input_tensors: CallableMap = CallableMap()
 
     @classmethod
-    def _from_pir(cls,
-                  graph: pir.Graph,
-                  input_defs: Optional[InputDefs] = None,
-                  input_tensors: Optional[CallableMap] = None):
-        # TODO: change popart.ir.Graph to allow this to be accessed via `super()`
-        self: 'ConcreteGraph' = super().__new__(cls)
-        self._pb_graph = graph._pb_graph
-        self._ir = graph.ir()
-        self._ir._graph_cache[graph.id] = self
+    def _from_pb(cls, graph, input_defs: Optional[InputDefs] = None, input_tensors: Optional[CallableMap] = None):
+        # This method sets the ir._graph_cache to return a new ConcreteGraph instead.
+        self = super()._create_from_pb.__func__(cls, graph)
 
         self._input_defs = input_defs if input_defs is not None else InputDefs()
         self._input_tensors = input_tensors if input_tensors is not None else CallableMap()
@@ -184,8 +179,8 @@ class ConcreteGraph(pir.Graph):
     def to_callable(self, create_inputs: bool = False, name_prefix: Optional[str] = None) -> CallableGraph:
         """
         Create a CallableGraph from the ConcreteGraph. `create_inputs` determines if the input tensors should be
-        created, otherwise the user need to manage the creation and pass the created input tensors when calling the
-        `CallableGraph` e.g. `graph_callable.call(t1, ...)`.
+        created, otherwise a subgraph_input will be constructed for each input and input_defs for the new inputs
+        will be attached to the returned CallableGraph.
 
         Args:
             create_inputs: Should the inputs be created
@@ -194,46 +189,55 @@ class ConcreteGraph(pir.Graph):
         Returns:
             CallableGraph
         """
-        if create_inputs:
-            graph = CallableGraph(self, self.input_defs)
-            graph.insert_all(self._create_variable_map(self.input_defs, name_prefix))
-            graph.insert_all(self._input_tensors)
-        else:
-            call_map, var_defs = self._create_subgraph_map_and_defs(self.input_defs)
-            graph = CallableGraph(self, var_defs)
-            graph.insert_all(call_map)
-            graph.insert_all(self._input_tensors)
+        return self.to_callable_with_mapping({}, create_inputs, name_prefix)
+
+    def to_callable_with_mapping(self,
+                                 mapping: Mapping[pir.Tensor, pir.Tensor],
+                                 create_inputs: bool = False,
+                                 name_prefix: Optional[str] = None) -> CallableGraph:
+        """
+        The same as `ConcreteGraph.to_callable`. Argument `mapping` allows for overriding the created tensor for an InputDef in input_defs.
+
+        Args:
+            mapping (Mapping[pir.Tensor, pir.Tensor]): Mapping from subgraph tensors to tensors to be default inputs to the CallableGraph.
+            name_prefix (Optional[str], optional): Defaults to None.
+
+        Returns:
+            CallableGraph
+        """
+        call_map, in_defs = self._create_call_map_and_defs(self.input_defs, create_inputs, mapping, name_prefix)
+        graph = CallableGraph(self, in_defs)
+        graph.insert_all(call_map)
+        graph.insert_all(self._input_tensors)
+        for tensor in set(mapping.keys()) - set(call_map.call_input().keys()):
+            graph[sanitise(tensor.name)] = tensor, mapping[tensor]
         return graph
 
-    def _create_variable_map(self, input_defs: 'InputDefs', prefix: Optional[str] = None) -> 'CallableMap':
-        '''Convert InputDefs in a InputDefs object to Variable or Constant Tensors.'''
-        variables = input_defs._CallableMapType()
-
-        for name, item in input_defs.items():
-            if isinstance(item, tuple):
-                var_def, graph_tensor = item
-                variables[name] = graph_tensor, var_def.create_tensor(prefix)
-
-            else:
-                child_prefix = name if prefix is None else f"{prefix}.{name}"
-                # Assume to be child VaribleDefs
-                variables[name] = self._create_variable_map(item, child_prefix)  # type: ignore
-
-        return variables
-
-    def _create_subgraph_map_and_defs(self, input_defs: 'InputDefs') -> Tuple['CallableMap', 'InputDefs']:
+    def _create_call_map_and_defs(self,
+                                  input_defs: 'InputDefs',
+                                  create_inputs: bool = False,
+                                  mapping: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
+                                  prefix: Optional[str] = None) -> Tuple['CallableMap', 'InputDefs']:
         '''Convert InputDefs in a TupleMap to input tensors in the current graph.'''
-        call_map = self._CallableMapType()
+        mapping = mapping or {}
+        call_map = input_defs._CallableMapType()
         parent_defs = InputDefs()
         for name, item in input_defs.items():
             if isinstance(item, tuple):
                 var_def, graph_tensor = item
-                parent_input = var_def.create_input()
+                parent_input = mapping.get(graph_tensor, None)
+                if parent_input is None:
+                    # Create an input tensor if there isn't one in the mapping
+                    if create_inputs:
+                        parent_input = var_def.create_tensor(prefix)
+                    else:
+                        parent_input = var_def.create_input()
                 call_map[name] = graph_tensor, parent_input
-                parent_defs[name] = var_def, parent_input
+                if not create_inputs:
+                    parent_defs[name] = var_def, parent_input
             else:
-                # Assume to be child VaribleDefs
-                _map, _defs = self._create_subgraph_map_and_defs(item)  # type: ignore
+                child_prefix = name if prefix is None else f"{prefix}.{name}"
+                _map, _defs = self._create_call_map_and_defs(item, create_inputs, mapping, child_prefix)  # type: ignore
                 call_map[name] = _map
                 parent_defs[name] = _defs
         return call_map, parent_defs
@@ -296,7 +300,7 @@ class GenericGraph(pir.Module):
         """
         ir = ir if ir is not None else pir.gcg().ir()
         graph = ir.create_graph(self, *args, **kwargs)
-        return ConcreteGraph._from_pir(graph, self._input_defs, self._input_tensors)
+        return ConcreteGraph._from_pb(graph._pb_graph, self._input_defs, self._input_tensors)
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Inplace another graph and merge it with the current if GenericGraph or CallableGraph.
