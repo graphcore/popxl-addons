@@ -1,5 +1,5 @@
 # Add to PHONY target list so cmds always run even when nothing has changed
-.PHONY: install docs lint
+.PHONY: install docs lint test
 
 install:
 	pip3 install .
@@ -11,3 +11,6 @@ docs:
 lint:
 	yapf --recursive --in-place .
 	python3 utils/test_copyright.py
+
+test:
+	pytest .
