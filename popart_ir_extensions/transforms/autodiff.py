@@ -1,5 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Mapping, Union
 
 import numpy as np
 import popart._internal.ir as _ir
@@ -25,6 +25,13 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
         grad_graph.insert_all(graph)
         return grad_graph
 
+    @classmethod
+    def _from_pb(cls, graph: _ir.Graph, grad_info: Optional[GradGraphInfo] = None, **kwargs) -> 'ConcreteGradGraph':
+        self = super()._from_pb(graph, **kwargs)
+        if grad_info is not None:
+            self.grad_info = grad_info
+        return self
+
 
 class CallableGradGraph(pir_ext.CallableGraph):
     def __init__(self, grad_info: GradGraphInfo, *args, **kwargs):
@@ -32,10 +39,15 @@ class CallableGradGraph(pir_ext.CallableGraph):
         self.grad_info = grad_info
 
 
-def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph:
-    """Extension Autodiff.
-        This method calls pir.transforms.autodiff and then some required patterns after to ensure the returned
-        grad graph is lowerable.
+def autodiff(graph: pir_ext.ConcreteGraph,
+             grads_provided: Optional[Iterable[pir.Tensor]] = None,
+             grads_required: Optional[Iterable[pir.Tensor]] = None,
+             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
+             return_all_grad_graphs: bool = False) -> Union[ConcreteGradGraph, Dict[pir.Graph, ConcreteGradGraph]]:
+    """
+    Extension Autodiff.
+    This method calls pir.transforms.autodiff and then some required patterns after to ensure the returned
+    grad graph is lowerable.
 
     Args:
         graph (pir.Graph)
@@ -47,19 +59,32 @@ def autodiff(graph: pir_ext.ConcreteGraph, *args, **kwargs) -> ConcreteGradGraph
     Returns:
         ConcreteGradGrad
     """
-    grad_info: GradGraphInfo = _autodiff(graph, *args, **kwargs)  # type: ignore
+    grad_info_all: Dict[pir.Graph, GradGraphInfo] = _autodiff(graph,
+                                                              grads_provided=grads_provided,
+                                                              grads_required=grads_required,
+                                                              called_graphs_grad_info=called_graphs_grad_info,
+                                                              return_all_grad_graphs=True)  # type: ignore
+    grad_info = grad_info_all[graph]
 
     ir = grad_info.graph.ir()._pb_ir
     # TODO: Only run required patterns
     ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    ir.applyPreAliasPatterns(grad_info.graph._pb_graph)
-    # TODO: Should inplacing be run?
-    #       If not, we can end up with lots of outplace identities
-    ir.applyInplacePattern(grad_info.graph._pb_graph)
 
-    grad_graph = ConcreteGradGraph._from_pb(grad_info.graph._pb_graph)
-    grad_graph.grad_info = grad_info
-    return grad_graph
+    for grad_info_i in grad_info_all.values():
+        ir.applyPreAliasPatterns(grad_info_i.graph._pb_graph)
+        # TODO: Should inplacing be run?
+        #       If not, we can end up with lots of outplace identities
+        ir.applyInplacePattern(grad_info_i.graph._pb_graph)
+
+    if not return_all_grad_graphs:
+        grad_graph = ConcreteGradGraph._from_pb(grad_info.graph._pb_graph, grad_info)
+        return grad_graph
+    else:
+        grad_graph_all = {
+            graph: ConcreteGradGraph._from_pb(grad_info_i.graph._pb_graph, grad_info_i)
+            for graph, grad_info_i in grad_info_all.items()
+        }
+        return grad_graph_all
 
 
 def connect_activations(forward_call_info: CallInfo, callable_grad_graph: CallableGradGraph):

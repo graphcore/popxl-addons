@@ -6,7 +6,7 @@ import popart.ir.ops as ops
 import pytest
 
 import popart_ir_extensions as pir_ext
-from popart_ir_extensions.graphs import GenericGraphList
+from popart_ir_extensions.graphs import GenericGraphList, CallableGraphList, CallableGraph
 
 
 class Scale(pir_ext.GenericGraph):
@@ -178,6 +178,66 @@ def test_generic_graph_list_nested():
         x = ops.host_load(x_h2d, "x")
 
         st_graph = ScaleTwice().to_concrete(x)
+
+        assert st_graph.scales.get(0)
+        assert st_graph.scales.get(1)
+
+        st = st_graph.to_callable(create_inputs=True)
+        st.call(x)
+
+    assert st.scales
+    assert st.scales.i0
+    assert st.scales.i1
+
+    assert st.scales.get(0)
+    assert st.scales.get(1)
+
+
+def test_callable_graph_list():
+    ir = pir.Ir()
+    main = ir.main_graph()
+
+    with main:
+        x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
+        x = ops.host_load(x_h2d, "x")
+
+        scale_concrete = Scale().to_concrete(x)
+        gl = CallableGraphList([scale_concrete.to_callable(True), scale_concrete.to_callable(True)])
+        assert isinstance(gl.get(0), CallableGraph)
+        assert isinstance(gl.get(1), CallableGraph)
+        assert gl.get(0) == gl.i0
+        assert gl.get(1) == gl.i1
+        assert len(gl) == 2
+        assert gl.get(0) != gl.get(1)
+
+        with pytest.raises(IndexError):
+            gl.get(2)
+
+        with pytest.raises(AttributeError):
+            gl.i2
+
+
+class ScaleTwiceOutlined(pir_ext.GenericGraph):
+    def __init__(self):
+        super().__init__()
+
+    def build(self, x: pir.Tensor) -> pir.Tensor:
+        concrete = Scale().to_concrete(x)
+        self.scales = CallableGraphList([concrete.to_callable(False), concrete.to_callable(False)])
+        x = self.scales.get(0).call(x)
+        x = self.scales.get(1).call(x)
+        return x
+
+
+def test_callable_graph_list_nested():
+    ir = pir.Ir()
+    main = ir.main_graph()
+
+    with main:
+        x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
+        x = ops.host_load(x_h2d, "x")
+
+        st_graph = ScaleTwiceOutlined().to_concrete(x)
 
         assert st_graph.scales.get(0)
         assert st_graph.scales.get(1)

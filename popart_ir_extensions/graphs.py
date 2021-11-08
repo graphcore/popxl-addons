@@ -3,6 +3,7 @@ from functools import wraps
 from typing import Any, Optional, Tuple, Union, List, Mapping, Callable, Iterable
 
 import numpy as np
+import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 from more_itertools import peekable
@@ -10,7 +11,7 @@ from popart.ir import dtypes
 
 from popart_ir_extensions.tuple_map import TupleMap, sanitise
 
-__all__ = ['GenericGraph', 'ConcreteGraph', 'CallableGraph', 'graph']
+__all__ = ['CallableGraph', 'ConcreteGraph', 'GenericGraph', 'graph', 'GenericGraphList', 'CallableGraphList']
 
 
 class InputFactory:
@@ -160,7 +161,10 @@ class ConcreteGraph(pir.Graph):
         self._input_tensors: CallableMap = CallableMap()
 
     @classmethod
-    def _from_pb(cls, graph, input_defs: Optional[InputDefs] = None, input_tensors: Optional[CallableMap] = None):
+    def _from_pb(cls,
+                 graph: _ir.Graph,
+                 input_defs: Optional[InputDefs] = None,
+                 input_tensors: Optional[CallableMap] = None) -> 'ConcreteGraph':
         # This method sets the ir._graph_cache to return a new ConcreteGraph instead.
         self = super()._create_from_pb.__func__(cls, graph)
 
@@ -411,10 +415,20 @@ class InputDefsList(InputDefs, _GraphList):
 
 
 class GenericGraphList(GenericGraph, _GraphList):
-    def __init__(self, modules: List['GenericGraph']):
+    def __init__(self, modules: Iterable[GenericGraph]):
         super().__init__()
         super().__setattr__("_input_defs", InputDefsList())
         self._input_defs: InputDefsList
+
+        for index, m in enumerate(modules):
+            self.__setattr__(f'i{index}', m)
+
+
+class CallableGraphList(GenericGraph, _GraphList):
+    def __init__(self, modules: Iterable[CallableGraph]):
+        super().__init__()
+        super().__setattr__("_input_defs", InputDefsList())
+        self._variable_defs: InputDefsList
 
         for index, m in enumerate(modules):
             self.__setattr__(f'i{index}', m)
