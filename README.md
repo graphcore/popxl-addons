@@ -1,3 +1,5 @@
+**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popart-ir-extensions) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPARTIREXTENSIONS)**
+
 # popart-ir-extensions
 
 `popart.ir` extensions.
