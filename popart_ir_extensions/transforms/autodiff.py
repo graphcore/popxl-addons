@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+from functools import wraps
 from typing import Dict, Iterable, Optional, Mapping, Union
 
 import numpy as np
@@ -19,7 +20,13 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
         super().__init__()
         self.grad_info: GradGraphInfo
 
-    def to_callable_with_mapping(self, *args, **kwargs):
+    @wraps(pir_ext.ConcreteGraph.to_callable)
+    def to_callable(self, *args, **kwargs) -> 'CallableGradGraph':
+        # super().to_callable calls `self.to_callable_with_mapping`
+        return super().to_callable(*args, **kwargs)  # type: ignore
+
+    @wraps(pir_ext.ConcreteGraph.to_callable_with_mapping)
+    def to_callable_with_mapping(self, *args, **kwargs) -> 'CallableGradGraph':
         graph = super().to_callable_with_mapping(*args, **kwargs)
         grad_graph = CallableGradGraph(self.grad_info, graph._graph, graph._input_defs)
         grad_graph.insert_all(graph)
@@ -99,11 +106,21 @@ def connect_activations(forward_call_info: CallInfo, callable_grad_graph: Callab
         callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
 
 
-def autodiff_with_accumulation(concrete_graph: pir_ext.ConcreteGraph,
-                               tensors_to_accumulate_grads: Iterable[pir.Tensor]) -> ConcreteGradGraph:
-    """Calls `pir_ext.autodiff` then `pir_ext.accumulate_gradients_in_graph`."""
+def autodiff_with_accumulation(graph: pir_ext.ConcreteGraph,
+                               tensors_to_accumulate_grads: Iterable[pir.Tensor],
+                               grads_required: Optional[Iterable[pir.Tensor]] = None) -> ConcreteGradGraph:
+    """Calls `pir_ext.autodiff` then `pir_ext.accumulate_gradients_in_graph`.
+
+    Args:
+        graph (pir_ext.ConcreteGraph): graph to autodiff
+        tensors_to_accumulate_grads (Iterable[pir.Tensor]): Input tensors to `graph` for which accumulators should be added.
+        grads_required (Optional[Iterable[pir.Tensor]], optional): Grads required for `autodiff`. Tensor in `tensors_to_accumulate_grads` will be added to this.
+    """
+    grads_required = list(grads_required or [])
+    grads_required += tensors_to_accumulate_grads
+
     # Autodiff the graph.
-    grad_graph = autodiff(concrete_graph)
+    grad_graph = autodiff(graph, grads_required=grads_required)
 
     # Modify the graph to have accumulator inputs
     accumulate_gradients_in_graph(grad_graph, tensors_to_accumulate_grads)

@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import os
-from typing import Union, Sequence, Mapping, Tuple, Dict, Optional
+from typing import Iterable, Union, Sequence, Mapping, Tuple, Dict, Optional
 
 import numpy as np
 import popart
@@ -19,7 +19,8 @@ class Runner:
                  weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
                  device_type: Union[str, int] = "cpu",
                  engine_caching: bool = True,
-                 replicas: Optional[int] = None):
+                 replicas: Optional[int] = None,
+                 device_iterations: int = 1):
         outputs = outputs if outputs is not None else {}
         weights = weights if weights is not None else {}
 
@@ -30,8 +31,9 @@ class Runner:
             outputs = [outputs]
 
         dataFlow = popart.DataFlow(
-            batchesPerStep=1, anchorTensors={output.tensor_id(): popart.AnchorReturnType("All")
-                                             for output in outputs})
+            batchesPerStep=device_iterations,
+            anchorTensors={output.tensor_id(): popart.AnchorReturnType("All")
+                           for output in outputs})
         _ir = ir._pb_ir
         _ir.logIr()
         _ir.setDataFlow(dataFlow)
@@ -82,6 +84,17 @@ class Runner:
         self.session = session
         self.outputs = outputs
 
+    def write_weights(self, weights: Mapping[pir.Tensor, HostTensor]):
+        self.session.writeWeights(popart.PyWeightsIO({t.id: to_numpy(v) for t, v in weights.items()}))
+        self.session.weightsFromHost()
+
+    def read_weights(self, weights: Iterable[pir.Tensor]) -> Mapping[pir.Tensor, HostTensor]:
+        self.session.weightsToHost()
+        result: Dict[str, np.ndarray] = {t.id: np.zeros(t.shape, t.dtype.as_numpy())
+                                         for t in weights}  # type: ignore np.zeros returns Any
+        self.session.readWeights(popart.PyWeightsIO(result))
+        return {t: result[t.id] for t in weights}
+
     def run(
         self,
         inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
@@ -96,7 +109,8 @@ class Runner:
 
         host_outputs = tuple(anchors[output.tensor_id()] for output in self.outputs)
 
-        if len(host_outputs) > 1:
-            return host_outputs
-        elif len(host_outputs) == 1:
+        if len(host_outputs) == 1:
             return host_outputs[0]
+        elif len(host_outputs) > 1:
+            return host_outputs
+        return

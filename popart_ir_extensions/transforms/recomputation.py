@@ -1,10 +1,10 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Dict, Optional
+from typing import Dict, Iterable, Optional
 import popart._internal.ir as _ir
 import popart.ir as pir
 from popart.ir.transforms.autodiff import (ExpectedConnection, GradGraphInfo, ExpectedConnectionType)
 from popart_ir_extensions.graphs import ConcreteGraph
-from popart_ir_extensions.transforms.autodiff import ConcreteGradGraph, connect_activations
+from popart_ir_extensions.transforms.autodiff import ConcreteGradGraph, autodiff_with_accumulation, connect_activations
 
 
 def add_recompute_inputs(graph: ConcreteGraph, grad_graph: ConcreteGradGraph):
@@ -84,3 +84,18 @@ def recompute_graph(graph: ConcreteGraph, grad_graph: ConcreteGradGraph) -> Conc
         r_graph.grad_info = GradGraphInfo._from_pb(graph.ir()._pb_ir, graph._pb_graph, _r_grad_info)
 
     return r_graph
+
+
+def autodiff_with_accumulation_and_recomputation(
+        graph: ConcreteGraph,
+        tensors_to_accumulate_grads: Iterable[pir.Tensor],
+        grads_required: Optional[Iterable[pir.Tensor]] = None) -> ConcreteGradGraph:
+    """Calls `pir_ext.autodiff_with_accumulation` then `pir_ext.recompute_graph`
+
+    Args:
+        graph (pir_ext.ConcreteGraph): graph to autodiff
+        tensors_to_accumulate_grads (Iterable[pir.Tensor]): Input tensors to `graph` for which accumulators should be added.
+        grads_required (Optional[Iterable[pir.Tensor]], optional): Grads required for `autodiff`. Tensor in `tensors_to_accumulate_grads` will be added to this.
+    """
+    grad_graph = autodiff_with_accumulation(graph, tensors_to_accumulate_grads, grads_required)
+    return recompute_graph(graph, grad_graph)

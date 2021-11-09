@@ -17,7 +17,7 @@ class TupleMap(Generic[A, B]):
     """
     A dictionary where values are either a tuple (length 2) or a TupleMap.
     Key must be strings and a valid python identifier so it can be accessed as a object attribute.
-    The TupleMap is key-wise immutable. Nesting of TupleMaps provides a tree structure.
+    Nesting of TupleMaps provides a tree structure.
 
     For example a TupleMap with 3 keys, two of the values are tuples and 1 is a nested `TupleMap`.
     The nested TupleMap has two keys with tuple values
@@ -82,11 +82,13 @@ class TupleMap(Generic[A, B]):
         return self._map[key]
 
     def __setitem__(self, key: str, value: Union[Tuple[A, B], 'TupleMap[A, B]']):
-        """Set item with key. Either a tuple or child TupleMap"""
-        self._validate_key(key)
-        self._map[key] = value
+        """Set item with key. Either a tuple or child TupleMap."""
+        self.insert(key, value, False)
 
-    insert = __setitem__
+    def insert(self, key: str, value: Union[Tuple[A, B], 'TupleMap[A, B]'], overwrite: bool = False):
+        """Set item with key. Either a tuple or child TupleMap"""
+        self._validate_key(key, overwrite)
+        self._map[key] = value
 
     def __len__(self):
         return len(self._map)
@@ -140,8 +142,8 @@ class TupleMap(Generic[A, B]):
     def to_dict(self) -> TupleMapDict[A, B]:
         return {k: (v if isinstance(v, tuple) else v.to_dict()) for k, v in self._map.items()}
 
-    def _validate_key(self, key: str):
-        if key in self._map:
+    def _validate_key(self, key: str, allow_mutable: bool = False):
+        if not allow_mutable and key in self._map:
             raise ValueError(f"'{key}' already exists in {self.__repr__()}")
         if not key.isidentifier():
             raise ValueError(f"'{key}' is not a valid python identifier")
