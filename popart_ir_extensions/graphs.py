@@ -1,10 +1,11 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import wraps
-from typing import Any, Optional, Tuple, Union, List, Mapping, Callable, Iterable
+from typing import Any, Dict, Optional, Tuple, Union, List, Mapping, Callable, Iterable
 
 import numpy as np
 import popart._internal.ir as _ir
 import popart.ir as pir
+from popart.ir.context import get_current_context
 import popart.ir.ops as ops
 from more_itertools import peekable
 from popart.ir import dtypes
@@ -295,16 +296,41 @@ class GenericGraph(pir.Module):
         super().__init__()
         super().__setattr__("_input_defs", InputDefs())
         super().__setattr__("_input_tensors", CallableMap())
+        super().__setattr__("_concrete_graphs", {})
         self._input_defs: InputDefs  # Tensors that can be inputs or exist on this graph (TBD)
         self._input_tensors: CallableMap  # Tensors that are going to be inputs
+        self._concrete_graphs: Dict[int, ConcreteGraph]
+
+    def _concrete_signature(self, *args, **kwargs):
+        sig = [hash(get_current_context().virtual_graph_id)]
+        for idx, arg in enumerate(args):
+            if isinstance(arg, pir.Tensor):
+                sig.append(hash((idx, (arg.shape, arg.dtype))))
+            else:
+                sig.append(hash((idx, arg)))
+
+        # TODO: Should handle kwargs by inspecting
+        #       function signature for defaults and ordering
+        for key, arg in kwargs.items():
+            if isinstance(arg, pir.Tensor):
+                sig.append(hash((key, (arg.shape, arg.dtype))))
+            else:
+                sig.append(hash((key, arg)))
+        return hash(tuple(sig))
 
     def to_concrete(self, *args: Any, ir: Optional[pir.Ir] = None, **kwargs: Any) -> ConcreteGraph:
         """
         Creates a graph (known as subgraph in popart internals) that is outlined.
         """
         ir = ir if ir is not None else pir.gcg().ir()
+        sig = self._concrete_signature(*args, **kwargs)
+        if sig in self._concrete_graphs.keys():
+            return self._concrete_graphs[sig]
+
         graph = ir.create_graph(self, *args, **kwargs)
-        return ConcreteGraph._from_pb(graph._pb_graph, self._input_defs, self._input_tensors)
+        cgraph = ConcreteGraph._from_pb(graph._pb_graph, self._input_defs, self._input_tensors)
+        self._concrete_graphs[sig] = cgraph
+        return cgraph
 
     def __setattr__(self, name: str, value: Any) -> None:
         """Inplace another graph and merge it with the current if GenericGraph or CallableGraph.
@@ -366,7 +392,7 @@ class GenericGraph(pir.Module):
         """
         var_def = InputFactory(data_iter=data_iter, name=name, constant=constant)
         tensor = var_def.create_input()
-        self._input_defs[name] = (var_def, tensor)
+        self._input_defs.insert(name, (var_def, tensor), True)
         return tensor
 
     def add_static_input_tensor(self, name: str, tensor: pir.Tensor) -> pir.Tensor:
@@ -381,13 +407,14 @@ class GenericGraph(pir.Module):
             pir.Tensor which exists on current graph
         """
         tensor_cg = pir.subgraph_input(tensor.shape, tensor.dtype, name)
-        self._input_tensors[name] = (tensor_cg, tensor)
+        self._input_tensors.insert(name, (tensor_cg, tensor), True)
         return tensor_cg
 
 
 def graph(fn):
     """Decorator. Converts a python callable into a GenericGraph"""
     class FreeFnGraph(GenericGraph):
+        @wraps(fn)
         def build(self, *args: pir.Tensor, **kwargs: pir.Tensor) -> Union[pir.Tensor, Tuple[pir.Tensor, ...]]:
             return fn(*args, **kwargs)
 
@@ -407,7 +434,11 @@ class _GraphList:
 
 
 class CallableMapList(CallableMap, _GraphList):
-    pass
+    def __init__(self, callables: Optional[Iterable[CallableMap]] = None):
+        super().__init__()
+        callables = callables or []
+        for index, m in enumerate(callables):
+            self.__setattr__(f'i{index}', m)
 
 
 class InputDefsList(InputDefs, _GraphList):
@@ -428,7 +459,6 @@ class CallableGraphList(GenericGraph, _GraphList):
     def __init__(self, modules: Iterable[CallableGraph]):
         super().__init__()
         super().__setattr__("_input_defs", InputDefsList())
-        self._variable_defs: InputDefsList
-
+        self._input_defs: InputDefsList
         for index, m in enumerate(modules):
             self.__setattr__(f'i{index}', m)

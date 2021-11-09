@@ -2,6 +2,7 @@
 import numpy as np
 import popart
 import popart.ir as pir
+from popart.ir.context import virtual_graph
 import popart.ir.ops as ops
 import pytest
 
@@ -251,3 +252,21 @@ def test_callable_graph_list_nested():
 
     assert st.scales.get(0)
     assert st.scales.get(1)
+
+
+def test_concrete_graph_cache():
+    ir = pir.Ir()
+    main = ir.main_graph()
+    with main:
+        x = pir.variable(np.ones((2, 2)), pir.float32)
+        y = pir.variable(np.ones((2, 2)), pir.float16)  # change dtype
+        z = pir.variable(np.ones((1, 1)), pir.float32)  # change shape
+
+        scale_fn = Scale()
+        scale_graph = scale_fn.to_concrete(x)
+        assert scale_graph == scale_fn.to_concrete(x)
+        assert scale_fn.to_concrete(x) != scale_fn.to_concrete(y)
+        assert scale_fn.to_concrete(x) != scale_fn.to_concrete(z)
+
+        with pir.virtual_graph(1):
+            assert scale_graph != scale_fn.to_concrete(x)  # change vgid

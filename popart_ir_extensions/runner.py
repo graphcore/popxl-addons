@@ -11,23 +11,21 @@ from popart_ir_extensions.utils import to_numpy, HostTensor
 
 POPART_CACHE_DIR_ENV = 'POPART_CACHE_DIR'
 
+__all__ = ["Runner"]
+
 
 class Runner:
     def __init__(self,
                  ir: pir.Ir,
-                 outputs: Union[None, DeviceToHostStream, Sequence[DeviceToHostStream]] = None,
+                 outputs: Union[None, DeviceToHostStream, Iterable[DeviceToHostStream]] = None,
                  weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
                  device_type: Union[str, int] = "cpu",
                  engine_caching: bool = True,
                  replicas: Optional[int] = None,
                  device_iterations: int = 1):
-        outputs = outputs if outputs is not None else {}
-        weights = weights if weights is not None else {}
 
-        weights: Mapping[str, np.ndarray] = {t.id: to_numpy(v) for t, v in weights.items()}
-        try:
-            outputs = list(outputs)
-        except:
+        outputs = outputs or []
+        if isinstance(outputs, DeviceToHostStream):
             outputs = [outputs]
 
         dataFlow = popart.DataFlow(
@@ -75,11 +73,11 @@ class Runner:
 
         session.prepareDevice()
 
-        session.writeWeights(popart.PyWeightsIO(weights))
+        if weights:
+            session.writeWeights(popart.PyWeightsIO({t.id: to_numpy(v) for t, v in weights.items()}))
         session.weightsFromHost()
 
         self.ir = ir
-        self.weights = weights
         self.device_type = device_type
         self.session = session
         self.outputs = outputs
@@ -95,16 +93,27 @@ class Runner:
         self.session.readWeights(popart.PyWeightsIO(result))
         return {t: result[t.id] for t in weights}
 
+    @property
+    def expected_inputs(self):
+        stream_tensors = (pir.Tensor._from_pb_tensor(t) for t in self.ir._pb_ir.dataStreamTensors())
+        return set(HostToDeviceStream._from_tensor(t) for t in stream_tensors)
+
     def run(
         self,
         inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
     ) -> Union[None, np.ndarray, Tuple[np.ndarray, ...]]:
-        inputs = inputs if inputs is not None else {}
-        inputs: Mapping[str, np.ndarray] = {t.tensor_id(): to_numpy(v) for t, v in inputs.items()}
+        inputs = inputs or {}
+
+        if set(inputs.keys()) != set(self.expected_inputs):
+            raise ValueError("Unexpected/Missing inputs.\n"
+                             f"  Unexpected: {set(inputs.keys()) - self.expected_inputs}\n"
+                             f"  Missing: {self.expected_inputs - set(inputs.keys())}")
+
+        np_inputs: Mapping[str, np.ndarray] = {t.tensor_id(): to_numpy(v) for t, v in inputs.items()}
 
         anchors: Dict[str, np.ndarray] = self.session.initAnchorArrays()
 
-        stepio = popart.PyStepIO(inputs=inputs, outputs=anchors)
+        stepio = popart.PyStepIO(inputs=np_inputs, outputs=anchors)
         self.session.run(stepio)
 
         host_outputs = tuple(anchors[output.tensor_id()] for output in self.outputs)
