@@ -33,7 +33,6 @@ class Runner:
             anchorTensors={output.tensor_id(): popart.AnchorReturnType("All")
                            for output in outputs})
         _ir = ir._pb_ir
-        _ir.logIr()
         _ir.setDataFlow(dataFlow)
 
         opts = ir._pb_ir.getSessionOptions()
@@ -53,8 +52,11 @@ class Runner:
             opts.enableEngineCaching = True
             opts.cachePath = cache_dir
 
+        _ir.removeIsolatedGraphs()
+        _ir.removeIsolatedTensors(True)
         _ir.updateVertices()
         _ir.setIsPrepared()
+        _ir.logIr()
 
         if device_type == "hw" or isinstance(device_type, int):
             if not isinstance(device_type, int):
