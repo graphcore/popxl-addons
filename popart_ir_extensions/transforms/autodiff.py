@@ -1,6 +1,7 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import wraps
-from typing import Dict, Iterable, Optional, Mapping, Union
+from typing import Dict, Iterable, Optional, Mapping, Union, overload
+from typing_extensions import Literal
 
 import numpy as np
 import popart._internal.ir as _ir
@@ -44,6 +45,24 @@ class CallableGradGraph(pir_ext.CallableGraph):
     def __init__(self, grad_info: GradGraphInfo, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.grad_info = grad_info
+
+
+@overload
+def autodiff(graph: pir_ext.ConcreteGraph,
+             grads_provided: Optional[Iterable[pir.Tensor]] = None,
+             grads_required: Optional[Iterable[pir.Tensor]] = None,
+             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
+             return_all_grad_graphs: Literal[False] = False) -> ConcreteGradGraph:
+    ...
+
+
+@overload
+def autodiff(graph: pir_ext.ConcreteGraph,
+             grads_provided: Optional[Iterable[pir.Tensor]] = None,
+             grads_required: Optional[Iterable[pir.Tensor]] = None,
+             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
+             return_all_grad_graphs: Literal[True] = True) -> Dict[pir.Graph, ConcreteGradGraph]:
+    ...
 
 
 def autodiff(graph: pir_ext.ConcreteGraph,
@@ -150,7 +169,8 @@ def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
 
         with graph:
             accum = graph.add_input_tensor(lambda: np.zeros(tensor.shape, accum_type.as_numpy()),
-                                           "Accum__" + tensor.name)
+                                           "Accum__" + tensor.name,
+                                           by_ref=True)
             ops.accumulate(accum, subgraph_tensor)
 
         variables[tensor] = accum

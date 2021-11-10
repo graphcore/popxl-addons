@@ -19,7 +19,8 @@ class InputFactory:
     def __init__(self,
                  data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
                  name: Optional[str] = None,
-                 constant: bool = False):
+                 constant: bool = False,
+                 by_ref: bool = False):
         """
         Generates input tensor for each instance of a callable graph.
 
@@ -33,6 +34,8 @@ class InputFactory:
                 The name of the input tensor - by default 't'
             constant (bool):
                 If false a variable tensor will be generated, otherwise a constant.
+            by_ref (bool = False):
+                If true the subgraph_input's created for this tensor will be flagged as pass by reference.
         """
 
         if callable(data_iter):
@@ -53,6 +56,7 @@ class InputFactory:
         self.data_iter: peekable[np.ndarray] = peekable(data_iter_)
         self.name = name
         self.constant = constant
+        self.by_ref = by_ref
 
         data_peek = self.data_iter.peek()
         if not isinstance(data_peek, np.ndarray):
@@ -66,7 +70,7 @@ class InputFactory:
         data: np.ndarray = self.data_iter.peek()
         pir_dtype = dtypes.dtype.as_dtype(data)
         name = self.name if prefix is None else f"{prefix}/{self.name}"
-        return pir.subgraph_input(shape=data.shape, dtype=pir_dtype, name=name)
+        return pir.subgraph_input(shape=data.shape, dtype=pir_dtype, name=name, by_ref=self.by_ref)
 
     def create_tensor(self, prefix: Optional[str] = None):
         """
@@ -258,12 +262,11 @@ class ConcreteGraph(pir.Graph):
             pass
         return super().__getattribute__(name)
 
-    def add_input_tensor(
-        self,
-        data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
-        name: Optional[str] = None,
-        constant: bool = False,
-    ) -> pir.Tensor:
+    def add_input_tensor(self,
+                         data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
+                         name: Optional[str] = None,
+                         constant: bool = False,
+                         by_ref: bool = False) -> pir.Tensor:
         """
         Add an input tensor (variable or constant) to the `ConcreteGraph`. When the graph is converted to
         `CallableGraph` the user can choose if the input tensor is created or not.
@@ -278,13 +281,15 @@ class ConcreteGraph(pir.Graph):
                 e.g. `lambda: data`
             constant (bool = False):
                 If false a variable tensor will be generated, otherwise a constant.
+            by_ref (bool = False):
+                If true the subgraph_input's created for this tensor will be flagged as pass by reference.
 
         Returns:
             pir.Tensor
         """
 
         with self:
-            var_def = InputFactory(data_iter, name, constant)
+            var_def = InputFactory(data_iter, name, constant, by_ref)
             tensor = var_def.create_input()
         self._input_defs[name] = (var_def, tensor)
         return tensor
@@ -360,7 +365,8 @@ class GenericGraph(pir.Module):
     def add_input_tensor(self,
                          name: str,
                          data_iter: Union[Callable[[None], np.ndarray], Iterable[np.ndarray]],
-                         constant: bool = False) -> pir.Tensor:
+                         constant: bool = False,
+                         by_ref: bool = False) -> pir.Tensor:
         """
         Add an input tensor (variable or constant) to the `GenericGraph`. When the graph is converted to
         `CallableGraph` the user can choose if the input tensor is created or not.
@@ -375,6 +381,8 @@ class GenericGraph(pir.Module):
                 e.g. `lambda: data`
             constant (bool = False):
                 If false a variable tensor will be generated, otherwise a constant.
+            by_ref (bool = False):
+                If true the subgraph_input's created for this tensor will be flagged as pass by reference.
 
         Returns:
             pir.Tensor
@@ -390,23 +398,25 @@ class GenericGraph(pir.Module):
         Returns:
             pir.Tensor
         """
-        var_def = InputFactory(data_iter=data_iter, name=name, constant=constant)
+        var_def = InputFactory(data_iter=data_iter, name=name, constant=constant, by_ref=by_ref)
         tensor = var_def.create_input()
         self._input_defs.insert(name, (var_def, tensor), True)
         return tensor
 
-    def add_static_input_tensor(self, name: str, tensor: pir.Tensor) -> pir.Tensor:
+    def add_static_input_tensor(self, name: str, tensor: pir.Tensor, by_ref: bool = False) -> pir.Tensor:
         """
         Add an input tensor (variable or constant) to the `GenericGraph` where the variable has already been
         initialised.
 
         Args:
             tensor: pir.Tensor to add as a input from another graph
+            by_ref (bool = False):
+                If true the subgraph_input's created for this tensor will be flagged as pass by reference.
 
         Returns:
             pir.Tensor which exists on current graph
         """
-        tensor_cg = pir.subgraph_input(tensor.shape, tensor.dtype, name)
+        tensor_cg = pir.subgraph_input(tensor.shape, tensor.dtype, name, by_ref=by_ref)
         self._input_tensors.insert(name, (tensor_cg, tensor), True)
         return tensor_cg
 

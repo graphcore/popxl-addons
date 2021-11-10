@@ -61,7 +61,7 @@ class PipelineCallableGraph(pir_ext.CallableGraph):
 
     def add_input_tensor(self, tensor: pir.Tensor):
         with self._graph:
-            input_tensor = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
+            input_tensor = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
             name = sanitise(input_tensor.name)
             self._original_input_to_name[tensor.id] = name
             self.insert(name, (input_tensor, tensor), True)
