@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from functools import wraps
-from typing import Dict, Iterable, Optional, Mapping, Union, overload
+from functools import wraps, partial
+from typing import Dict, Iterable, List, Optional, Mapping, Union, overload
 from typing_extensions import Literal
 
 import numpy as np
@@ -159,20 +159,23 @@ def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
     expected_outputs = grad_info.get_output_tensors()
 
     variables: Dict[pir.Tensor, pir.Tensor] = {}
+    indices_to_remove: List[int] = []
 
     for tensor in tensors_to_accumulate_grads:
         idx = expected_outputs.index(tensor)
         subgraph_tensor = pir.Tensor._from_pb_tensor(graph._pb_graph.getOutputTensor(idx))
-        graph._pb_graph.removeOutput(idx)
+        indices_to_remove.append(idx)
 
         accum_type = tensor.dtype if accum_type is None else accum_type
 
         with graph:
-            accum = graph.add_input_tensor(lambda: np.zeros(tensor.shape, accum_type.as_numpy()),
-                                           "Accum__" + tensor.name,
-                                           by_ref=True)
+            accum = graph.add_input_tensor(partial(np.zeros, shape=tensor.shape, dtype=accum_type.as_numpy()),
+                                           "Accum__" + tensor.name)
             ops.accumulate(accum, subgraph_tensor)
 
         variables[tensor] = accum
+
+    for idx in indices_to_remove:
+        graph._pb_graph.removeOutput(idx)
 
     return variables

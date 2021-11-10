@@ -1,6 +1,7 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import wraps
-from typing import Any, Dict, Optional, Tuple, Union, List, Mapping, Callable, Iterable
+from copy import copy
+from typing import Any, Dict, Optional, Tuple, Union, Mapping, Callable, Iterable
 
 import numpy as np
 import popart._internal.ir as _ir
@@ -138,7 +139,7 @@ class CallableGraph(CallableMap):
         super().__init__()
         self._graph = graph
         # This attribute will be picked up by GenericGraph to inherit InputDefs
-        self._input_defs = input_defs if input_defs is not None else InputDefs()
+        self._input_defs = input_defs.copy() if input_defs is not None else InputDefs()
 
     def call(self,
              *args: pir.Tensor,
@@ -155,6 +156,15 @@ class CallableGraph(CallableMap):
         subgraph_in_to_parent_in = subgraph_in_to_parent_in if subgraph_in_to_parent_in is not None else {}
         subgraph_in_to_parent_in = {**self.call_input(), **subgraph_in_to_parent_in}
         return ops.call_with_info(self._graph, *args, subgraph_in_to_parent_in=subgraph_in_to_parent_in, **kwargs)
+
+    def copy(self):
+        # Requires definition due to additional constructor arguments
+        cg = self.__class__(self._graph, self._input_defs)
+        for k, v in self._map.items():
+            if not isinstance(v, tuple):
+                v = v.copy()
+            cg[k] = v
+        return cg
 
 
 class ConcreteGraph(pir.Graph):
@@ -173,8 +183,8 @@ class ConcreteGraph(pir.Graph):
         # This method sets the ir._graph_cache to return a new ConcreteGraph instead.
         self = super()._create_from_pb.__func__(cls, graph)
 
-        self._input_defs = input_defs if input_defs is not None else InputDefs()
-        self._input_tensors = input_tensors if input_tensors is not None else CallableMap()
+        self._input_defs = input_defs.copy() if input_defs is not None else InputDefs()
+        self._input_tensors = input_tensors.copy() if input_tensors is not None else CallableMap()
         return self
 
     @property

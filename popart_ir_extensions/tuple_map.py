@@ -1,5 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import re
+from copy import copy
 from typing import Generic, Tuple, TypeVar, Union, Dict, ItemsView
 
 A = TypeVar("A")
@@ -150,6 +151,9 @@ class TupleMap(Generic[A, B]):
 
     def copy(self):
         """Return shallow copy"""
-        other = TupleMap()
-        other._map = self._map.copy()
-        return other
+        tmap = self.__class__()
+        for k, v in self._map.items():
+            if not isinstance(v, tuple):
+                v = v.copy()
+            tmap[k] = v
+        return tmap

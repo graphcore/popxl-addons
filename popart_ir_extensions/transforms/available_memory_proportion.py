@@ -1,5 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import List
+from typing import Iterable
 
 import popart.ir as pir
 from popart.ir.ops.utils import convert_optional_float
@@ -7,7 +7,7 @@ from popart.ir.ops.utils import convert_optional_float
 __all__ = ["set_available_memory_proportion_by_ipu"]
 
 
-def set_available_memory_proportion_by_ipu(ir: pir.Ir, proportions: List[float]):
+def set_available_memory_proportion_by_ipu(ir: pir.Ir, proportions: Iterable[float]):
     """For all ops in the `ir`, if `availableMemoryProportion` can be set, set it as
         specified by `proportions`.
         

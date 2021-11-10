@@ -400,7 +400,7 @@ class Restore(pir_ext.GenericGraph):
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)
-        return t
+        return t.reshape(t.shape[1:])
 
 
 class PipelineStashHelper:
@@ -475,8 +475,6 @@ class PipelineStashHelper:
 
         with pir.pipeline_stage(to_stage):
             restored = self.restore_tensor(stash)
-            if restored.shape != t.shape:
-                restored = restored.reshape(t.shape)
 
         return restored
 
