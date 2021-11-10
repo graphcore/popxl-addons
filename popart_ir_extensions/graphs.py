@@ -255,7 +255,7 @@ class ConcreteGraph(pir.Graph):
                 if not create_inputs:
                     parent_defs[name] = var_def, parent_input
             else:
-                child_prefix = name if prefix is None else f"{prefix}.{name}"
+                child_prefix = name if prefix is None else f"{prefix}/{name}"
                 _map, _defs = self._create_call_map_and_defs(item, create_inputs, mapping, child_prefix)  # type: ignore
                 call_map[name] = _map
                 parent_defs[name] = _defs
@@ -305,7 +305,25 @@ class ConcreteGraph(pir.Graph):
         return tensor
 
 
-class GenericGraph(pir.Module):
+class NameScopeMeta(type):
+    def __new__(cls, name, bases, dct):
+        # Wrap `def build` to capture variable_defs
+        build_fn = dct.get("build", None)
+        if build_fn is not None and callable(build_fn):
+
+            @wraps(build_fn)
+            def wrapper(self, *args, **kwargs):
+                scope = getattr(self, "_name_scope", None)
+                if scope is not None:
+                    with pir.name_scope(scope):
+                        return build_fn(self, *args, **kwargs)
+                return build_fn(self, *args, **kwargs)
+
+            dct["build"] = wrapper
+        return super().__new__(cls, name, bases, dct)
+
+
+class GenericGraph(pir.Module, metaclass=NameScopeMeta):
     """Graph function that captures any variable_def created during construction."""
     def __init__(self) -> None:
         super().__init__()
@@ -357,7 +375,7 @@ class GenericGraph(pir.Module):
             _input_defs[name] = value._input_defs
         if isinstance(value, GenericGraph):
             _input_tensors[name] = value._input_tensors
-
+            value.set_name_scope(name)
         return super().__setattr__(name, value)
 
     def __getattr__(self, name: str):
@@ -371,6 +389,9 @@ class GenericGraph(pir.Module):
         except AttributeError as e:
             pass
         return super().__getattribute__(name)
+
+    def set_name_scope(self, name: str):
+        setattr(self, "_name_scope", name)
 
     def add_input_tensor(self,
                          name: str,
@@ -473,6 +494,13 @@ class GenericGraphList(GenericGraph, _GraphList):
 
         for index, m in enumerate(modules):
             self.__setattr__(f'i{index}', m)
+
+    def set_name_scope(self, name: str):
+        for index in range(len(self)):
+            g = self.get(index)
+            # "_name_scope" will be set in `__init__` as a result of `self.__setattr__(f'i{index}', m)`
+            iname = getattr(g, "_name_scope")
+            g.set_name_scope(f"{name}/{iname}")
 
 
 class CallableGraphList(GenericGraph, _GraphList):
