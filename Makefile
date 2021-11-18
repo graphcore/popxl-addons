@@ -13,4 +13,4 @@ lint:
 	python3 utils/test_copyright.py
 
 test:
-	pytest .
+	pytest --forked -n 5

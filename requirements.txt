@@ -2,6 +2,7 @@ numpy
 more_itertools
 
 pytest
+pytest-xdist
 sphinx>=3.2.1
 codecov
 recommonmark

@@ -6,3 +6,5 @@ from .seeds import *
 from .streams import *
 from .transforms import *
 from .utils import *
+
+import popart_ir_extensions.ops as ops
