@@ -307,7 +307,6 @@ class ConcreteGraph(pir.Graph):
 
 class NameScopeMeta(type):
     def __new__(cls, name, bases, dct):
-        # Wrap `def build` to capture variable_defs
         build_fn = dct.get("build", None)
         if build_fn is not None and callable(build_fn):
 
