@@ -63,37 +63,43 @@ class Runner:
                 device_type = 1
             dm = popart.DeviceManager()
             dm.setOnDemandAttachTimeout(int(1e4))
-            device = dm.acquireAvailableDevice(device_type,
-                                               connectionType=popart.DeviceConnectionType.OnDemand,
-                                               selectionCriterion=popart.DeviceSelectionCriterion.Random)
+            self.device = dm.acquireAvailableDevice(device_type,
+                                                    connectionType=popart.DeviceConnectionType.OnDemand,
+                                                    selectionCriterion=popart.DeviceSelectionCriterion.Random)
         elif device_type == "cpu":
-            device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
+            self.device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
         else:
             raise ValueError(f"Do not recognise device type: {device_type}")
 
-        session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=device)
+        self.session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=self.device)
+        self.session.prepareDevice()
 
-        session.prepareDevice()
-
-        if weights:
-            session.writeWeights(popart.PyWeightsIO({t.id: to_numpy(v) for t, v in weights.items()}))
-        session.weightsFromHost()
+        self.write_weights(weights or {})
 
         self.ir = ir
-        self.device_type = device_type
-        self.session = session
         self.outputs = outputs
 
     def write_weights(self, weights: Mapping[pir.Tensor, HostTensor]):
-        self.session.writeWeights(popart.PyWeightsIO({t.id: to_numpy(v) for t, v in weights.items()}))
+        if weights:
+            for t, ht in weights.items():
+                if t.shape != ht.shape:
+                    raise ValueError(f"{t} has an incompatible host tensor with shape {ht.shape}")
+            self.session.writeWeights(
+                popart.PyWeightsIO({t.id: to_numpy(v).astype(t.dtype.as_numpy())
+                                    for t, v in weights.items()}))
         self.session.weightsFromHost()
 
-    def read_weights(self, weights: Iterable[pir.Tensor]) -> Mapping[pir.Tensor, HostTensor]:
+    def read_weights(self, weights: Optional[Iterable[pir.Tensor]] = None) -> Mapping[pir.Tensor, HostTensor]:
+        if weights is None:
+            weights = self.ir.main_graph().get_variables()
         self.session.weightsToHost()
         result: Dict[str, np.ndarray] = {t.id: np.zeros(t.shape, t.dtype.as_numpy())
                                          for t in weights}  # type: ignore np.zeros returns Any
         self.session.readWeights(popart.PyWeightsIO(result))
         return {t: result[t.id] for t in weights}
+
+    def detach(self):
+        self.device.detach()
 
     @property
     def expected_inputs(self):
@@ -107,9 +113,9 @@ class Runner:
         inputs = inputs or {}
 
         if set(inputs.keys()) != set(self.expected_inputs):
-            raise ValueError("Unexpected/Missing inputs.\n"
-                             f"  Unexpected: {set(inputs.keys()) - self.expected_inputs}\n"
-                             f"  Missing: {self.expected_inputs - set(inputs.keys())}")
+            unexpected = {str(s) for s in set(inputs.keys()) - self.expected_inputs}
+            missing = {str(s) for s in self.expected_inputs - set(inputs.keys())}
+            raise ValueError(f"Unexpected/Missing inputs.\n  Unexpected: {unexpected}\n  Missing: {missing}")
 
         np_inputs: Mapping[str, np.ndarray] = {t.tensor_id(): to_numpy(v) for t, v in inputs.items()}
 

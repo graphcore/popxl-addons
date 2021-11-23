@@ -1,10 +1,8 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import wraps
-from copy import copy
-from typing import Any, Dict, Optional, Tuple, Union, Mapping, Callable, Iterable
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union, Mapping, Callable, Iterable
 
 import numpy as np
-import popart._internal.ir as _ir
 import popart.ir as pir
 from popart.ir.context import get_current_context
 import popart.ir.ops as ops
@@ -167,6 +165,9 @@ class CallableGraph(CallableMap):
         return cg
 
 
+CLS = TypeVar('CLS')
+
+
 class ConcreteGraph(pir.Graph):
     @wraps(pir.Graph.__init__)
     def __init__(self):
@@ -176,12 +177,13 @@ class ConcreteGraph(pir.Graph):
         self._input_tensors: CallableMap = CallableMap()
 
     @classmethod
-    def _from_pb(cls,
-                 graph: _ir.Graph,
-                 input_defs: Optional[InputDefs] = None,
-                 input_tensors: Optional[CallableMap] = None) -> 'ConcreteGraph':
+    def _create_from_pir(cls: Type[CLS],
+                         graph: pir.Graph,
+                         input_defs: Optional[InputDefs] = None,
+                         input_tensors: Optional[CallableMap] = None) -> CLS:
         # This method sets the ir._graph_cache to return a new ConcreteGraph instead.
-        self = super()._create_from_pb.__func__(cls, graph)
+        self = super()._create_from_pb.__func__(cls, graph._pb_graph)
+        self._by_ref_inputs = graph._by_ref_inputs
 
         self._input_defs = input_defs.copy() if input_defs is not None else InputDefs()
         self._input_tensors = input_tensors.copy() if input_tensors is not None else CallableMap()
@@ -360,7 +362,7 @@ class GenericGraph(pir.Module, metaclass=NameScopeMeta):
             return self._concrete_graphs[sig]
 
         graph = ir.create_graph(self, *args, **kwargs)
-        cgraph = ConcreteGraph._from_pb(graph._pb_graph, self._input_defs, self._input_tensors)
+        cgraph = ConcreteGraph._create_from_pir(graph, self._input_defs, self._input_tensors)
         self._concrete_graphs[sig] = cgraph
         return cgraph
 

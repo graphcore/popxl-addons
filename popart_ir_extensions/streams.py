@@ -7,6 +7,8 @@ from popart.ir.streams import HostToDeviceStream, DeviceToHostStream
 
 from .utils import HostTensor, to_numpy
 
+__all__ = ["host_load", "host_store"]
+
 
 def host_load(t: HostTensor, dtype: pir.dtype, name: str) -> Tuple[HostTensor, HostToDeviceStream, pir.Tensor]:
     """Create a HostToDeviceStream and HostLoadOp at the same time."""

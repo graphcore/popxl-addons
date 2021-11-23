@@ -107,7 +107,11 @@ def test_pipeline_training():
         for n in range(steps):
             runner.run({x_stream: data[n]})  # type: ignore
 
-        return runner.read_weights([dlinear.Accum__weight])[dlinear.Accum__weight]
+        accum_tensor = dlinear.get_grad_accumulator_for_fwd_input(linear_graph.weight)
+        weights = runner.read_weights([accum_tensor])
+        runner.detach()
+
+        return weights[accum_tensor]
 
     def pipelined_graph():
         np.random.seed(42)
@@ -141,9 +145,14 @@ def test_pipeline_training():
         runner = pir_ext.Runner(ir, [], device_iterations=steps, device_type=2)
         runner.run({x_stream: data})  # type: ignore
 
-        return runner.read_weights([dlinear.Accum__weight])[dlinear.Accum__weight]
+        accum_tensor = dlinear.get_grad_accumulator_for_fwd_input(linear_graph.weight)
+        weights = runner.read_weights([accum_tensor])
+        runner.detach()
+
+        return weights[accum_tensor]
 
     normal = graph()
+
     pipelined = pipelined_graph()
 
     np.testing.assert_almost_equal(normal, pipelined)

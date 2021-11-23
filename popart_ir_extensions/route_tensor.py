@@ -192,7 +192,7 @@ def route_tensor_into_graph(tensor: Tensor,
                     ops.call(sg1)
                     with sg1:
                         a_ = route_tensor_into_graph(a, modified=True)
-                        ops.accumulate(a_, pir.constant(1))
+                        ops.var_updates.accumulate_(a_, pir.constant(1))
             ```
 
 

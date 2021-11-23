@@ -39,8 +39,9 @@ def test_accumulator_ops_added():
         # Call backward. With seed tensor and connected activations
         d_scale.call(pir.constant(np.ones((2, 2)), pir.float32))
 
-    # One weight and one accumulator
-    assert len(main.get_variables()) == 2
+    # One weight, one accumulator and one counter
+    assert len(main.get_variables()) == 3
 
     d_ops = d_scale_graph._pb_graph.getOps()
-    assert ops_of_type(d_ops, _ir.op.AccumulateOp) == 1
+    # Accumulator, Counter
+    assert ops_of_type(d_ops, _ir.op.AccumulateOp) == 2

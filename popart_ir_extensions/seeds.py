@@ -10,6 +10,8 @@ import popart_ir_extensions as pir_ext
 
 MAX_UINT32 = 2**32 - 1
 
+__all__ = ["SeedBank"]
+
 
 class SeedBank:
     def __init__(self, seed: pir.Tensor, offset: int = 0):

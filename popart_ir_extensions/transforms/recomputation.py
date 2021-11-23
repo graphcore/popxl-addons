@@ -55,7 +55,7 @@ def recompute_graph(graph: ConcreteGraph, grad_graph: ConcreteGradGraph) -> Conc
     graph = graph
     grad_graph = grad_graph
 
-    r_graph = ConcreteGradGraph._from_pb(graph.ir().create_empty_graph(grad_graph.name + "_recomp")._pb_graph)
+    r_graph = ConcreteGradGraph._create_from_pir(graph.ir().create_empty_graph(grad_graph.name + "_recomp"))
 
     with r_graph:
         fwd_recomp_inputs, grad_inputs, expected_inputs = \
@@ -68,8 +68,9 @@ def recompute_graph(graph: ConcreteGraph, grad_graph: ConcreteGradGraph) -> Conc
 
         # This needs to use the inputs in not_connected_bwd
         grad = grad_graph.to_callable_with_mapping(grad_inputs)
-        # New recompute_graph should inherit the input_defs
+        # New recompute_graph should inherit the input_defs and gradient accumulators
         r_graph.input_defs.insert_all(grad._input_defs)
+        r_graph.grad_accumulators.update({k: grad.call_input()[v] for k, v in grad_graph.grad_accumulators.items()})
 
         connect_activations(fwd_call_info, grad)
 

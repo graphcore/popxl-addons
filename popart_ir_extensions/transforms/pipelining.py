@@ -377,7 +377,7 @@ def pipelined_execution(steps: int):
 class Stash(pir_ext.GenericGraph):
     @pir.in_sequence()
     def build(self, t: pir.Tensor, stash_size: int):
-        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32))
+        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32), by_ref=True)
 
         # Make `t` have the correct 0th dimension
         stashed_shape = t.shape
@@ -388,15 +388,17 @@ class Stash(pir_ext.GenericGraph):
         if stash_size <= 1:
             raise TypeError(f"Stash must be larger than 1. size={stash_size}, t={t}")
 
-        stash = self.add_input_tensor(f"stash", lambda: np.zeros((stash_size, *stashed_shape), t.dtype.as_numpy()))
+        stash = self.add_input_tensor(f"stash",
+                                      lambda: np.zeros((stash_size, *stashed_shape), t.dtype.as_numpy()),
+                                      by_ref=True)
         ops.dynamic_update_(stash, counter, t, axes=[0], sizes=[1], no_overlap=True)
         ops.increment_mod_(counter, 1, stash_size)
 
 
 class Restore(pir_ext.GenericGraph):
     @pir.in_sequence()
-    def build(self, stash: pir.Tensor):
-        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32))
+    def build(self, stash: pir.TensorByRef):
+        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32), by_ref=True)
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)

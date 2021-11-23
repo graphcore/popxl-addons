@@ -56,7 +56,10 @@ def model(with_accumulation):
     outputs = runner.run()
 
     if with_accumulation:
-        accums = [d_scale1.Accum__scale, d_scale2.Accum__scale]
+        accums = [
+            d_scale1.get_grad_accumulator_for_fwd_input(scale_graph.scale),
+            d_scale2.get_grad_accumulator_for_fwd_input(scale_graph.scale)
+        ]
         results = runner.read_weights(accums)
         return tuple(results[t] for t in accums)
     return outputs

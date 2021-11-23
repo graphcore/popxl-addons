@@ -20,6 +20,7 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
     def __init__(self):
         super().__init__()
         self.grad_info: GradGraphInfo
+        self.grad_accumulators: Dict[pir.Tensor, pir.Tensor]
 
     @wraps(pir_ext.ConcreteGraph.to_callable)
     def to_callable(self, *args, **kwargs) -> 'CallableGradGraph':
@@ -34,17 +35,67 @@ class ConcreteGradGraph(pir_ext.ConcreteGraph):
         return grad_graph
 
     @classmethod
-    def _from_pb(cls, graph: _ir.Graph, grad_info: Optional[GradGraphInfo] = None, **kwargs) -> 'ConcreteGradGraph':
-        self = super()._from_pb(graph, **kwargs)
+    def _create_from_pir(cls,
+                         graph: pir.Graph,
+                         grad_info: Optional[GradGraphInfo] = None,
+                         **kwargs) -> 'ConcreteGradGraph':
+        self = super()._create_from_pir(graph, **kwargs)
         if grad_info is not None:
             self.grad_info = grad_info
+        self.grad_accumulators = {}
         return self
+
+    def get_grad_tensor_for_fwd_input(self, t: pir.Tensor):
+        """Returns the gradient tensor in the graph for a tensor in the forward graph.
+
+        Args:
+            t (pir.Tensor): Tensor in the forward graph.
+
+        Returns:
+            pir.Tensor: Output Tensor in the gradient graph.
+        """
+        if t not in self.grad_info.forward_graph:
+            raise ValueError(f"{t} not in forward graph {self.grad_info.forward_graph.id}.")
+        for idx, fwd_tensor in enumerate(self.grad_info.get_output_tensors()):
+            if t == fwd_tensor:
+                return self.get_output_tensors()[idx]
+        raise ValueError(f"{t} does not have an associated gradient in Grad Graph {self.id}. "
+                         "Was it included in autodiff's `grads_required`?")
+
+    def get_grad_accumulator_for_fwd_input(self, t: pir.Tensor):
+        """Returns the gradient accumulator input tensor in the graph for a tensor in the forward graph.
+
+        Args:
+            t (pir.Tensor): Tensor in the forward graph.
+
+        Returns:
+            pir.Tensor: Input Tensor in the gradient graph.
+        """
+        if t not in self.grad_info.forward_graph:
+            raise ValueError(f"{t} not in forward graph {self.grad_info.forward_graph.id}.")
+        if t not in self.grad_accumulators:
+            raise ValueError(f"t={t} does not have an associated gradient accumulator. "
+                             "Has gradient accumulation been used? "
+                             "Was 't' included in `tensors_to_accumulate_grads`?")
+        return self.grad_accumulators[t]
 
 
 class CallableGradGraph(pir_ext.CallableGraph):
     def __init__(self, grad_info: GradGraphInfo, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.grad_info = grad_info
+
+    def get_grad_accumulator_for_fwd_input(self, t: pir.Tensor):
+        """Returns the gradient accumulator connected to the CallableGraph for a tensor in the forward graph.
+
+        Args:
+            t (pir.Tensor): Tensor in the forward graph.
+
+        Returns:
+            pir.Tensor: Connected Input Tensor to the CallableGraph.
+        """
+        subgraph_g = self.grad_info.graph.get_grad_accumulator_for_fwd_input(t)  # type: ignore
+        return self.call_input()[subgraph_g]
 
 
 @overload
@@ -103,11 +154,11 @@ def autodiff(graph: pir_ext.ConcreteGraph,
         ir.applyInplacePattern(grad_info_i.graph._pb_graph)
 
     if not return_all_grad_graphs:
-        grad_graph = ConcreteGradGraph._from_pb(grad_info.graph._pb_graph, grad_info)
+        grad_graph = ConcreteGradGraph._create_from_pir(grad_info.graph, grad_info)
         return grad_graph
     else:
         grad_graph_all = {
-            graph: ConcreteGradGraph._from_pb(grad_info_i.graph._pb_graph, grad_info_i)
+            graph: ConcreteGradGraph._create_from_pir(grad_info_i.graph, grad_info_i)
             for graph, grad_info_i in grad_info_all.items()
         }
         return grad_graph_all
@@ -149,7 +200,7 @@ def autodiff_with_accumulation(graph: pir_ext.ConcreteGraph,
 
 def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
                                   tensors_to_accumulate_grads: Iterable[pir.Tensor],
-                                  accum_type: Optional[pir.dtype] = None) -> Dict[pir.Tensor, pir.Tensor]:
+                                  accum_type: Optional[pir.dtype] = None):
     """Replace the outputs in grad graph that represent a gradient of a tensor in 'tensors_to_accumulate_grads'
         Adds a new input to the grad graph and an accumulate op in the grad graph.
 
@@ -158,24 +209,25 @@ def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
 
     expected_outputs = grad_info.get_output_tensors()
 
-    variables: Dict[pir.Tensor, pir.Tensor] = {}
     indices_to_remove: List[int] = []
 
-    for tensor in tensors_to_accumulate_grads:
-        idx = expected_outputs.index(tensor)
-        subgraph_tensor = pir.Tensor._from_pb_tensor(graph._pb_graph.getOutputTensor(idx))
-        indices_to_remove.append(idx)
+    with graph, pir.in_sequence(True):
+        counter = graph.add_input_tensor(partial(np.zeros, shape=(), dtype=np.float32), "accum_counter", by_ref=True)
+        with pir.in_sequence(False):
+            for tensor in tensors_to_accumulate_grads:
+                idx = expected_outputs.index(tensor)
+                subgraph_tensor = pir.Tensor._from_pb_tensor(graph._pb_graph.getOutputTensor(idx))
+                indices_to_remove.append(idx)
 
-        accum_type = tensor.dtype if accum_type is None else accum_type
+                accum_type = tensor.dtype if accum_type is None else accum_type
 
-        with graph:
-            accum = graph.add_input_tensor(partial(np.zeros, shape=tensor.shape, dtype=accum_type.as_numpy()),
-                                           "Accum__" + tensor.name)
-            ops.accumulate(accum, subgraph_tensor)
+                accum = graph.add_input_tensor(partial(np.zeros, shape=tensor.shape, dtype=accum_type.as_numpy()),
+                                               sanitise("accum_" + tensor.name),
+                                               by_ref=True)
+                ops.var_updates.accumulate_mean_(accum, subgraph_tensor, counter)
+                graph.grad_accumulators[tensor] = accum
 
-        variables[tensor] = accum
+        ops.var_updates.accumulate_(counter, pir.constant(1, pir.float32))
 
     for idx in indices_to_remove:
         graph._pb_graph.removeOutput(idx)
-
-    return variables
