@@ -21,7 +21,7 @@ class Runner:
                  weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
                  device_type: Union[str, int] = "cpu",
                  engine_caching: bool = True,
-                 replicas: Optional[int] = None,
+                 replicas: int = 1,
                  device_iterations: int = 1):
 
         outputs = outputs or []
@@ -42,7 +42,7 @@ class Runner:
         opts.aliasZeroCopy = True
         opts.explicitRecomputation = True
 
-        if isinstance(replicas, int):
+        if replicas > 1:
             opts.enableReplicatedGraphs = True
             opts.replicatedGraphCount = replicas
 
