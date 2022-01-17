@@ -8,8 +8,7 @@ from popart import ir as pir
 from popart.ir.streams import DeviceToHostStream, HostToDeviceStream
 
 from popart_ir_extensions.utils import to_numpy, HostTensor
-
-POPART_CACHE_DIR_ENV = 'POPART_CACHE_DIR'
+from math import ceil, log
 
 __all__ = ["Runner"]
 
@@ -20,7 +19,6 @@ class Runner:
                  outputs: Union[None, DeviceToHostStream, Iterable[DeviceToHostStream]] = None,
                  weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
                  device_type: Union[str, int] = "cpu",
-                 engine_caching: bool = True,
                  replicas: int = 1,
                  device_iterations: int = 1):
 
@@ -46,18 +44,6 @@ class Runner:
             opts.enableReplicatedGraphs = True
             opts.replicatedGraphCount = replicas
 
-        cache_dir = os.environ.get(POPART_CACHE_DIR_ENV)
-        cache_dir = engine_caching if isinstance(engine_caching, str) else cache_dir
-        if cache_dir is not None and engine_caching is not False:
-            opts.enableEngineCaching = True
-            opts.cachePath = cache_dir
-
-        _ir.removeIsolatedGraphs()
-        _ir.removeIsolatedTensors(True)
-        _ir.updateVertices()
-        _ir.setIsPrepared()
-        _ir.logIr()
-
         if device_type == "hw" or isinstance(device_type, int):
             if not isinstance(device_type, int):
                 device_type = 1
@@ -70,6 +56,21 @@ class Runner:
             self.device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
         else:
             raise ValueError(f"Do not recognise device type: {device_type}")
+
+        ir_ipus = set(ipu for g in _ir.getAllGraphs() for ipu in g.getAllVirtualGraphIds(True))
+        max_ipus = max(ir_ipus)
+        if max_ipus > device_type:
+            raise ValueError(f"The IR uses {max_ipus} IPUs but you have only requested to acquire {device_type}. "
+                             f"Please request at least {2**ceil(log(max_ipus))} IPUs (must be power of 2).")
+
+        _ir.removeIsolatedGraphs()
+        _ir.removeIsolatedTensors(True)
+
+        for g in _ir.getAllGraphs():
+            _ir.applyPreAliasPatterns(g)
+
+        _ir.updateVertices()
+        _ir.logIr()
 
         self.session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=self.device)
         self.session.prepareDevice()

@@ -101,7 +101,8 @@ def test_copyrights(root_path, amend=False):
                     bad_files.append(file_path)
 
     if len(bad_files) != 0:
-        sys.stderr.write("ERROR: The following files do not have " "copyright notices:\n\n")
+        sys.stderr.write("ERROR: The following files do not have "
+                         "copyright notices:\n\n")
         for f in bad_files:
             sys.stderr.write("    {}\n".format(f))
         raise RuntimeError(f"{len(bad_files)} files do not have copyright notices: {bad_files}")

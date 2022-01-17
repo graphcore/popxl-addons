@@ -8,7 +8,7 @@ import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.ops.call import CallInfo
-from popart.ir.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo, get_expected_forward_inputs_from_call)
+from popart.ir.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo)
 
 import popart_ir_extensions as pir_ext
 from popart_ir_extensions.tuple_map import sanitise
@@ -171,7 +171,7 @@ def connect_activations(forward_call_info: CallInfo, callable_grad_graph: Callab
         forward_call_info (CallInfo): From `call_with_info` of calling a forward graph.
         callable_grad_graph: result of converting a ConcreteGradGraph into CallableGradGraph
     """
-    activations = get_expected_forward_inputs_from_call(forward_call_info, callable_grad_graph.grad_info)
+    activations = callable_grad_graph.grad_info.get_inputs_from_forward_call_info(forward_call_info)
     for sg_tensor, act in activations.items():
         callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
 

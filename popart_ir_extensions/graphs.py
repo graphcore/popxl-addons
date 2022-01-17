@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import wraps
-from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union, Mapping, Callable, Iterable
+from typing import Any, Dict, Optional, Tuple, Type, TypeVar, Union, Mapping, Callable, Iterable, List
 
 import numpy as np
 import popart.ir as pir
@@ -140,7 +140,7 @@ class CallableGraph(CallableMap):
         self._input_defs = input_defs.copy() if input_defs is not None else InputDefs()
 
     def call(self,
-             *args: pir.Tensor,
+             *args: Union[pir.Tensor, List[pir.Tensor]],
              subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
              **kwargs: pir.Tensor):
         subgraph_in_to_parent_in = subgraph_in_to_parent_in if subgraph_in_to_parent_in is not None else {}
@@ -148,7 +148,7 @@ class CallableGraph(CallableMap):
         return ops.call(self._graph, *args, subgraph_in_to_parent_in=subgraph_in_to_parent_in, **kwargs)
 
     def call_with_info(self,
-                       *args: pir.Tensor,
+                       *args: Union[pir.Tensor, List[pir.Tensor]],
                        subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None,
                        **kwargs: pir.Tensor):
         subgraph_in_to_parent_in = subgraph_in_to_parent_in if subgraph_in_to_parent_in is not None else {}
@@ -340,6 +340,8 @@ class GenericGraph(pir.Module, metaclass=NameScopeMeta):
         for idx, arg in enumerate(args):
             if isinstance(arg, pir.Tensor):
                 sig.append(hash((idx, (arg.shape, arg.dtype))))
+            elif isinstance(arg, list) and all(isinstance(e, pir.Tensor) for e in arg):
+                sig.append(hash((idx, tuple((e.shape, e.dtype) for e in arg))))
             else:
                 sig.append(hash((idx, arg)))
 

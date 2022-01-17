@@ -10,7 +10,6 @@ import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.context import get_current_context
 from popart.ir.ops.call import CallInfo
-from popart.ir.transforms.autodiff import get_expected_forward_inputs_from_call
 
 import popart_ir_extensions as pir_ext
 from popart_ir_extensions.transforms.autodiff import CallableGradGraph
@@ -499,7 +498,7 @@ class PipelineStashHelper:
             forward_call_info (CallInfo): From `call_with_info` of calling a forward graph.
             callable_grad_graph: result of converting a ConcreteGradGraph into CallableGradGraph
         """
-        activations = get_expected_forward_inputs_from_call(forward_call_info, callable_grad_graph.grad_info)
+        activations = callable_grad_graph.grad_info.get_inputs_from_forward_call_info(forward_call_info)
 
         # If the activation is produced on the current pipeline stage then don't create a stash.
         from_stage = forward_call_info._op.getPipelineStage()
