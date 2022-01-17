@@ -53,6 +53,7 @@ class Runner:
                                                     connectionType=popart.DeviceConnectionType.OnDemand,
                                                     selectionCriterion=popart.DeviceSelectionCriterion.Random)
         elif device_type == "cpu":
+            device_type = 1
             self.device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
         else:
             raise ValueError(f"Do not recognise device type: {device_type}")
