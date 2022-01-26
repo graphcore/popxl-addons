@@ -1,21 +1,20 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Union
-
 import numpy as np
+from popart.ir.tensor import HostTensor
 
 try:
     import torch
-    HostTensor = Union[np.ndarray, torch.Tensor]
-    include_torch = True
-except ImportError:
-    HostTensor = np.ndarray
-    include_torch = False
+    torch_imported = True
+except ModuleNotFoundError:
+    torch_imported = False
 
 
-def to_numpy(a: HostTensor) -> np.ndarray:
-    if isinstance(a, np.ndarray):
-        return a.copy()
-    if include_torch and isinstance(a, torch.Tensor):
-        return a.detach().numpy().copy()
+def to_numpy(x: HostTensor, dtype=None) -> np.ndarray:
+    if torch_imported and isinstance(x, torch.Tensor):
+        x = x.detach().numpy()
+        if dtype:
+            x = x.astype(dtype)
     else:
-        raise ValueError(f"Do not recognise type: {a}")
+        x = np.array(x, dtype=dtype)
+
+    return x.copy()

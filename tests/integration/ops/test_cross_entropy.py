@@ -13,7 +13,7 @@ def test_cross_entropy_with_grad():
         torch.manual_seed(42)
         return torch.rand((8, 100), requires_grad=True), torch.randint(0, 100, (8, ))
 
-    def torch():
+    def pytorch():
         logits, target = inputs()
         loss = F.cross_entropy(logits, target)
         sloss = loss * 64
@@ -33,5 +33,5 @@ def test_cross_entropy_with_grad():
             )
         return pir_ext.Runner(ir, outs).run()
 
-    for _t, _p in zip(torch(), popart()):
+    for _t, _p in zip(pytorch(), popart()):
         np.testing.assert_almost_equal(_t, _p, 5)

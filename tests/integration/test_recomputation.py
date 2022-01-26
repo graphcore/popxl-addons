@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+from functools import partial
 from typing import Tuple
 import numpy as np
 
@@ -6,15 +7,15 @@ import popart.ir as pir
 import popart_ir_extensions as pir_ext
 
 
-class DoubleLinear(pir_ext.GenericGraph):
+class DoubleLinear(pir_ext.Module):
     def build(self, x: pir.Tensor) -> pir.Tensor:
         # Add is an example of a Op that does not require the input tensor to calculate the gradient.
         # This means that when DoubleLinear is recomputed x should be a 'new' expected input as  with recomputation
         # y would have been used instead.
         y = x + 2
 
-        w1 = self.add_input_tensor("w1", lambda: np.random.normal(0, 0.1, (2, 2)).astype(x.dtype.as_numpy()))
-        w2 = self.add_input_tensor("w2", lambda: np.random.normal(0, 0.1, (2, 2)).astype(x.dtype.as_numpy()))
+        w1 = self.add_input_tensor("w1", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
+        w2 = self.add_input_tensor("w2", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
         return (y @ w1) @ w2
 
 
@@ -25,24 +26,21 @@ def get_model_outputs(recompute: bool) -> Tuple[pir.Tensor, ...]:
 
     with main:
         x_data, x_h2d, x = pir_ext.host_load(np.random.normal(0, 0.1, (2, 2)).astype(np.float32), pir.float32, "x")
-        scale_graph = DoubleLinear().to_concrete(x)
-
-        d_scale_graph = pir_ext.autodiff(scale_graph)
+        args, graph = DoubleLinear().create_graph(x)
+        dgraph = pir_ext.autodiff(graph)
 
         if recompute:
-            d_scale_graph = pir_ext.recompute_graph(scale_graph, d_scale_graph)
+            dgraph = pir_ext.recompute_graph(dgraph)
 
-        scale = scale_graph.to_callable(True)
+        scale = graph.bind(args.init())
 
-        fwd_info = scale.call_with_info(x)
-        act, *_ = fwd_info.get_output_tensors()
+        x, *_ = scale.call(x)
+        call_info = scale.call_with_info(x)
+        x, *_ = call_info.get_output_tensors()
 
-        d_scale = d_scale_graph.to_callable(True)
-
-        pir_ext.connect_activations(fwd_info, d_scale)
-
-        gradient = pir.constant(np.ones(act.shape), act.dtype, "gradient")
-        outputs_t: Tuple[pir.Tensor, ...] = d_scale.call(gradient)  # type: ignore
+        gradient = pir.constant(np.ones(x.shape), x.dtype, "gradient")
+        outputs_t: Tuple[pir.Tensor, ...] = dgraph.call(
+            gradient, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
 
         outputs = tuple(map(pir_ext.host_store, outputs_t))
 
@@ -54,3 +52,6 @@ def test_recompute_correctness():
     recomp_outputs = get_model_outputs(True)
     for out, recomp in zip(outputs, recomp_outputs):
         np.testing.assert_almost_equal(out, recomp)
+
+
+# TODO: Test with accumulation

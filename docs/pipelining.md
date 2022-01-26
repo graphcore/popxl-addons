@@ -61,7 +61,7 @@ To achieve this behaviour we can just reuse the same `virtual_graph` annotation 
 ```python
   with pir.pipeline_stage(0), pir.virtual_graph(0):
     x = ops.host_load(h2d_stream)
-    x = layer0.call(x)
+    x, = layer0.call(x)
 
 ...
 
@@ -77,17 +77,17 @@ Without pipelining we can use the method `pir_ext.connect_activations` to attach
 When pipelining there will be a _delay_ between the execution of the forward and gradient stages. In this delay additional forward execution will happen what will overwrite the activations of the a previous step. To avoid this we must keep activations in a "stash" to be able to "restore" them later.
 A helper class has been provided to add the required stash and restore operations, `PipelineStashHelper`. This can be used as follows:
 ```python
-helper = pir_ext.PipelineStashHelper()
 with pir_ext.pipelined_execution(10):
   with pir.pipeline_stage(0), pir.virtual_graph(0):
     x = ops.host_load(h2d_stream)
-    fwd_info = layer0.call_with_info(x)
+    call_info = layer0.call_with_info(x)
+    x, = call_info.get_output_tensors()
 
 ...
 
   with pir.pipeline_stage(2), pir.virtual_graph(0):
-    helper.stash_and_restore_activations(fwd_info, dlayer0)
-    dlayer0.call(dx)
+    acts = stash_and_restore_activations(call_info, grad_info)
+    dlayer0.call(dx, args=acts)
 ```
 Note: `PipelineStashHelper` is a class so that graphs for stashing and restoring can be reused.
 

@@ -1,129 +1,29 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from functools import wraps, partial
-from typing import Dict, Iterable, List, Optional, Mapping, Union, overload
-from typing_extensions import Literal
+from functools import partial
+from typing import Dict, Iterable, List, Optional, Mapping, Tuple
 
 import numpy as np
 import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
-from popart.ir.ops.call import CallInfo
 from popart.ir.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo)
+from popart_ir_extensions.dot_tree import sanitise
 
-import popart_ir_extensions as pir_ext
-from popart_ir_extensions.tuple_map import sanitise
+from popart_ir_extensions.input_factory import InputFactory, NamedInputFactories, add_input_tensor
+from popart_ir_extensions.named_tensors import NamedTensors
+from popart_ir_extensions.graph import GraphWithNamedArgs
 
-__all__ = ["autodiff", "autodiff_with_accumulation", "connect_activations"]
-
-
-class ConcreteGradGraph(pir_ext.ConcreteGraph):
-    def __init__(self):
-        super().__init__()
-        self.grad_info: GradGraphInfo
-        self.grad_accumulators: Dict[pir.Tensor, pir.Tensor]
-
-    @wraps(pir_ext.ConcreteGraph.to_callable)
-    def to_callable(self, *args, **kwargs) -> 'CallableGradGraph':
-        # super().to_callable calls `self.to_callable_with_mapping`
-        return super().to_callable(*args, **kwargs)  # type: ignore
-
-    @wraps(pir_ext.ConcreteGraph.to_callable_with_mapping)
-    def to_callable_with_mapping(self, *args, **kwargs) -> 'CallableGradGraph':
-        graph = super().to_callable_with_mapping(*args, **kwargs)
-        grad_graph = CallableGradGraph(self.grad_info, graph._graph, graph._input_defs)
-        grad_graph.insert_all(graph)
-        return grad_graph
-
-    @classmethod
-    def _create_from_pir(cls,
-                         graph: pir.Graph,
-                         grad_info: Optional[GradGraphInfo] = None,
-                         **kwargs) -> 'ConcreteGradGraph':
-        self = super()._create_from_pir(graph, **kwargs)
-        if grad_info is not None:
-            self.grad_info = grad_info
-        self.grad_accumulators = {}
-        return self
-
-    def get_grad_tensor_for_fwd_input(self, t: pir.Tensor):
-        """Returns the gradient tensor in the graph for a tensor in the forward graph.
-
-        Args:
-            t (pir.Tensor): Tensor in the forward graph.
-
-        Returns:
-            pir.Tensor: Output Tensor in the gradient graph.
-        """
-        if t not in self.grad_info.forward_graph:
-            raise ValueError(f"{t} not in forward graph {self.grad_info.forward_graph.id}.")
-        for idx, fwd_tensor in enumerate(self.grad_info.get_output_tensors()):
-            if t == fwd_tensor:
-                return self.get_output_tensors()[idx]
-        raise ValueError(f"{t} does not have an associated gradient in Grad Graph {self.id}. "
-                         "Was it included in autodiff's `grads_required`?")
-
-    def get_grad_accumulator_for_fwd_input(self, t: pir.Tensor):
-        """Returns the gradient accumulator input tensor in the graph for a tensor in the forward graph.
-
-        Args:
-            t (pir.Tensor): Tensor in the forward graph.
-
-        Returns:
-            pir.Tensor: Input Tensor in the gradient graph.
-        """
-        if t not in self.grad_info.forward_graph:
-            raise ValueError(f"{t} not in forward graph {self.grad_info.forward_graph.id}.")
-        if t not in self.grad_accumulators:
-            raise ValueError(f"t={t} does not have an associated gradient accumulator. "
-                             "Has gradient accumulation been used? "
-                             "Was 't' included in `tensors_to_accumulate_grads`?")
-        return self.grad_accumulators[t]
+__all__ = ["autodiff", "autodiff_with_accumulation"]
 
 
-class CallableGradGraph(pir_ext.CallableGraph):
-    def __init__(self, grad_info: GradGraphInfo, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.grad_info = grad_info
-
-    def get_grad_accumulator_for_fwd_input(self, t: pir.Tensor):
-        """Returns the gradient accumulator connected to the CallableGraph for a tensor in the forward graph.
-
-        Args:
-            t (pir.Tensor): Tensor in the forward graph.
-
-        Returns:
-            pir.Tensor: Connected Input Tensor to the CallableGraph.
-        """
-        subgraph_g = self.grad_info.graph.get_grad_accumulator_for_fwd_input(t)  # type: ignore
-        return self.call_input()[subgraph_g]
-
-
-@overload
-def autodiff(graph: pir_ext.ConcreteGraph,
-             grads_provided: Optional[Iterable[pir.Tensor]] = None,
-             grads_required: Optional[Iterable[pir.Tensor]] = None,
-             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
-             return_all_grad_graphs: Literal[False] = False) -> ConcreteGradGraph:
-    ...
-
-
-@overload
-def autodiff(graph: pir_ext.ConcreteGraph,
-             grads_provided: Optional[Iterable[pir.Tensor]] = None,
-             grads_required: Optional[Iterable[pir.Tensor]] = None,
-             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
-             return_all_grad_graphs: Literal[True] = True) -> Dict[pir.Graph, ConcreteGradGraph]:
-    ...
-
-
-def autodiff(graph: pir_ext.ConcreteGraph,
-             grads_provided: Optional[Iterable[pir.Tensor]] = None,
-             grads_required: Optional[Iterable[pir.Tensor]] = None,
-             called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None,
-             return_all_grad_graphs: bool = False) -> Union[ConcreteGradGraph, Dict[pir.Graph, ConcreteGradGraph]]:
+def _autodiff_with_patterns(
+        graph: pir.Graph,
+        grads_provided: Optional[Iterable[pir.Tensor]] = None,
+        grads_required: Optional[Iterable[pir.Tensor]] = None,
+        called_graphs_grad_info: Optional[Mapping[pir.Graph, GradGraphInfo]] = None) -> GradGraphInfo:
     """
     Extension Autodiff.
-    This method calls pir.transforms.autodiff and then some required patterns after to ensure the returned
+    This method calls `pir.transforms.autodiff` and then some required patterns after to ensure the returned
     grad graph is lowerable.
 
     Args:
@@ -131,10 +31,9 @@ def autodiff(graph: pir_ext.ConcreteGraph,
         grads_provided (Optional[Iterable[pir.Tensor]], optional). Defaults to all outputs of the provided graph.
         grads_required (Optional[Iterable[pir.Tensor]], optional). Defaults to all inputs of the provided graph.
         called_graphs_grad_info (Optional[Mapping[pir.Graph, GradGraphInfo]], optional). Defaults to None.
-        return_all_grad_graphs (bool, optional). Defaults to False.
 
     Returns:
-        ConcreteGradGrad
+        GradGraphInfo: grad graph of `graph`
     """
     grad_info_all: Dict[pir.Graph, GradGraphInfo] = _autodiff(graph,
                                                               grads_provided=grads_provided,
@@ -153,81 +52,126 @@ def autodiff(graph: pir_ext.ConcreteGraph,
         #       If not, we can end up with lots of outplace identities
         ir.applyInplacePattern(grad_info_i.graph._pb_graph)
 
-    if not return_all_grad_graphs:
-        grad_graph = ConcreteGradGraph._create_from_pir(grad_info.graph, grad_info)
-        return grad_graph
-    else:
-        grad_graph_all = {
-            graph: ConcreteGradGraph._create_from_pir(grad_info_i.graph, grad_info_i)
-            for graph, grad_info_i in grad_info_all.items()
-        }
-        return grad_graph_all
+    return grad_info
 
 
-def connect_activations(forward_call_info: CallInfo, callable_grad_graph: CallableGradGraph):
-    """Connect the activations from a callsite of a forward graph to a CallableGraph of the associated gradient graph.
+def autodiff(
+        graph: GraphWithNamedArgs,
+        grads_provided: Optional[Iterable[pir.Tensor]] = None,
+        grads_required: Optional[Iterable[pir.Tensor]] = None,
+) -> GraphWithNamedArgs:
+    """
+    Extension Autodiff.
+    This method calls `pir.transforms.autodiff` and then some required patterns after to ensure the returned
+    grad graph is lowerable.
 
     Args:
-        forward_call_info (CallInfo): From `call_with_info` of calling a forward graph.
-        callable_grad_graph: result of converting a ConcreteGradGraph into CallableGradGraph
+        graph (pir.Graph)
+        grads_provided (Optional[Iterable[pir.Tensor]], optional). Defaults to all outputs of the provided graph.
+        grads_required (Optional[Iterable[pir.Tensor]], optional). Defaults to all inputs of the provided graph.
+
+    Returns:
+        GraphWithNamedArgs: grad graph of `graph` wrapped in a GraphWithNamedArgs with grad graph info
     """
-    activations = callable_grad_graph.grad_info.get_inputs_from_forward_call_info(forward_call_info)
-    for sg_tensor, act in activations.items():
-        callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
+    grad_info = _autodiff_with_patterns(graph.graph, grads_provided=grads_provided, grads_required=grads_required)
+    return GraphWithNamedArgs.from_grad_graph(grad_info)
 
 
-def autodiff_with_accumulation(graph: pir_ext.ConcreteGraph,
-                               tensors_to_accumulate_grads: Iterable[pir.Tensor],
-                               grads_required: Optional[Iterable[pir.Tensor]] = None) -> ConcreteGradGraph:
-    """Calls `pir_ext.autodiff` then `pir_ext.accumulate_gradients_in_graph`.
+def autodiff_with_accumulation(
+        graph: GraphWithNamedArgs,
+        tensors_to_accumulate_grads: Iterable[pir.Tensor],
+        grads_required: Optional[Iterable[pir.Tensor]] = None) -> Tuple[NamedInputFactories, GraphWithNamedArgs]:
+    """
+    Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
+    graph which takes a running mean of the tensor and the result stored in an accumator tensor. The accumulators are
+    added as NamedArgs TensorByRef inputs to the grad graph and the corresponding output of the original tensor removed.
+
+    This is known as a Gradient Accumulation Step (GAS) for pipeline or batch serialisation execution.
+
+    The NamedArg `mean_accum_counter` counts the number of accumulated tensors, which is incremented with each call of
+    the gradient graph. To reset the running mean it's sufficient to just reset this counter
+    i.e. `ops.var_updates.accumulator_zero_(grad_args.mean_accum_counter)`.
 
     Args:
-        graph (pir_ext.ConcreteGraph): graph to autodiff
-        tensors_to_accumulate_grads (Iterable[pir.Tensor]): Input tensors to `graph` for which accumulators should be added.
-        grads_required (Optional[Iterable[pir.Tensor]], optional): Grads required for `autodiff`. Tensor in `tensors_to_accumulate_grads` will be added to this.
+        graph (pir.Graph)
+        tensors_to_accumulate_grads (Iterable[pir.Tensor]). Tensors to accumulate and calculate a running mean.
+        grads_required (Optional[Iterable[pir.Tensor]], optional). Defaults to all inputs of the provided graph.
+
+    Returns:
+        NamedInputFactories: input factories for the accumulation tensors (initialised as zeros) needed for graph inputs
+        GraphWithNamedArgs: grad graph of `graph` with NamedArgs
+        GradGraphInfo: grad graph of `graph`
     """
+
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads
 
     # Autodiff the graph.
-    grad_graph = autodiff(graph, grads_required=grads_required)
-
-    # Modify the graph to have accumulator inputs
-    accumulate_gradients_in_graph(grad_graph, tensors_to_accumulate_grads)
-
-    return grad_graph
-
-
-def accumulate_gradients_in_graph(graph: ConcreteGradGraph,
-                                  tensors_to_accumulate_grads: Iterable[pir.Tensor],
-                                  accum_type: Optional[pir.dtype] = None):
-    """Replace the outputs in grad graph that represent a gradient of a tensor in 'tensors_to_accumulate_grads'
-        Adds a new input to the grad graph and an accumulate op in the grad graph.
-
-       Returns a mapping from tensors in 'tensors_to_accumulate_grads' to the new subgraph_input"""
-    grad_info = graph.grad_info
+    grad_info = _autodiff_with_patterns(graph.graph, grads_required=grads_required)
 
     expected_outputs = grad_info.get_output_tensors()
 
     indices_to_remove: List[int] = []
 
-    with graph, pir.in_sequence(True):
-        counter = graph.add_input_tensor(partial(np.zeros, shape=(), dtype=np.float32), "accum_counter", by_ref=True)
+    named_inputs: Dict[str, pir.Tensor] = {}
+    input_factories: Dict[str, InputFactory] = {}
+
+    # Flatten named tensors
+    names = {t: name for name, t in graph.args.named_tensors.items()}
+
+    def add_input(name, *args, **kwargs):
+        t, f = add_input_tensor(name, *args, **kwargs)
+        named_inputs[name] = t
+        input_factories[name] = f
+        return t
+
+    with grad_info.graph, pir.in_sequence(True):
+        counter = add_input("mean_accum_counter", partial(np.zeros, shape=()), pir.float32, by_ref=True)
+
         with pir.in_sequence(False):
             for tensor in tensors_to_accumulate_grads:
                 idx = expected_outputs.index(tensor)
-                subgraph_tensor = pir.Tensor._from_pb_tensor(graph._pb_graph.getOutputTensor(idx))
                 indices_to_remove.append(idx)
+                subgraph_tensor = pir.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getOutputTensor(idx))
 
-                accum_type = tensor.dtype if accum_type is None else accum_type
+                name = names.get(tensor, sanitise(tensor.name))
 
-                accum = graph.add_input_tensor(partial(np.zeros, shape=tensor.shape, dtype=accum_type.as_numpy()),
-                                               sanitise("accum_" + tensor.name),
-                                               by_ref=True)
+                accum = add_input(name, partial(np.zeros, shape=tensor.shape), tensor.dtype, by_ref=True)
                 ops.var_updates.accumulate_mean_(accum, subgraph_tensor, counter)
-                graph.grad_accumulators[tensor] = accum
 
         ops.var_updates.accumulate_(counter, pir.constant(1, pir.float32))
 
     for idx in indices_to_remove:
-        graph._pb_graph.removeOutput(idx)
+        grad_info.graph._pb_graph.removeOutput(idx)
+
+    return (NamedInputFactories.from_dict(input_factories),
+            GraphWithNamedArgs.from_grad_graph(grad_info, NamedTensors.from_dict(named_inputs)))
+
+
+def remap_grad_info(grad_info: GradGraphInfo, forward_graph: pir.Graph, backward_graph: pir.Graph) -> GradGraphInfo:
+    """Remaps GradGraphInfo to expected connections from a different forward graph.
+        The input/output index of the original connection will be used for the connections from the new graph.
+    """
+    ir = forward_graph.ir()._pb_ir
+    old_fwd = grad_info.forward_graph
+    old_bwd = grad_info.graph
+    old_inputs = old_fwd._pb_graph.getInputIds()
+
+    expected_inputs = []
+    for ec in grad_info.expected_inputs:
+        if ec.fwd_tensor.id in old_inputs:
+            idx = old_fwd._pb_graph.getInputIndex(ec.fwd_tensor.id)
+            new_id = forward_graph._pb_graph.getInputId(idx)
+        else:
+            idx = old_fwd._pb_graph.getOutputIndex(ec.fwd_tensor.id)
+            new_id = forward_graph._pb_graph.getOutputId(idx)
+        expected_inputs.append(_ir.ExpectedConnection(new_id, ec._pb_ec.type))
+    expected_outputs = []
+    for ec in grad_info.expected_outputs:
+        idx = old_fwd._pb_graph.getInputIndex(ec.fwd_tensor.id)
+        new_id = forward_graph._pb_graph.getInputId(idx)
+        expected_outputs.append(_ir.ExpectedConnection(new_id, ec._pb_ec.type))
+
+    new_info = _ir.BwdGraphInfo(backward_graph._pb_graph.id, expected_inputs, expected_outputs)
+
+    return GradGraphInfo._from_pb(ir, forward_graph._pb_graph, new_info)

@@ -1,24 +1,24 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Dict, Iterable, Optional
+from typing import Dict, Tuple
 import popart._internal.ir as _ir
 import popart.ir as pir
 from popart.ir.transforms.autodiff import (ExpectedConnection, GradGraphInfo, ExpectedConnectionType)
-from popart_ir_extensions.graphs import ConcreteGraph
-from popart_ir_extensions.transforms.autodiff import ConcreteGradGraph, autodiff_with_accumulation, connect_activations
+from popart_ir_extensions.graph import BoundGraph, GraphWithNamedArgs
 
 
-def add_recompute_inputs(graph: ConcreteGraph, grad_graph: ConcreteGradGraph):
+def add_recompute_inputs(grad_info: GradGraphInfo):
     """Adds inputs required for recompute to the current graph. Important that inputs
         are added in the same order as they are placed in expected_inputs"""
-    fwd_inputs = graph.get_input_tensors()
     fwd_input_mapping: Dict[pir.Tensor, pir.Tensor] = {}
-    grad_inputs = grad_graph.get_input_tensors()
     grad_input_mapping: Dict[pir.Tensor, pir.Tensor] = {}
 
     expected_inputs = []
 
+    fwd_inputs = grad_info.forward_graph.get_input_tensors()
+    grad_inputs = grad_info.graph.get_input_tensors()
+
     # Add inputs that are required for grad_graph
-    for idx, ec in enumerate(grad_graph.grad_info.expected_inputs):
+    for idx, ec in enumerate(grad_info.expected_inputs):
         if ec.connection_type == ExpectedConnectionType.FwdGrad:
             tensor = grad_inputs[idx]
             grad_input_mapping[tensor] = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
@@ -32,71 +32,55 @@ def add_recompute_inputs(graph: ConcreteGraph, grad_graph: ConcreteGradGraph):
     for tensor in set(fwd_inputs) - set(fwd_input_mapping.keys()):
         fwd_input_mapping[tensor] = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
         expected_inputs.append(
-            ExpectedConnection._from_pb(graph._pb_graph,
+            ExpectedConnection._from_pb(grad_info.forward_graph._pb_graph,
                                         _ir.ExpectedConnection(tensor.id, _ir.ExpectedConnectionType.Fwd)))
 
     return fwd_input_mapping, grad_input_mapping, expected_inputs
 
 
-def recompute_graph(graph: ConcreteGraph, grad_graph: ConcreteGradGraph) -> ConcreteGradGraph:
-    """Recompute a Graph.
-        Takes a forward and gradient graph.
-        Returns a gradient graph that produces the same outputs as gradient graph
-        but requires fewer inputs from the forward graph. It achieves this by creating a
-        new graph that first calls the forward graph and then calls the gradient graph.
+def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
+    """
+    Add recomputation to gradient graph
 
     Args:
-        graph (ConcreteGraph): Forward Graph
-        grad_graph (ConcreteGradGraph): Gradient Graph
+        grad_graph (GraphWithNamedArgs) A gradient graph
 
     Returns:
-        ConcreteGradGraph: Recompute Graph
+        GraphWithNamedArgs: gradient graph with recomputation
     """
-    graph = graph
-    grad_graph = grad_graph
+    ir = grad_graph.graph.ir()
+    r_graph = ir.create_empty_graph(grad_graph.graph.name + "_recomp")
 
-    r_graph = ConcreteGradGraph._create_from_pir(graph.ir().create_empty_graph(grad_graph.name + "_recomp"))
+    grad_info = grad_graph.grad_graph_info
 
     with r_graph:
-        fwd_recomp_inputs, grad_inputs, expected_inputs = \
-            add_recompute_inputs(graph, grad_graph)
+        fwd_recomp_inputs, grad_inputs, expected_inputs = add_recompute_inputs(grad_info)
 
-        # This need to use the inputs in not_connected_fwd
-        fwd = graph.to_callable_with_mapping(fwd_recomp_inputs)
+        fgraph = BoundGraph(grad_info.forward_graph, fwd_recomp_inputs)
+        call_info = fgraph.call_with_info()
 
-        fwd_call_info = fwd.call_with_info()
+        activations = grad_info.get_inputs_from_forward_call_info(call_info)
 
-        # This needs to use the inputs in not_connected_bwd
-        grad = grad_graph.to_callable_with_mapping(grad_inputs)
-        # New recompute_graph should inherit the input_defs and gradient accumulators
-        r_graph.input_defs.insert_all(grad._input_defs)
-        r_graph.grad_accumulators.update({k: grad.call_input()[v] for k, v in grad_graph.grad_accumulators.items()})
+        # Include activations
+        grad_inputs.update(activations)
 
-        connect_activations(fwd_call_info, grad)
+        for tensor in set(grad_graph.graph.get_input_tensors()) - set(grad_inputs.keys()):
+            grad_inputs[tensor] = pir.subgraph_input(tensor.shape,
+                                                     tensor.dtype,
+                                                     tensor.name,
+                                                     by_ref=tensor in grad_graph.graph._by_ref_inputs)
 
-        grad_call_info = grad.call_with_info()
+        ggraph = BoundGraph(grad_graph.graph, grad_inputs)
+        call_info = ggraph.call_with_info()
 
-        for output in grad_call_info.get_output_tensors():
+        remapped_args = grad_graph.args.remap(grad_inputs)
+
+        for output in call_info.get_output_tensors():
             pir.subgraph_output(output)
 
         _r_grad_info = _ir.BwdGraphInfo(r_graph._pb_graph.id, [ec._pb_ec for ec in expected_inputs],
-                                        [ec._pb_ec for ec in grad_graph.grad_info.expected_outputs])
+                                        [ec._pb_ec for ec in grad_info.expected_outputs])
 
-        r_graph.grad_info = GradGraphInfo._from_pb(graph.ir()._pb_ir, graph._pb_graph, _r_grad_info)
+        r_grad_info = GradGraphInfo._from_pb(ir._pb_ir, grad_info.forward_graph._pb_graph, _r_grad_info)
 
-    return r_graph
-
-
-def autodiff_with_accumulation_and_recomputation(
-        graph: ConcreteGraph,
-        tensors_to_accumulate_grads: Iterable[pir.Tensor],
-        grads_required: Optional[Iterable[pir.Tensor]] = None) -> ConcreteGradGraph:
-    """Calls `pir_ext.autodiff_with_accumulation` then `pir_ext.recompute_graph`
-
-    Args:
-        graph (pir_ext.ConcreteGraph): graph to autodiff
-        tensors_to_accumulate_grads (Iterable[pir.Tensor]): Input tensors to `graph` for which accumulators should be added.
-        grads_required (Optional[Iterable[pir.Tensor]], optional): Grads required for `autodiff`. Tensor in `tensors_to_accumulate_grads` will be added to this.
-    """
-    grad_graph = autodiff_with_accumulation(graph, tensors_to_accumulate_grads, grads_required)
-    return recompute_graph(graph, grad_graph)
+    return GraphWithNamedArgs(r_graph, remapped_args, r_grad_info)

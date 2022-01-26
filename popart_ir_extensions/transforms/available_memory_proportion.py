@@ -22,5 +22,5 @@ def set_available_memory_proportion_by_ipu(ir: pir.Ir, proportions: Iterable[flo
     for g in ir._pb_ir.getAllGraphs():
         for op in g.getOps():
             if hasattr(op, "setAvailableMemoryProportion"):
-                prop = ipu_to_prop[op.getVirtualGraphId()]
+                prop = ipu_to_prop.get(op.getVirtualGraphId(), ipu_to_prop[0])
                 op.setAvailableMemoryProportion(convert_optional_float(prop))

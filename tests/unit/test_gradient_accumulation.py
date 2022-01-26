@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+from functools import partial
 import numpy as np
 import popart._internal.ir as _ir
 import popart.ir as pir
@@ -8,9 +9,9 @@ import popart_ir_extensions as pir_ext
 from popart_ir_extensions.testing_utils import ops_of_type
 
 
-class Scale(pir_ext.GenericGraph):
+class Scale(pir_ext.Module):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
+        scale = self.add_input_tensor("scale", partial(np.ones, x.shape), x.dtype)
         return x * scale
 
 
@@ -21,27 +22,26 @@ def test_accumulator_ops_added():
     with main:
         x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
         x = ops.host_load(x_h2d, "x")
-        scale_graph = Scale().to_concrete(x)
+        args, graph = Scale().create_graph(x)
 
-        d_scale_graph = pir_ext.autodiff_with_accumulation(scale_graph, [scale_graph.scale])  # type: ignore
+        dargs, dgraph = pir_ext.autodiff_with_accumulation(graph, graph.args.tensors)  # type: ignore
 
         # Construct variables for the graph.
-        scale = scale_graph.to_callable(True)
+        scale = args.init()
         # Construct accumulators
-        d_scale = d_scale_graph.to_callable(True)
+        accum = dargs.init()
 
         # Call forward
-        fwd = scale.call_with_info(x)
-
-        # Connect activations from forward call to gradient graph.
-        pir_ext.connect_activations(fwd, d_scale)
+        fwd = graph.bind(scale)
+        call_info = fwd.call_with_info(x)
 
         # Call backward. With seed tensor and connected activations
-        d_scale.call(pir.constant(np.ones((2, 2)), pir.float32))
+        grad = pir.constant(np.ones((2, 2)), pir.float32)
+        dgraph.bind(accum).call(grad, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
 
     # One weight, one accumulator and one counter
     assert len(main.get_variables()) == 3
 
-    d_ops = d_scale_graph._pb_graph.getOps()
+    d_ops = dgraph.graph._pb_graph.getOps()
     # Accumulator, Counter
     assert ops_of_type(d_ops, _ir.op.AccumulateOp) == 2

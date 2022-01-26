@@ -1,7 +1,8 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+from functools import partial
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -9,76 +10,63 @@ import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.context import get_current_context
-from popart.ir.ops.call import CallInfo
+from popart.ir.ops.call import SubgraphOpInfo
+from popart.ir.transforms.autodiff import GradGraphInfo
 
-import popart_ir_extensions as pir_ext
-from popart_ir_extensions.transforms.autodiff import CallableGradGraph
-from popart_ir_extensions.tuple_map import sanitise
+from popart_ir_extensions.graph import BoundGraph
+from popart_ir_extensions.graph_cache import GraphCache
+from popart_ir_extensions.module import Module
+from popart_ir_extensions.route_tensor import route_tensor_into_graph
 
-__all__ = ["pipelined_execution", "PipelineStashHelper"]
+__all__ = ["pipelined_execution", "stash_and_restore_activations"]
 
 OpId = int
 
 
-def call_output_to_tuple(outputs: Union[None, pir.Tensor, Iterable[pir.Tensor]]) -> Tuple[pir.Tensor, ...]:
-    if outputs is None:
-        return ()
-    if isinstance(outputs, pir.Tensor):
-        return (outputs, )
-    return tuple(outputs)
-
-
-class PipelineCallableGraph(pir_ext.CallableGraph):
+class PipelineBoundGraph(BoundGraph):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._original_input_to_name: Dict[str, str] = {}
+        self._original_input_to_arg: Dict[str, pir.Tensor] = {}
         self._produces_original_tensor: List[str] = []
 
-    def _move_call_input(self, subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
+    def _moved_args(self, subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
         # Move inputs into the current graph.
         moved_inputs = {
-            sg_t: pir_ext.route_tensor_into_graph(v,
-                                                  modified=sg_t._pb_tensor.modifiedRegionsByOps(
-                                                      self._graph._pb_graph.getOps()))
-            for sg_t, v in self.call_input().items()
+            sg_t: route_tensor_into_graph(v,
+                                          modified=sg_t._pb_tensor.modifiedRegionsByOps(self.graph._pb_graph.getOps()))
+            for sg_t, v in self.args.items()
         }
         if subgraph_in_to_parent_in:
             moved_inputs.update({**subgraph_in_to_parent_in})
         return moved_inputs
 
-    def call(self, *args: pir.Tensor, subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
-        return super().call(*args, subgraph_in_to_parent_in=self._move_call_input(subgraph_in_to_parent_in))
-
-    def call_with_info(self,
-                       *args: pir.Tensor,
-                       subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
-        return super().call_with_info(*args, subgraph_in_to_parent_in=self._move_call_input(subgraph_in_to_parent_in))
+    def call(self, *args: pir.Tensor,
+             subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None) -> Tuple[pir.Tensor, ...]:
+        return super().call(*args, args=self._moved_args(subgraph_in_to_parent_in))
 
     @property
     def original_output_ids(self):
         return self._produces_original_tensor
 
     def add_input_tensor(self, tensor: pir.Tensor):
-        with self._graph:
+        with self.graph:
             input_tensor = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
-            name = sanitise(input_tensor.name)
-            self._original_input_to_name[tensor.id] = name
-            self.insert(name, (input_tensor, tensor), True)
+            self._original_input_to_arg[tensor.id] = input_tensor
+            self.args[input_tensor] = tensor
         return input_tensor
 
     def add_output_tensor(self, tensor: pir.Tensor, original_id: str):
-        with self._graph:
+        with self.graph:
             pir.subgraph_output(tensor)
         self._produces_original_tensor.append(original_id)
 
     def reconnect_input(self, original_id: str, new: pir.Tensor):
-        if original_id in self._original_input_to_name.keys():
-            name = self._original_input_to_name[original_id]
-            sg, _ = self[name]
-            self.insert(name, (sg, new), True)  # type: ignore
+        if original_id in self._original_input_to_arg.keys():
+            sg = self._original_input_to_arg[original_id]
+            self.args[sg] = new
 
     def __contains__(self, value: Any):
-        return value in self._graph
+        return value in self.graph
 
 
 class Pipelining:
@@ -89,13 +77,13 @@ class Pipelining:
         self.steps = steps
 
         self.original_tid_to_cloned_tensor: Dict[str, pir.Tensor] = {}
-        self.original_tid_to_graph: Dict[str, PipelineCallableGraph] = {}
-        self.external_inputs: Dict[PipelineCallableGraph, Dict[str, pir.Tensor]] = defaultdict(dict)
+        self.original_tid_to_graph: Dict[str, PipelineBoundGraph] = {}
+        self.external_inputs: Dict[PipelineBoundGraph, Dict[str, pir.Tensor]] = defaultdict(dict)
 
-        self.stages: Dict[int, PipelineCallableGraph] = {}
-        self.loads: Dict[int, PipelineCallableGraph] = {}
-        self.stores: Dict[int, PipelineCallableGraph] = {}
-        self.ipu_copies = PipelineCallableGraph(self.ir.create_empty_graph("ipu_copies"))
+        self.stages: Dict[int, PipelineBoundGraph] = {}
+        self.loads: Dict[int, PipelineBoundGraph] = {}
+        self.stores: Dict[int, PipelineBoundGraph] = {}
+        self.ipu_copies = PipelineBoundGraph(self.ir.create_empty_graph("ipu_copies"))
         self.ipu_copy_dummy_inputs: Dict[str, pir.Tensor] = {}
 
     def apply(self, include_ops: Optional[List[OpId]] = None):
@@ -146,21 +134,21 @@ class Pipelining:
         for stage in sorted(compute_ops.keys()):
             for op in load_ops[stage]:
                 if stage not in self.loads:
-                    self.loads[stage] = PipelineCallableGraph(self.ir.create_empty_graph(f"loads_stage_{stage}"))
+                    self.loads[stage] = PipelineBoundGraph(self.ir.create_empty_graph(f"loads_stage_{stage}"))
                 self.move_op_into_graph(self.loads[stage], op)
             for op in compute_ops[stage]:
                 if stage not in self.stages:
-                    self.stages[stage] = PipelineCallableGraph(self.ir.create_empty_graph(f"stage_{stage}"))
+                    self.stages[stage] = PipelineBoundGraph(self.ir.create_empty_graph(f"stage_{stage}"))
                 self.move_op_into_graph(self.stages[stage], op)
             for op in store_ops[stage]:
                 if stage not in self.stores:
-                    self.stores[stage] = PipelineCallableGraph(self.ir.create_empty_graph(f"stores_stage_{stage}"))
+                    self.stores[stage] = PipelineBoundGraph(self.ir.create_empty_graph(f"stores_stage_{stage}"))
                 self.move_op_into_graph(self.stores[stage], op)
             for op in copy_ops[stage]:
                 self.move_op_into_graph(self.ipu_copies, op)
 
-    def move_op_into_graph(self, graph: PipelineCallableGraph, op: _ir.Op):
-        cloned_op = op.cloneIntoGraph(graph._graph._pb_graph)
+    def move_op_into_graph(self, graph: PipelineBoundGraph, op: _ir.Op):
+        cloned_op = op.cloneIntoGraph(graph.graph._pb_graph)
         inputs = op.getInputIndexMap()
         outputs = op.getOutputIndexMap()
 
@@ -199,7 +187,7 @@ class Pipelining:
 
         for idx, tensor in outputs.items():
             tensor = pir.Tensor._from_pb_tensor(tensor)
-            cloned_op.createAndConnectOutTensor(idx, graph._graph._create_tensor_id(tensor.name))
+            cloned_op.createAndConnectOutTensor(idx, graph.graph._create_tensor_id(tensor.name))
             out_tensor = pir.Tensor._from_pb_tensor(cloned_op.outTensor(idx))
             self.original_tid_to_cloned_tensor[tensor.id] = out_tensor
             self.original_tid_to_graph[tensor.id] = graph
@@ -236,7 +224,7 @@ class Pipelining:
         self.copy()
 
     def remap_tensors(self, original_ids: Iterable[str], new_outputs: Iterable[pir.Tensor]):
-        """Changes the connected tensors on each PipelineCallableGraph to a new tensor"""
+        """Changes the connected tensors on each PipelineBoundGraph to a new tensor"""
         for original, new in zip(original_ids, new_outputs):
             for stage in range(self.num_stages):
                 if stage in self.loads.keys():
@@ -322,7 +310,7 @@ class Pipelining:
         for stage in range(start, end):
             if stage in self.loads.keys():
                 original += self.loads[stage].original_output_ids
-                outputs += call_output_to_tuple(self.loads[stage].call())
+                outputs += self.loads[stage].call()
         self.remap_tensors(original, outputs)
 
     def compute(self, start: int, end: int):
@@ -330,7 +318,7 @@ class Pipelining:
         outputs = []
         for stage in range(start, end):
             original += self.stages[stage].original_output_ids
-            outputs += call_output_to_tuple(self.stages[stage].call())
+            outputs += self.stages[stage].call()
         self.remap_tensors(original, outputs)
 
     def store(self, start: int, end: int):
@@ -339,11 +327,11 @@ class Pipelining:
         for stage in range(start, end):
             if stage in self.stores.keys():
                 original += self.stores[stage].original_output_ids
-                outputs += call_output_to_tuple(self.stores[stage].call())
+                outputs += self.stores[stage].call()
         self.remap_tensors(original, outputs)
 
     def copy(self):
-        outputs = call_output_to_tuple(self.ipu_copies.call())
+        outputs = self.ipu_copies.call()
         self.remap_tensors(self.ipu_copies.original_output_ids, outputs)
 
 
@@ -373,10 +361,10 @@ def pipelined_execution(steps: int):
     transform.apply(ops)
 
 
-class Stash(pir_ext.GenericGraph):
+class Stash(Module):
     @pir.in_sequence()
     def build(self, t: pir.Tensor, stash_size: int):
-        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32), by_ref=True)
+        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), pir.uint32, by_ref=True)
 
         # Make `t` have the correct 0th dimension
         stashed_shape = t.shape
@@ -387,125 +375,82 @@ class Stash(pir_ext.GenericGraph):
         if stash_size <= 1:
             raise TypeError(f"Stash must be larger than 1. size={stash_size}, t={t}")
 
-        stash = self.add_input_tensor(f"stash",
-                                      lambda: np.zeros((stash_size, *stashed_shape), t.dtype.as_numpy()),
-                                      by_ref=True)
+        stash = self.add_input_tensor(f"stash", partial(np.zeros, (stash_size, *stashed_shape)), t.dtype, by_ref=True)
         ops.dynamic_update_(stash, counter, t, axes=[0], sizes=[1], no_overlap=True)
         ops.increment_mod_(counter, 1, stash_size)
 
 
-class Restore(pir_ext.GenericGraph):
+class Restore(Module):
     @pir.in_sequence()
     def build(self, stash: pir.TensorByRef):
-        counter = self.add_input_tensor("counter", lambda: np.zeros((1, ), np.uint32), by_ref=True)
+        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), pir.uint32, by_ref=True)
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)
         return t.reshape(t.shape[1:])
 
 
-class PipelineStashHelper:
-    def __init__(self):
-        self.stash_fn = Stash()
-        self.restore_fn = Restore()
-
-    def stash_tensor(self, t: pir.Tensor, stash_size: int) -> pir.Tensor:
-        """Stashes a tensor by creating stash and counter variables then executing
-            a graph that uses ops.dynamic_update_inplace to modify the stash
-            then incrementMod the counter.
-            The return tensor is the stash variable that can be passed to `restore_tensor`
-            to retrieved the stored value.
-
-        Args:
-            t (pir.Tensor): Tensor to stash
-            stash_size (int): Number of Tensors to stash.
-
-        Returns:
-            pir.Tensor: The stash variable.
-        """
-        stash = self.stash_fn.to_concrete(t, stash_size).to_callable(True)
-        stash.call(t)
-        return stash.stash
-
-    def restore_tensor(self, stash: pir.Tensor) -> pir.Tensor:
-        """Restore a tensor from a stash. This method creates a counter variable.
-            The tensor is retrieved from the stash using dynamic_slice
-            then incrementMod the counter.
-            The returned is the restored tensor.
-
-        Args:
-            stash (pir.Tensor): Tensor stash, should have shape [stash_size, *tensor_to_be_restored.shape]
-
-        Returns:
-            pir.Tensor: Restored Tensor with `shape=stash.shape[1:]` and `dtype=stash.dtype`
-        """
-        restore = self.restore_fn.to_concrete(stash).to_callable(True)
-        return restore.call(stash)  # type: ignore
-
-    def stash_and_restore_tensor(self, t: pir.Tensor, from_stage: Optional[int] = None) -> pir.Tensor:
-        """Create stash and counter variables to tensors t to. Stash size will be calculated from the
+def _is_external_input(t: pir.Tensor):
+    if t._pb_tensor.hasProducer():
+        prod = t._pb_tensor.getProducer()
+        return not prod.hasPipelineStage()
+    return True
 
 
-        Args:
-            t (pir.Tensor): tensor to stash
-            from_stage (Optional[int], optional): stage to locate the stashOp. Defaults to None.
+def stash_and_restore_tensor(t: pir.Tensor, cache: Optional[GraphCache] = None,
+                             from_stage: Optional[int] = None) -> pir.Tensor:
+    """Create stash and counter variables to tensors t to. Stash size will be calculated from the
 
-        Raises:
-            RuntimeError: if `from_stage` is not specified and t does not have a producer.
-            RuntimeError: if `stash_and_restore_tensor` is not called in a `pir.pipeline_stage` context.
 
-        Returns:
-            pir.Tensor: The restored tensor
-        """
-        if from_stage is None:
-            if not t._pb_tensor.hasProducer():
-                raise RuntimeError(
-                    "If the tensor to be stash does not have a producer `from_stage` must be specified to `stash_and_restore_tensor`"
-                )
-            from_stage = t._pb_tensor.getProducer().getPipelineStage()
+    Args:
+        t (pir.Tensor): tensor to stash
+        from_stage (Optional[int], optional): stage to locate the stashOp. Defaults to None.
 
-        to_stage = get_current_context().pipeline_stage
+    Raises:
+        RuntimeError: if `from_stage` is not specified and t does not have a producer.
+        RuntimeError: if `stash_and_restore_tensor` is not called in a `pir.pipeline_stage` context.
 
-        if to_stage is None:
-            raise RuntimeError("`stash_and_restore_tensor` must be called in a pir.pipeline_stage context.")
+    Returns:
+        pir.Tensor: The restored tensor
+    """
+    if from_stage is None:
+        if not t._pb_tensor.hasProducer():
+            raise RuntimeError(
+                "If the tensor to be stash does not have a producer `from_stage` must be specified to `stash_and_restore_tensor`"
+            )
+        from_stage = t._pb_tensor.getProducer().getPipelineStage()
 
-        stash_size = (to_stage - from_stage) + 1
+    to_stage = get_current_context().pipeline_stage
 
-        with pir.pipeline_stage(from_stage):
-            stash = self.stash_tensor(t, stash_size)
+    if to_stage is None:
+        raise RuntimeError("`stash_and_restore_tensor` must be called in a pir.pipeline_stage context.")
 
-        with pir.pipeline_stage(to_stage):
-            restored = self.restore_tensor(stash)
+    stash_size = (to_stage - from_stage) + 1
 
-        return restored
+    with pir.pipeline_stage(from_stage):
+        args, graph = Stash(cache).create_graph(t, stash_size)
+        stash_args = args.init()
+        graph.bind(stash_args).call(t)
 
-    def _is_external_input(self, t: pir.Tensor):
-        if t._pb_tensor.hasProducer():
-            prod = t._pb_tensor.getProducer()
-            return not prod.hasPipelineStage()
-        return True
+    with pir.pipeline_stage(to_stage):
+        args, graph = Restore(cache).create_graph(stash_args.stash)
+        restored, = graph.bind(args.init()).call(stash_args.stash)
 
-    def stash_and_restore_activations(self, forward_call_info: CallInfo, callable_grad_graph: CallableGradGraph):
-        """For each activation required for `callable_grad_graph` create a stash and restore graph. The stash call
-            will be executed on the pipeline stage of the activation Tensor's producer.
+    return restored
 
-            Tensors that have no producer or their producer does not have a pipeline stage are treated as external inputs and will
-            be connected to `callable_grad_graph` directly. For example, Variable tensors do not need activations.
 
-            This function should be called in the same `with pipeline_stage(...):` context as `callable_graph_graph.call`.
+def stash_and_restore_activations(call_info: SubgraphOpInfo,
+                                  grad_info: GradGraphInfo,
+                                  cache: Optional[GraphCache] = None) -> Dict[pir.Tensor, pir.Tensor]:
+    activations = grad_info.get_inputs_from_forward_call_info(call_info)
 
-        Args:
-            forward_call_info (CallInfo): From `call_with_info` of calling a forward graph.
-            callable_grad_graph: result of converting a ConcreteGradGraph into CallableGradGraph
-        """
-        activations = callable_grad_graph.grad_info.get_inputs_from_forward_call_info(forward_call_info)
+    # If the activation is produced on the current pipeline stage then don't create a stash.
+    from_stage = call_info._op.getPipelineStage()
+    to_stage = get_current_context().pipeline_stage
 
-        # If the activation is produced on the current pipeline stage then don't create a stash.
-        from_stage = forward_call_info._op.getPipelineStage()
-        to_stage = get_current_context().pipeline_stage
-        single_stash = to_stage == from_stage
-
+    if to_stage != from_stage:
         for sg_tensor, act in activations.items():
-            if not single_stash and not self._is_external_input(act):
-                act = self.stash_and_restore_tensor(act, from_stage=from_stage)
-            callable_grad_graph[sanitise(act.name)] = (sg_tensor, act)
+            if not _is_external_input(act):
+                act = stash_and_restore_tensor(act, cache, from_stage=from_stage)
+            activations[sg_tensor] = act
+    return activations

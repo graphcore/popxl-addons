@@ -1,10 +1,9 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from .graphs import *
+from .module import *
+from .remote import *
+from .graph_cache import *
 from .route_tensor import *
 from .runner import *
-from .seeds import *
-from .streams import *
+from .ops import *
 from .transforms import *
-from .utils import *
-
-import popart_ir_extensions.ops as ops
+from utils import *

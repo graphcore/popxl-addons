@@ -1,14 +1,18 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import os
-from typing import Iterable, Union, Sequence, Mapping, Tuple, Dict, Optional
+import time
+from typing import Iterable, Union, Mapping, Tuple, Dict, Optional
+from typing_extensions import Literal
 
 import numpy as np
 import popart
 from popart import ir as pir
 from popart.ir.streams import DeviceToHostStream, HostToDeviceStream
+from popart.ir.tensor import HostTensor
+from popart_ir_extensions.utils import to_numpy
 
-from popart_ir_extensions.utils import to_numpy, HostTensor
 from math import ceil, log
+import logging
 
 __all__ = ["Runner"]
 
@@ -18,7 +22,8 @@ class Runner:
                  ir: pir.Ir,
                  outputs: Union[None, DeviceToHostStream, Iterable[DeviceToHostStream]] = None,
                  weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
-                 device_type: Union[str, int] = "cpu",
+                 device_type: Literal['cpu', 'hw'] = 'hw',
+                 device_num: int = 1,
                  replicas: int = 1,
                  device_iterations: int = 1):
 
@@ -44,25 +49,22 @@ class Runner:
             opts.enableReplicatedGraphs = True
             opts.replicatedGraphCount = replicas
 
-        if device_type == "hw" or isinstance(device_type, int):
-            if not isinstance(device_type, int):
-                device_type = 1
+        if device_type == "hw":
             dm = popart.DeviceManager()
             dm.setOnDemandAttachTimeout(int(1e4))
-            self.device = dm.acquireAvailableDevice(device_type,
+            self.device = dm.acquireAvailableDevice(device_num,
                                                     connectionType=popart.DeviceConnectionType.OnDemand,
                                                     selectionCriterion=popart.DeviceSelectionCriterion.Random)
         elif device_type == "cpu":
-            device_type = 1
-            self.device = popart.DeviceManager().createIpuModelDevice({"numIPUs": 1})
+            self.device = popart.DeviceManager().createIpuModelDevice({"numIPUs": device_num})
         else:
             raise ValueError(f"Do not recognise device type: {device_type}")
 
         ir_ipus = set(ipu for g in _ir.getAllGraphs() for ipu in g.getAllVirtualGraphIds(True))
-        max_ipus = max(ir_ipus)
-        if max_ipus > device_type:
-            raise ValueError(f"The IR uses {max_ipus} IPUs but you have only requested to acquire {device_type}. "
-                             f"Please request at least {2**ceil(log(max_ipus))} IPUs (must be power of 2).")
+        max_ipus = max(ir_ipus) + 1
+        if max_ipus > device_num:
+            raise ValueError(f"The IR uses {max_ipus} IPUs but you have only requested to acquire {device_num}. "
+                             f"Please request {2**ceil(log(max_ipus))} IPUs (must be power of 2).")
 
         _ir.removeIsolatedGraphs()
         _ir.removeIsolatedTensors(True)
@@ -73,8 +75,10 @@ class Runner:
         _ir.updateVertices()
         _ir.logIr()
 
+        compile_start = time.perf_counter()
         self.session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=self.device)
         self.session.prepareDevice()
+        logging.info(f"Compiled. Duration {time.perf_counter() - compile_start:.1f} seconds")
 
         self.write_weights(weights or {})
 
@@ -87,7 +91,7 @@ class Runner:
                 if t.shape != ht.shape:
                     raise ValueError(f"{t} has an incompatible host tensor with shape {ht.shape}")
             self.session.writeWeights(
-                popart.PyWeightsIO({t.id: to_numpy(v).astype(t.dtype.as_numpy())
+                popart.PyWeightsIO({t.id: to_numpy(v, dtype=t.dtype.as_numpy())
                                     for t, v in weights.items()}))
         self.session.weightsFromHost()
 
@@ -103,15 +107,16 @@ class Runner:
     def detach(self):
         self.device.detach()
 
+    def __del__(self):
+        self.detach()
+
     @property
     def expected_inputs(self):
         stream_tensors = (pir.Tensor._from_pb_tensor(t) for t in self.ir._pb_ir.dataStreamTensors())
         return set(HostToDeviceStream._from_tensor(t) for t in stream_tensors)
 
-    def run(
-        self,
-        inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
-    ) -> Union[None, np.ndarray, Tuple[np.ndarray, ...]]:
+    def run(self, inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
+            ) -> Union[None, np.ndarray, Tuple[np.ndarray, ...]]:
         inputs = inputs or {}
 
         if set(inputs.keys()) != set(self.expected_inputs):

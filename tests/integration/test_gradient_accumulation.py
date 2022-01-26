@@ -1,16 +1,19 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+from functools import partial
 import numpy as np
 
 import popart.ir as pir
-import popart.ir.ops as ops
 
 import popart_ir_extensions as pir_ext
+from popart_ir_extensions.input_factory import NamedInputFactories
+from popart_ir_extensions.module import Module
+from popart_ir_extensions.transforms.autodiff import autodiff, autodiff_with_accumulation
 
 
-class Scale(pir_ext.GenericGraph):
+class Scale(Module):
     def build(self, x: pir.Tensor) -> pir.Tensor:
-        scale = self.add_input_tensor("scale", lambda: np.random.normal(0, 1, x.shape).astype(x.dtype.as_numpy()))
-        return x @ scale
+        scale = self.add_input_tensor("scale", partial(np.full, x.shape, 2), x.dtype)
+        return x * scale
 
 
 def model(with_accumulation):
@@ -21,47 +24,50 @@ def model(with_accumulation):
     with main:
         x = pir.variable(np.random.normal(0, 1, (2, 2)), pir.float32)
 
-        scale_graph = Scale().to_concrete(x)
+        args, graph = Scale().create_graph(x)
         if with_accumulation:
-            d_scale_graph = pir_ext.autodiff_with_accumulation(scale_graph, [scale_graph.scale],
-                                                               scale_graph.get_input_tensors())
+            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.scale], graph.graph.get_input_tensors())
         else:
-            d_scale_graph = pir_ext.autodiff(scale_graph, grads_required=scale_graph.get_input_tensors())
+            dgraph = autodiff(graph, grads_required=graph.graph.get_input_tensors())
+            # Create empty. No named inputs.
+            dargs = NamedInputFactories()
 
         # Construct variables for the graph.
-        scale1 = scale_graph.to_callable(True)
-        scale2 = scale_graph.to_callable(True)
-        # Construct accumulators
-        d_scale1 = d_scale_graph.to_callable(True)
-        d_scale2 = d_scale_graph.to_callable(True)
+        scale1 = args.init()
+        scale2 = args.init()
+        accum1 = dargs.init()
+        accum2 = dargs.init()
+
+        # Bind args
+        fwd1 = graph.bind(scale1)
+        fwd2 = graph.bind(scale2)
 
         # Call forward
-        fwd1 = scale1.call_with_info(x)
-        fwd2 = scale2.call_with_info(fwd1.get_op_output_tensor(0))
+        call_info_1 = fwd1.call_with_info(x)
+        call_info_2 = fwd2.call_with_info(*call_info_1.get_output_tensors())
 
-        # Connect activations from forward call to gradient graph.
-        pir_ext.connect_activations(fwd1, d_scale1)
-        pir_ext.connect_activations(fwd2, d_scale2)
-
-        # Call backward. With seed tensor and connected activations
-        bwd2 = d_scale2.call_with_info(pir.constant(np.ones((2, 2)), pir.float32))
-        bwd1 = d_scale1.call_with_info(bwd2.get_op_output_tensor(0))
+        # Call backward
+        seed = pir.constant(np.ones((2, 2)), pir.float32)
+        dscale2_out = dgraph.bind(accum1).call(
+            seed, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_2))
+        dscale1_out = dgraph.bind(accum2).call(
+            dscale2_out[0], args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_1))
 
         if with_accumulation:
             outs = []
         else:
-            outs = [pir_ext.host_store(t) for t in (bwd1.get_op_output_tensor(1), bwd2.get_op_output_tensor(1))]
+            outs = [pir_ext.host_store(t) for t in (dscale1_out[1], dscale2_out[1])]
 
     runner = pir_ext.Runner(ir, outs)
     outputs = runner.run()
 
     if with_accumulation:
-        accums = [
-            d_scale1.get_grad_accumulator_for_fwd_input(scale_graph.scale),
-            d_scale2.get_grad_accumulator_for_fwd_input(scale_graph.scale)
-        ]
+        accums = [accum1.scale, accum2.scale]
         results = runner.read_weights(accums)
         return tuple(results[t] for t in accums)
+
+    runner.detach()
+
     return outputs
 
 
