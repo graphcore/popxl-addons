@@ -178,7 +178,7 @@ class Pipelining:
             if isinstance(op, _ir.op.IpuCopyOp):
                 source_ipu = op.getSourceIpu(tensor.id)
                 cloned_op.connectInTensor(idx, sg_tensor.id, source_ipu)
-                with self.graph, pir.virtual_graph(source_ipu):
+                with self.graph, pir.ipu(source_ipu):
                     dummy_input = ops.init(tensor.shape, tensor.dtype, "dummy__" + tensor.name)
                     graph.reconnect_input(tensor.id, dummy_input)
                     self.ipu_copy_dummy_inputs[tensor.id] = dummy_input
@@ -265,7 +265,7 @@ class Pipelining:
         cycle_graph = pir.gcg().ir().create_empty_graph("main_cycle")
         main_cycles = self.steps - (self.num_stages - 1)
         # LoopOp can have operations that require a graph to execute on.
-        with pir.virtual_graph(0):
+        with pir.ipu(0):
             ops.repeat(cycle_graph, main_cycles)
         with cycle_graph:
             self.cycle(0, self.num_stages)

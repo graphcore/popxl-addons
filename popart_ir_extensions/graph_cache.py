@@ -55,7 +55,7 @@ def get_function_hash(fn, *args, **kwargs):
     """Get the hash for constructing a graph from `fn` passing `*args, **kwargs`."""
     ctx = get_current_context()
     arguments = bound_arguments(fn, *args, **kwargs)
-    sig = [fn, ctx.virtual_graph_id, ctx.io_tile_set]
+    sig = [fn, ctx.ipu_id, ctx.io_tile_set]
     for arg in arguments.values():
         sig.append(argument_hash(arg))
     return hash(tuple(sig))

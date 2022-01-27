@@ -29,7 +29,7 @@ class RemoteBuffers:
         """
         shape = tuple(shape)
         meta_shape = tuple(meta_shape) if meta_shape else None
-        buffer_hash = hash((get_current_context().virtual_graph_id, shape, dtype, meta_shape))
+        buffer_hash = hash((get_current_context().ipu_id, shape, dtype, meta_shape))
         if buffer_hash not in self.hash_to_id:
             buffer = pir.remote_buffer(tuple(shape), dtype, 1)
             self.hash_to_id[buffer_hash] = buffer.remote_buffer_id

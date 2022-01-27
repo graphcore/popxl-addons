@@ -20,12 +20,12 @@ def test_pipeline_2_stage():
         out_stream = pir.d2h_stream((), pir.uint32)
 
         with pir_ext.pipelined_execution(10):
-            with pir.pipeline_stage(0), pir.virtual_graph(0):
+            with pir.pipeline_stage(0), pir.ipu(0):
                 x = ops.host_load(in_stream)
                 x = x + 1
                 x = x.copy_to_ipu(1)
 
-            with pir.pipeline_stage(1), pir.virtual_graph(1):
+            with pir.pipeline_stage(1), pir.ipu(1):
                 x = x + 1
                 ops.host_store(out_stream, x)
 
@@ -43,20 +43,20 @@ def test_pipeline_4_stage():
         out_stream = pir.d2h_stream((), pir.uint32)
 
         with pir_ext.pipelined_execution(10):
-            with pir.pipeline_stage(0), pir.virtual_graph(0):
+            with pir.pipeline_stage(0), pir.ipu(0):
                 x = ops.host_load(in_stream)
                 x = x + 1
                 x = x.copy_to_ipu(1)
 
-            with pir.pipeline_stage(1), pir.virtual_graph(1):
+            with pir.pipeline_stage(1), pir.ipu(1):
                 x = x + 1
                 x = x.copy_to_ipu(2)
 
-            with pir.pipeline_stage(2), pir.virtual_graph(2):
+            with pir.pipeline_stage(2), pir.ipu(2):
                 x = x + 1
                 x = x.copy_to_ipu(3)
 
-            with pir.pipeline_stage(3), pir.virtual_graph(3):
+            with pir.pipeline_stage(3), pir.ipu(3):
                 x = x + 1
                 ops.host_store(out_stream, x)
 
@@ -88,7 +88,7 @@ def test_pipeline_training():
         data = np.random.normal(0, 1, (steps, 1, 4)).astype(np.float32)
 
         with main:
-            with pir.virtual_graph(0):
+            with pir.ipu(0):
                 _, x_stream, x = pir_ext.host_load(data[0], pir.float32, "x")
 
                 args, linear_graph = Linear(4).create_graph(x)
@@ -102,11 +102,11 @@ def test_pipeline_training():
                 x, *_ = call_info.get_output_tensors()
                 x = x.copy_to_ipu(1)
 
-            with pir.virtual_graph(1):
+            with pir.ipu(1):
                 x = x + 1
                 x = x.copy_to_ipu(0)
 
-            with pir.virtual_graph(0):
+            with pir.ipu(0):
                 dlinear_graph.bind(dlinear).call(
                     x, args=dlinear_graph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
 
@@ -129,7 +129,7 @@ def test_pipeline_training():
 
         with main:
             with pir_ext.pipelined_execution(steps):
-                with pir.pipeline_stage(0), pir.virtual_graph(0):
+                with pir.pipeline_stage(0), pir.ipu(0):
                     _, x_stream, x = pir_ext.host_load(data[0], pir.float32, "x")
 
                     # Compute Graphs
@@ -145,11 +145,11 @@ def test_pipeline_training():
                     x, _ = call_info.get_output_tensors()
                     x = x.copy_to_ipu(1)
 
-                with pir.pipeline_stage(1), pir.virtual_graph(1):
+                with pir.pipeline_stage(1), pir.ipu(1):
                     x = x + 1
                     x = x.copy_to_ipu(0)
 
-                with pir.pipeline_stage(2), pir.virtual_graph(0):
+                with pir.pipeline_stage(2), pir.ipu(0):
                     dlinear_graph.bind(dlinear).call(x,
                                                      args=stash_and_restore_activations(
                                                          call_info, dlinear_graph.grad_graph_info))
