@@ -95,7 +95,7 @@ class Runner:
                                     for t, v in weights.items()}))
         self.session.weightsFromHost()
 
-    def read_weights(self, weights: Optional[Iterable[pir.Tensor]] = None) -> Mapping[pir.Tensor, HostTensor]:
+    def read_weights(self, weights: Optional[Iterable[pir.Tensor]] = None) -> Dict[pir.Tensor, np.ndarray]:
         if weights is None:
             weights = self.ir.main_graph().get_variables()
         self.session.weightsToHost()

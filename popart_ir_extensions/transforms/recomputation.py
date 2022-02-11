@@ -54,16 +54,18 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
     grad_info = grad_graph.grad_graph_info
 
     with r_graph:
+        # Add Required Inputs to the Recompute graph from the GradGraphInfo
         fwd_recomp_inputs, grad_inputs, expected_inputs = add_recompute_inputs(grad_info)
 
         fgraph = BoundGraph(grad_info.forward_graph, fwd_recomp_inputs)
+        # Call Forward Graph
         call_info = fgraph.call_with_info()
 
-        activations = grad_info.get_inputs_from_forward_call_info(call_info)
-
         # Include activations
+        activations = grad_info.get_inputs_from_forward_call_info(call_info)
         grad_inputs.update(activations)
 
+        # These are inputs to the grad graph that aren't from `GradGraphInfo`. Such as gradient accumulators.
         for tensor in set(grad_graph.graph.get_input_tensors()) - set(grad_inputs.keys()):
             grad_inputs[tensor] = pir.subgraph_input(tensor.shape,
                                                      tensor.dtype,
@@ -71,16 +73,19 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
                                                      by_ref=tensor in grad_graph.graph._by_ref_inputs)
 
         ggraph = BoundGraph(grad_graph.graph, grad_inputs)
+        # Call Gradient Graph
         call_info = ggraph.call_with_info()
 
-        remapped_args = grad_graph.args.remap(grad_inputs)
-
+        # Add outputs in the Recompute Graph for each output in the Gradient Graph
         for output in call_info.get_output_tensors():
             pir.subgraph_output(output)
 
+        # Remap NamedArgs from the Gradient Graph to the Recompute Graph
+        remapped_args = grad_graph.args.remap(grad_inputs)
+
+        # Construct the new GradGraphInfo
         _r_grad_info = _ir.BwdGraphInfo(r_graph._pb_graph.id, [ec._pb_ec for ec in expected_inputs],
                                         [ec._pb_ec for ec in grad_info.expected_outputs])
-
         r_grad_info = GradGraphInfo._from_pb(ir._pb_ir, grad_info.forward_graph._pb_graph, _r_grad_info)
 
     return GraphWithNamedArgs(r_graph, remapped_args, r_grad_info)
