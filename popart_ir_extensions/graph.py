@@ -1,4 +1,5 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
+from collections import defaultdict
 from typing import Iterable, Optional, Union, List, Tuple
 import popart.ir as pir
 from popart.ir.context import debug_context_frame_offset
@@ -163,3 +164,49 @@ class GraphWithNamedArgs:
     @grad_graph_info.setter
     def grad_graph_info(self, grad_graph_info: GradGraphInfo):
         self._grad_graph_info = grad_graph_info
+
+    def print_schedule(self):
+        self.graph = self.graph
+
+        _id_counter = 0
+
+        def next_ids():
+            nonlocal _id_counter
+            _id_counter += 1
+            return _id_counter
+
+        ids = defaultdict(next_ids)
+
+        def tensor_str(t):
+            # TODO: Give each id a random color
+            t = pir.Tensor._from_pb_tensor(t)
+            return f"%{ids[t.id]} [{t.shape} {t.dtype._name}]"
+
+        ss_graph_name = f"Graph : {self.graph.name}"
+
+        inputs = []
+        names, tensors = self.args.unpack()
+        for t in self.graph.get_input_tensors():
+            try:
+                idx = tensors.index(t)
+                inputs.append(f"{names[idx]}=%{ids[t.id]}")
+            except ValueError:
+                inputs.append(f"%{ids[t.id]}")
+        ss_inputs = ", ".join(inputs)
+
+        ops = []
+        for op in self.graph._pb_graph.getOpSchedule(True):
+            inputs = "(" + (", ".join(tensor_str(t) for t in op.getInputTensors())) + ")"
+            outputs = "(" + (", ".join(tensor_str(t) for t in op.getOutputTensors())) + ")"
+            ops.append(" ".join((f"{op.opType()}.{op.id}", inputs, "->", outputs)))
+        ss_ops = "\n".join(ops)
+
+        outputs = []
+        for t in self.graph.get_output_tensors():
+            outputs.append(f"%{ids[t.id]}")
+        ss_outputs = ", ".join(outputs)
+
+        ss = ss_graph_name + "\n"
+        ss += f"  ({ss_inputs}) -> ({ss_outputs}) " + "{\n    "
+        ss += ss_ops.replace("\n", "\n    ") + "\n  }"
+        return ss
