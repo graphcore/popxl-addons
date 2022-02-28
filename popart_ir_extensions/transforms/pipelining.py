@@ -259,28 +259,35 @@ class Pipelining:
 
         return out_tensor
 
-    def main_cycle(self):
-        tensors_before_repeat = self.original_tid_to_cloned_tensor.copy()
+    def repeat_graph(self):
+        # The main graph has loop carried inputs for the ipu_copied tensors that will be
+        # properly connected to the outputs of `self.ipu_copies` in `move_copied_tensor_out_of_nested_repeat_graph`
+        # Importantly loop carried inputs must be before implicit inputs, so it must be setup first.
+        def main_repeat(*loop_carried: pir.Tensor):
+            return loop_carried
 
-        cycle_graph = pir.gcg().ir().create_empty_graph("main_cycle")
+        loop_carried_args = [self.original_tid_to_cloned_tensor[_id] for _id in self.ipu_copies.original_output_ids]
+        graph = pir.gcg().ir().create_graph(main_repeat, *loop_carried_args)
+
         main_cycles = self.steps - (self.num_stages - 1)
         # LoopOp can have operations that require a graph to execute on.
         with pir.ipu(0):
-            ops.repeat(cycle_graph, main_cycles)
+            r_info = ops.repeat_with_info(graph, main_cycles, *loop_carried_args)
+
+        self.remap_tensors(self.ipu_copies.original_output_ids, graph.get_input_tensors())
+        return graph, r_info._op
+
+    def main_cycle(self):
+        tensors_before_repeat = self.original_tid_to_cloned_tensor.copy()
+        cycle_graph, repeat_op = self.repeat_graph()
+
         with cycle_graph:
             self.cycle(0, self.num_stages)
-
-        # TODO: This is a terrible way to get the repeat op.
-        repeat_op = None
-        for op in self.graph._pb_graph.getOps():
-            if isinstance(op, _ir.op.LoopOp):
-                repeat_op = op
-        if repeat_op is None:
-            raise RuntimeError("There should have been a LoopOp")
 
         inputs = repeat_op.getInputIndexMap()
         remap_original = []
         remap_new = []
+        # TODO: This is an bad double loop.
         for original, tensor in tensors_before_repeat.items():
             # Remap tensors to the input tensor to the loopOp. Inputs will
             # be passed with modified=True so it is correct to use the inputs.
@@ -397,8 +404,7 @@ def _is_external_input(t: pir.Tensor):
     return True
 
 
-def stash_and_restore_tensor(t: pir.Tensor, cache: Optional[GraphCache] = None,
-                             from_stage: Optional[int] = None) -> pir.Tensor:
+def stash_and_restore_tensor(t: pir.Tensor, from_stage: Optional[int] = None) -> pir.Tensor:
     """Create stash and counter variables to tensors t to. Stash size will be calculated from the
 
 
@@ -428,20 +434,18 @@ def stash_and_restore_tensor(t: pir.Tensor, cache: Optional[GraphCache] = None,
     stash_size = (to_stage - from_stage) + 1
 
     with pir.pipeline_stage(from_stage):
-        args, graph = Stash(cache).create_graph(t, stash_size)
+        args, graph = Stash().create_graph(t, stash_size)
         stash_args = args.init()
         graph.bind(stash_args).call(t)
 
     with pir.pipeline_stage(to_stage):
-        args, graph = Restore(cache).create_graph(stash_args.stash)
+        args, graph = Restore().create_graph(stash_args.stash)
         restored, = graph.bind(args.init()).call(stash_args.stash)
 
     return restored
 
 
-def stash_and_restore_activations(call_info: SubgraphOpInfo,
-                                  grad_info: GradGraphInfo,
-                                  cache: Optional[GraphCache] = None) -> Dict[pir.Tensor, pir.Tensor]:
+def stash_and_restore_activations(call_info: SubgraphOpInfo, grad_info: GradGraphInfo) -> Dict[pir.Tensor, pir.Tensor]:
     activations = grad_info.get_inputs_from_forward_call_info(call_info)
 
     # If the activation is produced on the current pipeline stage then don't create a stash.
@@ -451,6 +455,6 @@ def stash_and_restore_activations(call_info: SubgraphOpInfo,
     if to_stage != from_stage:
         for sg_tensor, act in activations.items():
             if not _is_external_input(act):
-                act = stash_and_restore_tensor(act, cache, from_stage=from_stage)
+                act = stash_and_restore_tensor(act, from_stage=from_stage)
             activations[sg_tensor] = act
     return activations

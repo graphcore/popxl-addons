@@ -77,6 +77,10 @@ class Runner:
 
         compile_start = time.perf_counter()
         self.session = popart.InferenceSession.fromIr(ir=_ir, deviceInfo=self.device)
+
+        # TODO move this to _ir instead
+        self.session.checkInplacingAmbiguity()
+
         self.session.prepareDevice()
         logging.info(f"Compiled. Duration {time.perf_counter() - compile_start:.1f} seconds")
 

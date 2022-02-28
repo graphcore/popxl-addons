@@ -36,18 +36,19 @@ class Module(pir.Module, metaclass=NameScopeMeta):
         TODO: expand, usage
     """
 
-    def __init__(self, cache: Optional[GraphCache] = None):
+    def __init__(self, cache: bool = False):
+        """
+        Args:
+            cache (bool, optional): Re-use graphs where possible when calling `create_graph`. Defaults to False.
+        """
         self._input_factories = NamedInputFactories()
         self._named_inputs = NamedTensors()
-        self._graph_cache = cache
+        self._graph_cache = GraphCache() if cache else None
         self._args_cache = {}
 
     def _reset(self):
         self._input_factories._clear()
         self._named_inputs._clear()
-
-    def set_cache(self, cache: GraphCache):
-        self._graph_cache = cache
 
     def create_graph(self, *args, **kwargs) -> Tuple[NamedInputFactories, GraphWithNamedArgs]:
         """Construct a compute graph and input factories for the module."""
@@ -172,17 +173,17 @@ class Module(pir.Module, metaclass=NameScopeMeta):
         return tensors
 
     @classmethod
-    def from_list(cls, sub_modules: List['Module'], cache: Optional[GraphCache] = None):
+    def from_list(cls, sub_modules: List['Module']):
         """Create a module from a list of modules"""
-        self = cls(cache=cache)
+        self = cls()
         for i, module in enumerate(sub_modules):
             setattr(self, str(i), module)
         return self
 
     @classmethod
-    def from_input_factories(cls, inputs: List[InputFactory], cache: Optional[GraphCache] = None):
+    def from_input_factories(cls, inputs: List[InputFactory]):
         """Create a module with `inputs`"""
-        self = cls(cache=cache)
+        self = cls()
         for i, input_f in enumerate(inputs):
             tensor = self.add_input_factory(input_f, name=str(i))
             setattr(self, str(i), tensor)

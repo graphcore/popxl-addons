@@ -72,7 +72,6 @@ def connect_call_op(op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.G
 def connect_loop_op(op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.GraphId, Tensor],
                     modified: Iterable[_ir.view.Region]):
     """Given a LoopOp, add a new input to the callsite and called graph if not already present.
-        LoopOps must have matching inputs and outputs, so add the required output if necessary.
         Additionally set if the input is modified.
 
     Args:
@@ -94,15 +93,6 @@ def connect_loop_op(op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.G
             sg_tensor_id = sg._create_tensor_id(tensor.name)
             op.addLoopInput(op_idx, tensor.id, sg_tensor_id, False)
             sg_tensor = sg.get_tensor(sg_tensor_id)
-            op_out_idx = op_idx - 2
-            if not op.hasOutput(op_out_idx):
-                parent_graph = Graph._from_pb(op.getGraph())
-                out_tensor_id = parent_graph._create_tensor_id(tensor.name)
-                op.createAndConnectOutTensor(op_out_idx, out_tensor_id)
-            else:
-                out_tensor_id = op.outId(op_out_idx)
-            op.addLoopOutput(op_out_idx, out_tensor_id, sg_tensor.id, False)
-            op.setup()
 
     if op_idx is None:
         op_idx = op.subgraphInToOpInIndex(sg._pb_graph.getInputIndex(sg_tensor.id))

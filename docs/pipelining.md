@@ -39,12 +39,12 @@ with pir_ext.pipelined_execution(steps=10):
 This is similar to `for i in range(10)`. Within this context we will define one step of the loop using `popart.ir` annotations.
 When the context closes, the transformation will be run and the current graph will end up with a single `ops.call` that executes the pipeline.
 ```python
-  with pir.pipeline_stage(0), pir.virtual_graph(0):
+  with pir.pipeline_stage(0), pir.ipu(0):
     x = ops.host_load(h2d_stream)
     x = layer0(x)
     x = x.copy_to_ipu(0)
 
-  with pir.pipeline_stage(1), pir.virtual_graph(1):
+  with pir.pipeline_stage(1), pir.ipu(1):
     x = layer1(x)
     ops.host_store(d2h_stream, x)
 ```
@@ -59,13 +59,13 @@ When training a model we want to execute the forward and gradient layers on the 
 
 To achieve this behaviour we can just reuse the same `virtual_graph` annotation when calling the gradient layer.
 ```python
-  with pir.pipeline_stage(0), pir.virtual_graph(0):
+  with pir.pipeline_stage(0), pir.ipu(0):
     x = ops.host_load(h2d_stream)
     x, = layer0.call(x)
 
 ...
 
-  with pir.pipeline_stage(2), pir.virtual_graph(0):
+  with pir.pipeline_stage(2), pir.ipu(0):
     dlayer0.call(...)
 ```
 Our next concern is how to provide inputs to the gradient layer. Gradient layers are constructed using `pir_ext.autodiff`. This extension returns a convience class for the autodiff result, `ConcreteGradGraph`. Typically a gradient graph has two types of expected inputs:
@@ -78,14 +78,14 @@ When pipelining there will be a _delay_ between the execution of the forward and
 A helper class has been provided to add the required stash and restore operations, `PipelineStashHelper`. This can be used as follows:
 ```python
 with pir_ext.pipelined_execution(10):
-  with pir.pipeline_stage(0), pir.virtual_graph(0):
+  with pir.pipeline_stage(0), pir.ipu(0):
     x = ops.host_load(h2d_stream)
     call_info = layer0.call_with_info(x)
     x, = call_info.get_output_tensors()
 
 ...
 
-  with pir.pipeline_stage(2), pir.virtual_graph(0):
+  with pir.pipeline_stage(2), pir.ipu(0):
     acts = stash_and_restore_activations(call_info, grad_info)
     dlayer0.call(dx, args=acts)
 ```
