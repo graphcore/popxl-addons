@@ -71,7 +71,7 @@ def scale_fn(x: pir.Tensor, scale: pir.Tensor):
     return x * scale
 
 ir = pir.Ir()
-main = ir.main_graph()
+main = ir.main_graph
 with main:
     x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
     x = ops.host_load(x_h2d, "x")
@@ -91,7 +91,7 @@ class Scale(pir_ext.Module):
         return x * self.scale
 
 ir = pir.Ir()
-main = ir.main_graph()
+main = ir.main_graph
 with main:
     x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
     x = ops.host_load(x_h2d, "x")
@@ -112,7 +112,7 @@ def scale_fn(x: pir.Tensor, scale: pir.Tensor):
         return x * scale
 
 ir = pir.Ir()
-main = ir.main_graph()
+main = ir.main_graph
 with main:
     x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
     x = ops.host_load(x_h2d, "x")
@@ -133,7 +133,7 @@ class Scale(pir_ext.Module):
         return x * self.scale
 
 ir = pir.Ir()
-main = ir.main_graph()
+main = ir.main_graph
 with main:
     x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
     x = ops.host_load(x_h2d, "x")

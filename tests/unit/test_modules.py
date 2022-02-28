@@ -23,7 +23,7 @@ class Linear(Module):
 
 def test_linear_module():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
@@ -39,7 +39,7 @@ def test_linear_module():
 
 def test_linear_reuse_module():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
@@ -57,38 +57,36 @@ def test_linear_reuse_module():
 
 def test_linear_autodiff():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors,
-                                                           [graph.graph.get_input_tensors()[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors, [graph.graph.inputs[0]])
 
         layer = graph.bind(args.init())
         grad_layer = grad_graph.bind(grad_args.init())
 
         call_info = layer.call_with_info(x)
-        y, = call_info.get_output_tensors()
+        y, = call_info.outputs
 
-        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
 
     assert len(ir._pb_ir.getAllGraphs()) == 3
 
 
 def test_linear_recompute():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors,
-                                                           [graph.graph.get_input_tensors()[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors, [graph.graph.inputs[0]])
 
         grad_graph = recompute_graph(grad_graph)
 
@@ -96,9 +94,9 @@ def test_linear_recompute():
         grad_layer = grad_graph.bind(grad_args.init())
 
         call_info = layer.call_with_info(x)
-        y, = call_info.get_output_tensors()
+        y, = call_info.outputs
 
-        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
 
     assert len(ir._pb_ir.getAllGraphs()) == 4
 
@@ -115,7 +113,7 @@ class DoubleLinear(Module):
 
 def test_nested_module():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
@@ -150,7 +148,7 @@ class DoubleLinearOutlined(Module):
 
 def test_outlined_module():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
@@ -186,7 +184,7 @@ class Linears(Module):
 
 def test_module_list_inlined():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
@@ -221,7 +219,7 @@ class LinearsOutlined(Module):
 
 def test_module_list_outlined():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
@@ -257,7 +255,7 @@ class MultiMatMul(Module):
 
 def test_from_input_factories():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 0.02, (10, 10)), pir.float32)

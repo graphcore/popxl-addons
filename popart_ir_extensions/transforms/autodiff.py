@@ -42,7 +42,7 @@ def _autodiff_with_patterns(
                                                               return_all_grad_graphs=True)  # type: ignore
     grad_info = grad_info_all[graph]
 
-    ir = grad_info.graph.ir()._pb_ir
+    ir = grad_info.graph.ir._pb_ir
     # TODO: Only run required patterns
     ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
 
@@ -109,7 +109,7 @@ def autodiff_with_accumulation(
     # Autodiff the graph.
     grad_info = _autodiff_with_patterns(graph.graph, grads_required=grads_required)
 
-    expected_outputs = grad_info.get_output_tensors()
+    expected_outputs = grad_info.outputs
 
     indices_to_remove: List[int] = []
 
@@ -152,7 +152,7 @@ def remap_grad_info(grad_info: GradGraphInfo, forward_graph: pir.Graph, backward
     """Remaps GradGraphInfo to expected connections from a different forward graph.
         The input/output index of the original connection will be used for the connections from the new graph.
     """
-    ir = forward_graph.ir()._pb_ir
+    ir = forward_graph.ir._pb_ir
     old_fwd = grad_info.forward_graph
     old_bwd = grad_info.graph
     old_inputs = old_fwd._pb_graph.getInputIds()

@@ -13,7 +13,7 @@ from popart_ir_extensions.transforms.pipelining import stash_and_restore_activat
 
 def test_pipeline_2_stage():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         in_stream = pir.h2d_stream((), pir.uint32)
@@ -36,7 +36,7 @@ def test_pipeline_2_stage():
 
 def test_pipeline_4_stage():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         in_stream = pir.h2d_stream((), pir.uint32)
@@ -83,7 +83,7 @@ def test_pipeline_training():
     def graph():
         np.random.seed(42)
         ir = pir.Ir()
-        main = ir.main_graph()
+        main = ir.main_graph
 
         data = np.random.normal(0, 1, (steps, 1, 4)).astype(np.float32)
 
@@ -99,7 +99,7 @@ def test_pipeline_training():
 
                 fwd = linear_graph.bind(linear)
                 call_info = fwd.call_with_info(x)
-                x, *_ = call_info.get_output_tensors()
+                x, *_ = call_info.outputs
                 x = x.copy_to_ipu(1)
 
             with pir.ipu(1):
@@ -107,8 +107,7 @@ def test_pipeline_training():
                 x = x.copy_to_ipu(0)
 
             with pir.ipu(0):
-                dlinear_graph.bind(dlinear).call(
-                    x, args=dlinear_graph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+                dlinear_graph.bind(dlinear).call(x, args=dlinear_graph.grad_graph_info.inputs_dict(call_info))
 
         runner = pir_ext.Runner(ir, [], device_iterations=1, device_num=2)
         for n in range(steps):
@@ -122,7 +121,7 @@ def test_pipeline_training():
     def pipelined_graph():
         np.random.seed(42)
         ir = pir.Ir()
-        main = ir.main_graph()
+        main = ir.main_graph
         linear = Linear(4)
 
         data = np.random.normal(0, 1, (steps, 1, 4)).astype(np.float32)
@@ -142,7 +141,7 @@ def test_pipeline_training():
 
                     fwd = linear_graph.bind(linear)
                     call_info = fwd.call_with_info(x)
-                    x, _ = call_info.get_output_tensors()
+                    x, _ = call_info.outputs
                     x = x.copy_to_ipu(1)
 
                 with pir.pipeline_stage(1), pir.ipu(1):

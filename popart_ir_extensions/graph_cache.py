@@ -86,7 +86,7 @@ class GraphCache:
 
             Warning: Graphs are not immutable and can be changed after construction.
         """
-        ir = pir.gcg().ir()
+        ir = pir.gcg().ir
         cache = self._get_graph_cache(ir)
         graph_hash = get_function_hash(fn, *args, **kwargs)
         if graph_hash not in cache:

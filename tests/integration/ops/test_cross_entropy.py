@@ -23,7 +23,7 @@ def test_cross_entropy_with_grad():
     def popart():
         logits, target = inputs()
         ir = pir.Ir()
-        with ir.main_graph():
+        with ir.main_graph:
             logits = pir.variable(logits.detach().numpy().astype(np.float32))
             target = pir.variable(target.detach().numpy().astype(np.uint32))
             loss, dlogits = pir_ext.ops.cross_entropy_with_grad(logits, target, 64)

@@ -21,7 +21,7 @@ class LayerCls(Module):
 
 def test_graph_cache():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
     cache = GraphCache()
     with main, pir.ipu(0):
         x = pir.variable(1)

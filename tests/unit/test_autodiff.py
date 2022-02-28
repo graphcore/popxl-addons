@@ -17,7 +17,7 @@ class Scale(pir_ext.Module):
 
 def test_autodiff_patterns_executed():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")

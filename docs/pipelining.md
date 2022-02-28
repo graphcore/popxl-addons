@@ -81,7 +81,7 @@ with pir_ext.pipelined_execution(10):
   with pir.pipeline_stage(0), pir.ipu(0):
     x = ops.host_load(h2d_stream)
     call_info = layer0.call_with_info(x)
-    x, = call_info.get_output_tensors()
+    x, = call_info.outputs
 
 ...
 

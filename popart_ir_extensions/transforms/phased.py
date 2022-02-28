@@ -9,7 +9,7 @@ import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.context import debug_context_frame_offset, io_tiles
 from popart.ir.tensor import Variable
-from popart.ir.ops.call import SubgraphOpInfo
+from popart.ir.ops.call import CallSiteInfo
 from popart.ir.remote_buffer import RemoteBuffer
 from popart.ir.transforms.autodiff import ExpectedConnectionType, GradGraphInfo
 from popart.ir.transforms.merge_exchange import io_tile_exchange
@@ -213,11 +213,11 @@ class RemoteActivations:
         return to_mapping(self._subgraph, loaded)
 
 
-def remote_activations(call_info: SubgraphOpInfo,
+def remote_activations(call_info: CallSiteInfo,
                        grad_info: GradGraphInfo,
                        buffers: RemoteBuffers,
                        existing: Optional[Mapping[pir.Tensor, BufferEntry]] = None) -> RemoteActivations:
-    return remote_activations_from_map(grad_info.get_inputs_from_forward_call_info(call_info), buffers, existing)
+    return remote_activations_from_map(grad_info.inputs_dict(call_info), buffers, existing)
 
 
 def activations_from_subgraph_io_map(subgraph_io_map: Mapping[pir.Tensor, pir.Tensor], grad_info: GradGraphInfo):

@@ -33,7 +33,7 @@ class Runner:
 
         dataFlow = popart.DataFlow(
             batchesPerStep=device_iterations,
-            anchorTensors={output.tensor_id(): popart.AnchorReturnType("All")
+            anchorTensors={output.tensor_id: popart.AnchorReturnType("All")
                            for output in outputs})
         _ir = ir._pb_ir
         _ir.setDataFlow(dataFlow)
@@ -101,7 +101,7 @@ class Runner:
 
     def read_weights(self, weights: Optional[Iterable[pir.Tensor]] = None) -> Dict[pir.Tensor, np.ndarray]:
         if weights is None:
-            weights = self.ir.main_graph().get_variables()
+            weights = self.ir.main_graph.variables
         self.session.weightsToHost()
         result: Dict[str, np.ndarray] = {t.id: np.zeros(t.shape, t.dtype.as_numpy())
                                          for t in weights}  # type: ignore np.zeros returns Any
@@ -128,14 +128,14 @@ class Runner:
             missing = {str(s) for s in self.expected_inputs - set(inputs.keys())}
             raise ValueError(f"Unexpected/Missing inputs.\n  Unexpected: {unexpected}\n  Missing: {missing}")
 
-        np_inputs: Mapping[str, np.ndarray] = {t.tensor_id(): to_numpy(v) for t, v in inputs.items()}
+        np_inputs: Mapping[str, np.ndarray] = {t.tensor_id: to_numpy(v) for t, v in inputs.items()}
 
         anchors: Dict[str, np.ndarray] = self.session.initAnchorArrays()
 
         stepio = popart.PyStepIO(inputs=np_inputs, outputs=anchors)
         self.session.run(stepio)
 
-        host_outputs = tuple(anchors[output.tensor_id()] for output in self.outputs)
+        host_outputs = tuple(anchors[output.tensor_id] for output in self.outputs)
 
         if len(host_outputs) == 1:
             return host_outputs[0]

@@ -17,7 +17,7 @@ class Scale(pir_ext.Module):
 
 def test_accumulator_ops_added():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
@@ -37,10 +37,10 @@ def test_accumulator_ops_added():
 
         # Call backward. With seed tensor and connected activations
         grad = pir.constant(np.ones((2, 2)), pir.float32)
-        dgraph.bind(accum).call(grad, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+        dgraph.bind(accum).call(grad, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
     # One weight, one accumulator and one counter
-    assert len(main.get_variables()) == 3
+    assert len(main.variables) == 3
 
     d_ops = dgraph.graph._pb_graph.getOps()
     # Accumulator, Counter

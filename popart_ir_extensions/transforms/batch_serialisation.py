@@ -34,8 +34,8 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
         GraphWithNamedArgs: Batch serialised graph
     """
 
-    micro_batch_graph = graph.graph.ir().create_empty_graph(graph.graph.name + "_micro_batch")
-    batch_serial_graph = graph.graph.ir().create_empty_graph(graph.graph.name + "_batch_serial")
+    micro_batch_graph = graph.graph.ir.create_empty_graph(graph.graph.name + "_micro_batch")
+    batch_serial_graph = graph.graph.ir.create_empty_graph(graph.graph.name + "_batch_serial")
     with batch_serial_graph:
         index_t = ops.init((), pir.uint32, "batch_serial_index")
         ops.repeat(micro_batch_graph, steps)
@@ -48,8 +48,8 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
 
         shape = (steps, *compute_t.shape) if batched_input else compute_t.shape
         with batch_serial_graph:
-            batch_serial_input = pir.subgraph_input(shape, compute_t.dtype, compute_t.name,
-                                                    compute_t in graph.graph._by_ref_inputs)
+            batch_serial_input = pir.graph_input(shape, compute_t.dtype, compute_t.name,
+                                                 compute_t in graph.graph._by_ref_inputs)
 
         t = route_tensor_into_graph(batch_serial_input,
                                     modified=compute_t._pb_tensor.modifiedRegionsByOps(graph.graph._pb_graph.getOps()))
@@ -66,7 +66,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
         with batch_serial_graph:
             shape = (steps, *compute_out.shape)
             batch_serial_output = ops.init(shape, compute_out.dtype, compute_out.name)
-            pir.subgraph_output(batch_serial_output)
+            pir.graph_output(batch_serial_output)
 
         out = route_tensor_into_graph(batch_serial_output, modified=True)
         ops.dynamic_update_(out, index, compute_out.reshape((1, *compute_out.shape)), [0], [1], True)
@@ -74,7 +74,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
     with micro_batch_graph, pir.in_sequence():
         index_t = route_tensor_into_graph(index_t, modified=True)
 
-        for compute_t in graph.graph.get_input_tensors():
+        for compute_t in graph.graph.inputs:
             loop_input(compute_t, index_t)
 
         compute_batch_outputs = graph.call(args=compute_to_micro_batch_map)
@@ -108,9 +108,9 @@ def batch_serialise_forward_and_grad(
     """
 
     grad_batched_inputs = []
-    for idx, t in enumerate(gradient_graph.grad_graph_info.get_input_tensors()):
-        if t in batched_inputs or t in forward_graph.graph.get_output_tensors():
-            grad_batched_inputs.append(gradient_graph.graph.get_input_tensors()[idx])
+    for idx, t in enumerate(gradient_graph.grad_graph_info.inputs):
+        if t in batched_inputs or t in forward_graph.graph.outputs:
+            grad_batched_inputs.append(gradient_graph.graph.inputs[idx])
 
     forward_graph = batch_serialise(forward_graph, steps, batched_inputs)
 

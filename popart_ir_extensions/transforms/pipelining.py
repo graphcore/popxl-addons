@@ -10,7 +10,7 @@ import popart._internal.ir as _ir
 import popart.ir as pir
 import popart.ir.ops as ops
 from popart.ir.context import get_current_context
-from popart.ir.ops.call import SubgraphOpInfo
+from popart.ir.ops.call import CallSiteInfo
 from popart.ir.transforms.autodiff import GradGraphInfo
 
 from popart_ir_extensions.graph import BoundGraph
@@ -29,20 +29,20 @@ class PipelineBoundGraph(BoundGraph):
         self._original_input_to_arg: Dict[str, pir.Tensor] = {}
         self._produces_original_tensor: List[str] = []
 
-    def _moved_args(self, subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
+    def _moved_args(self, inputs_dict: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
         # Move inputs into the current graph.
         moved_inputs = {
             sg_t: route_tensor_into_graph(v,
                                           modified=sg_t._pb_tensor.modifiedRegionsByOps(self.graph._pb_graph.getOps()))
             for sg_t, v in self.args.items()
         }
-        if subgraph_in_to_parent_in:
-            moved_inputs.update({**subgraph_in_to_parent_in})
+        if inputs_dict:
+            moved_inputs.update({**inputs_dict})
         return moved_inputs
 
     def call(self, *args: pir.Tensor,
-             subgraph_in_to_parent_in: Optional[Mapping[pir.Tensor, pir.Tensor]] = None) -> Tuple[pir.Tensor, ...]:
-        return super().call(*args, args=self._moved_args(subgraph_in_to_parent_in))
+             inputs_dict: Optional[Mapping[pir.Tensor, pir.Tensor]] = None) -> Tuple[pir.Tensor, ...]:
+        return super().call(*args, args=self._moved_args(inputs_dict))
 
     @property
     def original_output_ids(self):
@@ -50,14 +50,14 @@ class PipelineBoundGraph(BoundGraph):
 
     def add_input_tensor(self, tensor: pir.Tensor):
         with self.graph:
-            input_tensor = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
+            input_tensor = pir.graph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
             self._original_input_to_arg[tensor.id] = input_tensor
             self.args[input_tensor] = tensor
         return input_tensor
 
     def add_output_tensor(self, tensor: pir.Tensor, original_id: str):
         with self.graph:
-            pir.subgraph_output(tensor)
+            pir.graph_output(tensor)
         self._produces_original_tensor.append(original_id)
 
     def reconnect_input(self, original_id: str, new: pir.Tensor):
@@ -71,7 +71,7 @@ class PipelineBoundGraph(BoundGraph):
 
 class Pipelining:
     def __init__(self, graph: pir.Graph, steps: int):
-        self.ir = graph.ir()
+        self.ir = graph.ir
         self.graph = self.ir.create_empty_graph("pipeline_graph")
         self.original_graph = graph
         self.steps = steps
@@ -267,14 +267,14 @@ class Pipelining:
             return loop_carried
 
         loop_carried_args = [self.original_tid_to_cloned_tensor[_id] for _id in self.ipu_copies.original_output_ids]
-        graph = pir.gcg().ir().create_graph(main_repeat, *loop_carried_args)
+        graph = pir.gcg().ir.create_graph(main_repeat, *loop_carried_args)
 
         main_cycles = self.steps - (self.num_stages - 1)
         # LoopOp can have operations that require a graph to execute on.
         with pir.ipu(0):
             r_info = ops.repeat_with_info(graph, main_cycles, *loop_carried_args)
 
-        self.remap_tensors(self.ipu_copies.original_output_ids, graph.get_input_tensors())
+        self.remap_tensors(self.ipu_copies.original_output_ids, graph.inputs)
         return graph, r_info._op
 
     def main_cycle(self):
@@ -445,8 +445,8 @@ def stash_and_restore_tensor(t: pir.Tensor, from_stage: Optional[int] = None) ->
     return restored
 
 
-def stash_and_restore_activations(call_info: SubgraphOpInfo, grad_info: GradGraphInfo) -> Dict[pir.Tensor, pir.Tensor]:
-    activations = grad_info.get_inputs_from_forward_call_info(call_info)
+def stash_and_restore_activations(call_info: CallSiteInfo, grad_info: GradGraphInfo) -> Dict[pir.Tensor, pir.Tensor]:
+    activations = grad_info.inputs_dict(call_info)
 
     # If the activation is produced on the current pipeline stage then don't create a stash.
     from_stage = call_info._op.getPipelineStage()

@@ -32,7 +32,7 @@ class InputFactory:
             constant (bool):
                 If false a variable tensor will be generated, otherwise a constant.
             by_ref (bool = False):
-                If true the subgraph_input's created for this tensor will be flagged as pass by reference.
+                If true the graph_input's created for this tensor will be flagged as pass by reference.
         """
 
         if callable(data_iter):
@@ -70,7 +70,7 @@ class InputFactory:
 
         if self.replica_sharded:
             self.shape = (int(np.prod(data_peek.shape)) //
-                          pir.gcg().ir()._pb_ir.getSessionOptions().replicatedGraphCount, )
+                          pir.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
 
     def create_input(self, prefix: Optional[str] = None) -> pir.Tensor:
         """
@@ -84,7 +84,7 @@ class InputFactory:
         shape = self.shape or data.shape
         dtype = self.dtype or dtypes.dtype.as_dtype(data)
         meta_shape = data.shape if shape != data.shape else None
-        t = pir.subgraph_input(shape=shape, dtype=dtype, name=name, by_ref=self.by_ref, meta_shape=meta_shape)
+        t = pir.graph_input(shape=shape, dtype=dtype, name=name, by_ref=self.by_ref, meta_shape=meta_shape)
         return t
 
     def create_tensor(self, name: Optional[str] = None):
@@ -137,7 +137,7 @@ def add_input_tensor(name: str,
                      dtype: Optional[dtypes.dtype] = None,
                      constant: bool = False,
                      by_ref: bool = False) -> Tuple[pir.Tensor, InputFactory]:
-    """Create an InputFactory and subgraph_input in the current graph."""
+    """Create an InputFactory and graph_input in the current graph."""
     input_f = InputFactory(data_iter, dtype, name, constant, by_ref)
     tensor = input_f.create_input()
     return tensor, input_f
@@ -148,7 +148,7 @@ def add_replica_sharded_input_tensor(name: str,
                                      dtype: Optional[dtypes.dtype] = None,
                                      constant: bool = False,
                                      by_ref: bool = False) -> Tuple[pir.Tensor, InputFactory]:
-    """Create an InputFactory and replica sharded subgraph_input in the current graph."""
+    """Create an InputFactory and replica sharded graph_input in the current graph."""
     input_f = InputFactory(data_iter, dtype, name, constant, by_ref, True)
     tensor = input_f.create_input()
     return tensor, input_f

@@ -2,7 +2,7 @@
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 import popart._internal.ir as _ir
 from popart.ir.context import get_current_graph
-from popart.ir.tensor import Tensor, subgraph_input
+from popart.ir.tensor import Tensor, graph_input
 from popart.ir.graph import Graph
 
 __all__ = ["route_tensor_into_graph", "is_subgraph"]
@@ -56,7 +56,7 @@ def connect_call_op(op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.G
                 sg._pb_graph.getInputTensor(op.opInToSubgraphInIndex(op.inIndex(tensor._pb_tensor))))
         else:
             with sg:
-                sg_tensor = subgraph_input(tensor.shape, tensor.dtype, tensor.name)
+                sg_tensor = graph_input(tensor.shape, tensor.dtype, tensor.name)
 
     if op_idx is None:
         op_idx = op.subgraphInToOpInIndex(sg._pb_graph.getInputIndex(sg_tensor.id))

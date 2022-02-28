@@ -6,7 +6,7 @@ import popart_ir_extensions as pir_ext
 
 def test_avail_mem_prop_by_ipu():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
     with main:
         with pir.ipu(0):
             a = pir.variable(np.ones((2, 2)), dtype=pir.float32)

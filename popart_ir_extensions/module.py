@@ -58,7 +58,7 @@ class Module(pir.Module, metaclass=NameScopeMeta):
                 self._args_cache[graph] = self._input_factories.copy(), self._named_inputs.copy()
             input_factories, named_inputs = self._args_cache[graph]
         else:
-            graph = pir.gcg().ir().create_graph(self, *args, **kwargs)
+            graph = pir.gcg().ir.create_graph(self, *args, **kwargs)
             input_factories, named_inputs = self._input_factories, self._named_inputs
         result = (input_factories.copy(), GraphWithNamedArgs(graph, named_inputs.copy()))
         self._reset()

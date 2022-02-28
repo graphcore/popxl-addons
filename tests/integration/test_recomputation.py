@@ -22,7 +22,7 @@ class DoubleLinear(pir_ext.Module):
 def get_model_outputs(recompute: bool) -> Tuple[pir.Tensor, ...]:
     np.random.seed(1984)
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x_data, x_h2d, x = pir_ext.host_load(np.random.normal(0, 0.1, (2, 2)).astype(np.float32), pir.float32, "x")
@@ -36,11 +36,10 @@ def get_model_outputs(recompute: bool) -> Tuple[pir.Tensor, ...]:
 
         x, *_ = scale.call(x)
         call_info = scale.call_with_info(x)
-        x, *_ = call_info.get_output_tensors()
+        x, *_ = call_info.outputs
 
         gradient = pir.constant(np.ones(x.shape), x.dtype, "gradient")
-        outputs_t: Tuple[pir.Tensor, ...] = dgraph.call(
-            gradient, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+        outputs_t: Tuple[pir.Tensor, ...] = dgraph.call(gradient, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
         outputs = tuple(map(pir_ext.host_store, outputs_t))
 

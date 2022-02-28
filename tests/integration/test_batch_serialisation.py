@@ -18,7 +18,7 @@ class Scale(Module):
 
 def test_batch_serialisation_fwd_only():
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     cb = 2
     bf = 4
@@ -29,7 +29,7 @@ def test_batch_serialisation_fwd_only():
         args, graph = Scale().create_graph(input_spec)
 
         # Transform graphs
-        graph = batch_serialise(graph, bf, graph.graph.get_input_tensors()[:1])
+        graph = batch_serialise(graph, bf, graph.graph.inputs[:1])
 
         # Create variables and bind
         scale = graph.bind(args.init())
@@ -72,12 +72,12 @@ def test_batch_serialisation_grad():
     def graph():
         np.random.seed(42)
         ir = pir.Ir()
-        main = ir.main_graph()
+        main = ir.main_graph
         combined_inputs = inputs.reshape((-1, 2))
         with main:
             # Create graphs
             args, graph = Linear(4).create_graph(pir.constant(combined_inputs))
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.get_input_tensors())
+            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.inputs)
 
             # Create variables
             linear = args.init()
@@ -95,7 +95,7 @@ def test_batch_serialisation_grad():
 
             # Note Mean over batch_serialisation_factor
             grad_seed = pir.constant(grad.reshape(-1, 4) / bf)
-            bwd.call(grad_seed, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+            bwd.call(grad_seed, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
         runner = pir_ext.Runner(ir)
         runner.run({x_h2d: combined_inputs})
@@ -106,15 +106,15 @@ def test_batch_serialisation_grad():
     def batch_serial():
         np.random.seed(42)
         ir = pir.Ir()
-        main = ir.main_graph()
+        main = ir.main_graph
         with main:
 
             # Create graphs
             args, graph = Linear(4).create_graph(pir.constant(inputs[0]))
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.get_input_tensors())
+            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.inputs)
 
             # Transform graphs
-            graph, dgraph = batch_serialise_forward_and_grad(graph, dgraph, bf, graph.graph.get_input_tensors()[:1])
+            graph, dgraph = batch_serialise_forward_and_grad(graph, dgraph, bf, graph.graph.inputs[:1])
 
             # Create variablesrecompute_graphre
             linear = args.init()
@@ -131,7 +131,7 @@ def test_batch_serialisation_grad():
             call_info = fwd.call_with_info(x)
 
             # Note Mean over batch_serialisation_factor
-            bwd.call(pir.constant(grad), args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info))
+            bwd.call(pir.constant(grad), args=dgraph.grad_graph_info.inputs_dict(call_info))
 
         runner = pir_ext.Runner(ir)
         runner.run({x_h2d: inputs})

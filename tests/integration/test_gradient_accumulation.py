@@ -19,16 +19,16 @@ class Scale(Module):
 def model(with_accumulation):
     np.random.seed(42)
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     with main:
         x = pir.variable(np.random.normal(0, 1, (2, 2)), pir.float32)
 
         args, graph = Scale().create_graph(x)
         if with_accumulation:
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.scale], graph.graph.get_input_tensors())
+            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.scale], graph.graph.inputs)
         else:
-            dgraph = autodiff(graph, grads_required=graph.graph.get_input_tensors())
+            dgraph = autodiff(graph, grads_required=graph.graph.inputs)
             # Create empty. No named inputs.
             dargs = NamedInputFactories()
 
@@ -44,14 +44,12 @@ def model(with_accumulation):
 
         # Call forward
         call_info_1 = fwd1.call_with_info(x)
-        call_info_2 = fwd2.call_with_info(*call_info_1.get_output_tensors())
+        call_info_2 = fwd2.call_with_info(*call_info_1.outputs)
 
         # Call backward
         seed = pir.constant(np.ones((2, 2)), pir.float32)
-        dscale2_out = dgraph.bind(accum1).call(
-            seed, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_2))
-        dscale1_out = dgraph.bind(accum2).call(
-            dscale2_out[0], args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_1))
+        dscale2_out = dgraph.bind(accum1).call(seed, args=dgraph.grad_graph_info.inputs_dict(call_info_2))
+        dscale1_out = dgraph.bind(accum2).call(dscale2_out[0], args=dgraph.grad_graph_info.inputs_dict(call_info_1))
 
         if with_accumulation:
             outs = []

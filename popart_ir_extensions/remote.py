@@ -60,7 +60,7 @@ class RemoteBuffers:
         Returns:
             Tuple[pir.RemoteBuffer, int]: RemoteBuffer and offset of the remote variable storage
         """
-        shape = (int(np.prod(var.shape)) // pir.gcg().ir()._pb_ir.getSessionOptions().replicatedGraphCount, )
+        shape = (int(np.prod(var.shape)) // pir.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
         buffer = self.get_buffer(shape, var.dtype, var.shape)
         offset = buffer.entries
         buffer.entries += 1

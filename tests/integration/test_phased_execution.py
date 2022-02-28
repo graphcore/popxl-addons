@@ -27,7 +27,7 @@ def test_phased_inference():
     ir = pir.Ir()
     opts = ir._pb_ir.getSessionOptions()
     opts.numIOTiles = 32
-    main = ir.main_graph()
+    main = ir.main_graph
     buffers = RemoteBuffers()
 
     data = np.random.normal(0, 1, (1, 4)).astype(np.float32)
@@ -76,7 +76,7 @@ def test_phased_training():
     def graph():
         np.random.seed(42)
         ir = pir.Ir()
-        main = ir.main_graph()
+        main = ir.main_graph
 
         data = np.random.normal(0, 1, (1, 4)).astype(np.float32)
 
@@ -89,26 +89,26 @@ def test_phased_training():
 
             fwd1 = graph.bind(args.init())
             call_info_1 = fwd1.call_with_info(x)
-            x, = call_info_1.get_output_tensors()
+            x, = call_info_1.outputs
 
             fwd2 = graph.bind(args.init())
             call_info_2 = fwd2.call_with_info(x)
-            x, = call_info_2.get_output_tensors()
+            x, = call_info_2.outputs
 
             fwd3 = graph.bind(args.init())
             call_info_3 = fwd3.call_with_info(x)
-            x, = call_info_3.get_output_tensors()
+            x, = call_info_3.outputs
 
             dx: pir.Tensor
             dw: pir.Tensor
 
-            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_3))
+            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.inputs_dict(call_info_3))
             results.append(dw)
 
-            dx, dw = dgraph.call(dx, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_2))
+            dx, dw = dgraph.call(dx, args=dgraph.grad_graph_info.inputs_dict(call_info_2))
             results.append(dw)
 
-            _, dw = dgraph.call(dx, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_1))
+            _, dw = dgraph.call(dx, args=dgraph.grad_graph_info.inputs_dict(call_info_1))
             results.append(dw)
 
             outputs = tuple(host_store(t) for t in results)
@@ -120,7 +120,7 @@ def test_phased_training():
         ir = pir.Ir()
         opts = ir._pb_ir.getSessionOptions()
         opts.numIOTiles = 32
-        main = ir.main_graph()
+        main = ir.main_graph
         buffers = RemoteBuffers()
 
         data = np.random.normal(0, 1, (1, 4)).astype(np.float32)
@@ -142,7 +142,7 @@ def test_phased_training():
             # Overlap
             load2 = load_to_io_tiles(r_variables[1])
             call_info_1 = fwd1.call_with_info(x)
-            x, = call_info_1.get_output_tensors()
+            x, = call_info_1.outputs
             # -------
 
             acts1 = remote_activations(call_info_1,
@@ -159,7 +159,7 @@ def test_phased_training():
                 store_from_io_tiles(store1, acts1.buffers)
                 load3 = load_to_io_tiles(r_variables[2])
             call_info_2 = fwd2.call_with_info(x)
-            x, = call_info_2.get_output_tensors()
+            x, = call_info_2.outputs
             # -------
 
             acts2 = remote_activations(call_info_2,
@@ -174,7 +174,7 @@ def test_phased_training():
             # Overlap - TODO: Don't store, just copy to io tiles
             store_from_io_tiles(store2, acts2.buffers)
             call_info_3 = fwd3.call_with_info(x)
-            x, = call_info_3.get_output_tensors()
+            x, = call_info_3.outputs
             # ------
 
             dx: pir.Tensor
@@ -182,7 +182,7 @@ def test_phased_training():
 
             # Overlap
             load2 = load_to_io_tiles(acts2.buffers)
-            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_3))
+            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.inputs_dict(call_info_3))
             # ------
             results.append(dw)
 
@@ -220,7 +220,7 @@ class SGDM(pir_ext.Module):
 def graph_with_optimizer():
     np.random.seed(42)
     ir = pir.Ir()
-    main = ir.main_graph()
+    main = ir.main_graph
 
     data = np.random.normal(0, 1, (2, 4)).astype(np.float32)
 
@@ -236,26 +236,26 @@ def graph_with_optimizer():
 
         fwd1 = graph.bind(variables[0])
         call_info_1 = fwd1.call_with_info(x)
-        x, = call_info_1.get_output_tensors()
+        x, = call_info_1.outputs
 
         fwd2 = graph.bind(variables[1])
         call_info_2 = fwd2.call_with_info(x)
-        x, = call_info_2.get_output_tensors()
+        x, = call_info_2.outputs
 
         fwd3 = graph.bind(variables[2])
         call_info_3 = fwd3.call_with_info(x)
-        x, = call_info_3.get_output_tensors()
+        x, = call_info_3.outputs
 
         dx: pir.Tensor
         dw: pir.Tensor
 
-        dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_3))
+        dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.inputs_dict(call_info_3))
         opt_graph.bind(opt_vars[2]).call(variables[2].weight, dw)
 
-        dx, dw = dgraph.call(dx, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_2))
+        dx, dw = dgraph.call(dx, args=dgraph.grad_graph_info.inputs_dict(call_info_2))
         opt_graph.bind(opt_vars[1]).call(variables[1].weight, dw)
 
-        _, dw = dgraph.call(dx, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_1))
+        _, dw = dgraph.call(dx, args=dgraph.grad_graph_info.inputs_dict(call_info_1))
         opt_graph.bind(opt_vars[0]).call(variables[0].weight, dw)
 
     runner = pir_ext.Runner(ir, device_num=1)
@@ -273,7 +273,7 @@ def test_phased_training_with_optimizer():
         ir = pir.Ir()
         opts = ir._pb_ir.getSessionOptions()
         opts.numIOTiles = 32
-        main = ir.main_graph()
+        main = ir.main_graph
         buffers = RemoteBuffers()
 
         data = np.random.normal(0, 1, (2, 4)).astype(np.float32)
@@ -302,7 +302,7 @@ def test_phased_training_with_optimizer():
 
             fwd1 = graph.bind(var_load1)
             call_info_1 = fwd1.call_with_info(x)
-            x, = call_info_1.get_output_tensors()
+            x, = call_info_1.outputs
             # -------
 
             acts1 = remote_activations(call_info_1, dgraph.grad_graph_info, buffers,
@@ -318,7 +318,7 @@ def test_phased_training_with_optimizer():
 
             fwd2 = graph.bind(var_load2)
             call_info_2 = fwd2.call_with_info(x)
-            x, = call_info_2.get_output_tensors()
+            x, = call_info_2.outputs
             # -------
 
             acts2 = remote_activations(call_info_2, dgraph.grad_graph_info, buffers,
@@ -334,7 +334,7 @@ def test_phased_training_with_optimizer():
 
             fwd3 = graph.bind(var_load3)
             call_info_3 = fwd3.call_with_info(x)
-            x, = call_info_3.get_output_tensors()
+            x, = call_info_3.outputs
             # ------
 
             dx: pir.Tensor
@@ -345,7 +345,7 @@ def test_phased_training_with_optimizer():
                 act_load2_io, var_load2_io, opt_load2_io = \
                     load_to_io_tiles(acts2.buffers, r_variables[1], r_opt_vars[1])
 
-            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_3))
+            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.inputs_dict(call_info_3))
             # ------
             dw = ops.io_tile_copy(dw)
             with pir.io_tiles():
@@ -409,7 +409,7 @@ class SGDM_RTS(pir_ext.Module):
 
 def rts_spec(t):
     spec = pir.constant(0, t.dtype)
-    shape = (int(np.prod(t.shape)) // pir.gcg().ir()._pb_ir.getSessionOptions().replicatedGraphCount, )
+    shape = (int(np.prod(t.shape)) // pir.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
     info = spec._pb_tensor.info
     info.set(info.dataType(), shape, t.shape)
     return spec
@@ -423,7 +423,7 @@ def test_phased_training_with_rts():
         opts.numIOTiles = 32
         opts.enableReplicatedGraphs = True
         opts.replicatedGraphCount = 2
-        main = ir.main_graph()
+        main = ir.main_graph
         buffers = RemoteBuffers()
 
         data = np.random.normal(0, 1, (2, 4)).astype(np.float32)
@@ -452,7 +452,7 @@ def test_phased_training_with_rts():
             with pir.transforms.io_tile_exchange():
                 var_load2_io = load_from_buffers(r_variables[1])
             call_info_1 = fwd1.call_with_info(x)
-            x, = call_info_1.get_output_tensors()
+            x, = call_info_1.outputs
             acts1 = remote_activations(call_info_1, dgraph.grad_graph_info, buffers,
                                        var_load1.to_mapping(r_variables[0]))
 
@@ -465,7 +465,7 @@ def test_phased_training_with_rts():
                 store_to_buffers(act_store1, acts1.buffers)
                 var_load3_io = load_from_buffers(r_variables[2])
             call_info_2 = fwd2.call_with_info(x)
-            x, = call_info_2.get_output_tensors()
+            x, = call_info_2.outputs
             acts2 = remote_activations(call_info_2, dgraph.grad_graph_info, buffers,
                                        var_load2.to_mapping(r_variables[1]))
 
@@ -477,7 +477,7 @@ def test_phased_training_with_rts():
             with pir.transforms.io_tile_exchange():
                 store_to_buffers(act_store2, acts2.buffers)
             call_info_3 = fwd3.call_with_info(x)
-            x, = call_info_3.get_output_tensors()
+            x, = call_info_3.outputs
 
             dx: pir.Tensor
             dw: pir.Tensor
@@ -485,7 +485,7 @@ def test_phased_training_with_rts():
             to_load = NamedBuffers(acts=acts2.buffers, optim=r_opt_vars[2])
             with pir.transforms.io_tile_exchange():
                 loaded_io = load_from_buffers(to_load)
-            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(call_info_3))
+            dx, dw = dgraph.call(x, args=dgraph.grad_graph_info.inputs_dict(call_info_3))
 
             dw = ops.io_tile_copy(dw)
             with pir.io_tiles():

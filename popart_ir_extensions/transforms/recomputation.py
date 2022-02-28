@@ -14,23 +14,23 @@ def add_recompute_inputs(grad_info: GradGraphInfo):
 
     expected_inputs = []
 
-    fwd_inputs = grad_info.forward_graph.get_input_tensors()
-    grad_inputs = grad_info.graph.get_input_tensors()
+    fwd_inputs = grad_info.forward_graph.inputs
+    grad_inputs = grad_info.graph.inputs
 
     # Add inputs that are required for grad_graph
     for idx, ec in enumerate(grad_info.expected_inputs):
         if ec.connection_type == ExpectedConnectionType.FwdGrad:
             tensor = grad_inputs[idx]
-            grad_input_mapping[tensor] = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
+            grad_input_mapping[tensor] = pir.graph_input(tensor.shape, tensor.dtype, tensor.name)
             expected_inputs.append(ec)
         elif ec.connection_type == ExpectedConnectionType.Fwd and ec.fwd_tensor in fwd_inputs:
             tensor = ec.fwd_tensor
-            fwd_input_mapping[tensor] = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
+            fwd_input_mapping[tensor] = pir.graph_input(tensor.shape, tensor.dtype, tensor.name)
             expected_inputs.append(ec)
 
     # Finally add any additional inputs to graph that haven't been created
     for tensor in set(fwd_inputs) - set(fwd_input_mapping.keys()):
-        fwd_input_mapping[tensor] = pir.subgraph_input(tensor.shape, tensor.dtype, tensor.name)
+        fwd_input_mapping[tensor] = pir.graph_input(tensor.shape, tensor.dtype, tensor.name)
         expected_inputs.append(
             ExpectedConnection._from_pb(grad_info.forward_graph._pb_graph,
                                         _ir.ExpectedConnection(tensor.id, _ir.ExpectedConnectionType.Fwd)))
@@ -48,7 +48,7 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
     Returns:
         GraphWithNamedArgs: gradient graph with recomputation
     """
-    ir = grad_graph.graph.ir()
+    ir = grad_graph.graph.ir
     r_graph = ir.create_empty_graph(grad_graph.graph.name + "_recomp")
 
     grad_info = grad_graph.grad_graph_info
@@ -62,23 +62,23 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         call_info = fgraph.call_with_info()
 
         # Include activations
-        activations = grad_info.get_inputs_from_forward_call_info(call_info)
+        activations = grad_info.inputs_dict(call_info)
         grad_inputs.update(activations)
 
         # These are inputs to the grad graph that aren't from `GradGraphInfo`. Such as gradient accumulators.
-        for tensor in set(grad_graph.graph.get_input_tensors()) - set(grad_inputs.keys()):
-            grad_inputs[tensor] = pir.subgraph_input(tensor.shape,
-                                                     tensor.dtype,
-                                                     tensor.name,
-                                                     by_ref=tensor in grad_graph.graph._by_ref_inputs)
+        for tensor in set(grad_graph.graph.inputs) - set(grad_inputs.keys()):
+            grad_inputs[tensor] = pir.graph_input(tensor.shape,
+                                                  tensor.dtype,
+                                                  tensor.name,
+                                                  by_ref=tensor in grad_graph.graph._by_ref_inputs)
 
         ggraph = BoundGraph(grad_graph.graph, grad_inputs)
         # Call Gradient Graph
         call_info = ggraph.call_with_info()
 
         # Add outputs in the Recompute Graph for each output in the Gradient Graph
-        for output in call_info.get_output_tensors():
-            pir.subgraph_output(output)
+        for output in call_info.outputs:
+            pir.graph_output(output)
 
         # Remap NamedArgs from the Gradient Graph to the Recompute Graph
         remapped_args = grad_graph.args.remap(grad_inputs)

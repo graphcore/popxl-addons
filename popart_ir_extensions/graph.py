@@ -4,7 +4,7 @@ from typing import Iterable, Optional, Union, List, Tuple
 import popart.ir as pir
 from popart.ir.context import debug_context_frame_offset
 import popart.ir.ops as ops
-from popart.ir.ops.call import SubgraphOpInfo
+from popart.ir.ops.call import CallSiteInfo
 from popart_ir_extensions.dot_tree import to_mapping
 from popart_ir_extensions.named_tensors import NamedTensors, TensorMap
 from popart.ir.transforms.autodiff import GradGraphInfo
@@ -30,11 +30,11 @@ class BoundGraph:
             Output of ops.call
         """
         call_info = self.call_with_info(*targs, args=args)
-        return call_info.get_output_tensors()
+        return call_info.outputs
 
     @debug_context_frame_offset(1)
     def call_with_info(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
-                       args: Optional[TensorMap] = None) -> SubgraphOpInfo:
+                       args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call the bound graph and return call info object.
 
         Args:
@@ -45,8 +45,8 @@ class BoundGraph:
         Returns:
             Output of ops.call_with_info
         """
-        subgraph_in_to_parent_in = {**self.args, **(args or {})}
-        return ops.call_with_info(self.graph, *targs, subgraph_in_to_parent_in=subgraph_in_to_parent_in)
+        inputs_dict = {**self.args, **(args or {})}
+        return ops.call_with_info(self.graph, *targs, inputs_dict=inputs_dict)
 
     def bind(self, args: TensorMap) -> 'BoundGraph':
         """Rebind the graph. The new bound Tensors will be the current bound tensors and args
@@ -72,15 +72,15 @@ class BoundGraph:
         Returns:
             TensorMap
         """
-        subgraph_in_to_parent_in = {**self.args, **(args or {})}
+        inputs_dict = {**self.args, **(args or {})}
         for idx, targ in enumerate(targs):
-            subgraph_in_to_parent_in[pir.Tensor._from_pb_tensor(self.graph._pb_graph.getInputTensor(idx))] = targ
+            inputs_dict[pir.Tensor._from_pb_tensor(self.graph._pb_graph.getInputTensor(idx))] = targ
 
         subgraph_out_to_parent_out = {}
         for idx, tout in enumerate(outs):
             subgraph_out_to_parent_out[pir.Tensor._from_pb_tensor(self.graph._pb_graph.getOutputTensor(idx))] = tout
 
-        return {**subgraph_out_to_parent_out, **subgraph_in_to_parent_in}
+        return {**subgraph_out_to_parent_out, **inputs_dict}
 
 
 class GraphWithNamedArgs:
@@ -134,7 +134,7 @@ class GraphWithNamedArgs:
         return self.bind().call(*targs, args=args)
 
     def call_with_info(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
-                       args: Optional[TensorMap] = None) -> SubgraphOpInfo:
+                       args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call self.graph with no bound arguments. Output call with info object.
 
         Args:
@@ -186,7 +186,7 @@ class GraphWithNamedArgs:
 
         inputs = []
         names, tensors = self.args.unpack()
-        for t in self.graph.get_input_tensors():
+        for t in self.graph.inputs:
             try:
                 idx = tensors.index(t)
                 inputs.append(f"{names[idx]}=%{ids[t.id]}")
@@ -202,7 +202,7 @@ class GraphWithNamedArgs:
         ss_ops = "\n".join(ops)
 
         outputs = []
-        for t in self.graph.get_output_tensors():
+        for t in self.graph.outputs:
             outputs.append(f"%{ids[t.id]}")
         ss_outputs = ", ".join(outputs)
 

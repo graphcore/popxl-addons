@@ -97,7 +97,7 @@ def test(test_runner, test_data, streams):
 
 def train_program(opts):
     ir = pir.Ir()
-    with ir.main_graph():
+    with ir.main_graph:
         # Inputs
         in_stream = pir.h2d_stream((opts.batch_size, 28, 28), pir.float32, "image")
         in_t = ops.host_load(in_stream)
@@ -113,15 +113,15 @@ def train_program(opts):
 
         # Forward
         fwd_info = graph.bind(params).call_with_info(in_t)
-        x = fwd_info.get_output_tensors()[0]
+        x = fwd_info.outputs[0]
         # Loss
         loss, dx = pir_ext.ops.cross_entropy_with_grad(x, labels)
         loss_stream = pir.d2h_stream(loss.shape, loss.dtype, "loss")
         ops.host_store(loss_stream, loss)
         # Gradient
-        bwd_info = dgraph.call_with_info(dx, args=dgraph.grad_graph_info.get_inputs_from_forward_call_info(fwd_info))
+        bwd_info = dgraph.call_with_info(dx, args=dgraph.grad_graph_info.inputs_dict(fwd_info))
         # Optimizer
-        grads = dgraph.grad_graph_info.get_fwd_inputs_to_grad_tensor_map(fwd_info, bwd_info)
+        grads = dgraph.grad_graph_info.fwd_parent_ins_to_grad_parent_outs(fwd_info, bwd_info)
         for t in params.tensors:
             ops.scaled_add_(t, grads[t], b=-opts.lr)
 
@@ -130,7 +130,7 @@ def train_program(opts):
 
 def test_program(opts):
     ir = pir.Ir()
-    with ir.main_graph():
+    with ir.main_graph:
         # Inputs
         in_stream = pir.h2d_stream((opts.test_batch_size, 28, 28), pir.float32, "image")
         in_t = ops.host_load(in_stream)
