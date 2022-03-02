@@ -26,7 +26,7 @@ class NamedTensors(DotTree[pir.Tensor]):
 
     @property
     def named_variables(self) -> Dict[str, pir.Tensor]:
-        return {name: t for name, t in self.named_tensors if isinstance(t, Variable)}
+        return {name: t for name, t in self.named_tensors.items() if isinstance(t, Variable)}
 
     def remap(self, mapping: TensorMap):
         """Map each value to a new value from `mapping`. `mapping` must contain all keys in self."""
