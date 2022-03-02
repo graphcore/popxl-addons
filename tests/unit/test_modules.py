@@ -2,12 +2,12 @@
 from functools import partial
 import numpy as np
 
-import popart.ir as pir
+import popxl
 
-from popart_ir_extensions import InputFactory
-from popart_ir_extensions.module import Module
-from popart_ir_extensions.transforms.autodiff import autodiff_with_accumulation
-from popart_ir_extensions.transforms.recomputation import recompute_graph
+from popxl_addons import InputFactory
+from popxl_addons.module import Module
+from popxl_addons.transforms.autodiff import autodiff_with_accumulation
+from popxl_addons.transforms.recomputation import recompute_graph
 
 
 class Linear(Module):
@@ -15,18 +15,18 @@ class Linear(Module):
         super().__init__()
         self.features = features
 
-    def build(self, x: pir.Tensor):
-        w = self.add_input_tensor("w", partial(np.zeros, (x.shape[-1], self.features)), pir.float32)
-        b = self.add_input_tensor("b", partial(np.zeros, (self.features, )), pir.float32)
+    def build(self, x: popxl.Tensor):
+        w = self.add_input_tensor("w", partial(np.zeros, (x.shape[-1], self.features)), popxl.float32)
+        b = self.add_input_tensor("b", partial(np.zeros, (self.features, )), popxl.float32)
         return (x @ w) + b
 
 
 def test_linear_module():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 4)), popxl.float32)
 
         args, graph = Linear(10).create_graph(x)
 
@@ -38,11 +38,11 @@ def test_linear_module():
 
 
 def test_linear_reuse_module():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 4)), popxl.float32)
 
         args, graph = Linear(4).create_graph(x)
 
@@ -56,11 +56,11 @@ def test_linear_reuse_module():
 
 
 def test_linear_autodiff():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 4)), popxl.float32)
 
         args, graph = Linear(10).create_graph(x)
 
@@ -78,11 +78,11 @@ def test_linear_autodiff():
 
 
 def test_linear_recompute():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 4)), popxl.float32)
 
         args, graph = Linear(10).create_graph(x)
 
@@ -107,16 +107,16 @@ class DoubleLinear(Module):
         self.linear1 = Linear(10)
         self.linear2 = Linear(10)
 
-    def build(self, x: pir.Tensor):
+    def build(self, x: popxl.Tensor):
         return self.linear2(self.linear1(x))
 
 
 def test_nested_module():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 4)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 4)), popxl.float32)
 
         args, graph = DoubleLinear().create_graph(x)
 
@@ -136,7 +136,7 @@ def test_nested_module():
 
 
 class DoubleLinearOutlined(Module):
-    def build(self, x: pir.Tensor):
+    def build(self, x: popxl.Tensor):
         args, graph = Linear(10).create_graph(x)
 
         args1 = self.add_inputs("linear1", args)
@@ -147,11 +147,11 @@ class DoubleLinearOutlined(Module):
 
 
 def test_outlined_module():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 10)), popxl.float32)
 
         args, graph = DoubleLinearOutlined().create_graph(x)
 
@@ -183,11 +183,11 @@ class Linears(Module):
 
 
 def test_module_list_inlined():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 10)), popxl.float32)
 
         n = 3
         linear = Linears(n)
@@ -218,11 +218,11 @@ class LinearsOutlined(Module):
 
 
 def test_module_list_outlined():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (2, 10)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 10)), popxl.float32)
 
         n = 3
         linear = LinearsOutlined(n)
@@ -245,7 +245,7 @@ class MultiMatMul(Module):
 
     def build(self, x):
         self.weights = Module.from_input_factories(
-            self.n * [InputFactory(lambda: np.random.normal(0, 0.02, (10, 10)), pir.float16)])
+            self.n * [InputFactory(lambda: np.random.normal(0, 0.02, (10, 10)), popxl.float16)])
 
         for i in range(self.n):
             x = x @ self.weights[i]
@@ -254,11 +254,11 @@ class MultiMatMul(Module):
 
 
 def test_from_input_factories():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 0.02, (10, 10)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 0.02, (10, 10)), popxl.float32)
 
         n = 3
         args, graph = MultiMatMul(n).create_graph(x)

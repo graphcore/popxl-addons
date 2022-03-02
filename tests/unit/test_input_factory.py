@@ -1,6 +1,6 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
-from popart_ir_extensions.input_factory import InputFactory
+from popxl_addons.input_factory import InputFactory
 import pytest
 
 

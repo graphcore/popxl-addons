@@ -1,28 +1,28 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from collections import defaultdict
 from typing import Iterable, Optional, Union, List, Tuple
-import popart.ir as pir
-from popart.ir.context import debug_context_frame_offset
-import popart.ir.ops as ops
-from popart.ir.ops.call import CallSiteInfo
-from popart_ir_extensions.dot_tree import to_mapping
-from popart_ir_extensions.named_tensors import NamedTensors, TensorMap
-from popart.ir.transforms.autodiff import GradGraphInfo
+import popxl
+from popxl.context import debug_context_frame_offset
+from popxl import ops
+from popxl.ops.call import CallSiteInfo
+from popxl_addons.dot_tree import to_mapping
+from popxl_addons.named_tensors import NamedTensors, TensorMap
+from popxl.transforms.autodiff import GradGraphInfo
 
 
 class BoundGraph:
-    """Container of a pir.Graph and a TensorMap of bound Tensor inputs"""
+    """Container of a popxl.Graph and a TensorMap of bound Tensor inputs"""
 
-    def __init__(self, graph: pir.Graph, args: Optional[TensorMap] = None):
+    def __init__(self, graph: popxl.Graph, args: Optional[TensorMap] = None):
         self.graph = graph
         self.args = dict(args or {})
 
-    def call(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
-             args: Optional[TensorMap] = None) -> Tuple[pir.Tensor, ...]:
+    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+             args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
         """Call the bound graph.
 
         Args:
-            *targs (Union[pir.Tensor, List[pir.Tensor]]): Positional Tensor arguments
+            *targs (Union[popxl.Tensor, List[popxl.Tensor]]): Positional Tensor arguments
             args (Optional[TensorMap], optional): Optional Tensor arguments. Will overwrite any bound arguments for the
                 same graph input Tensor. Defaults to None.
 
@@ -33,12 +33,12 @@ class BoundGraph:
         return call_info.outputs
 
     @debug_context_frame_offset(1)
-    def call_with_info(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
+    def call_with_info(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
                        args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call the bound graph and return call info object.
 
         Args:
-            *targs (Union[pir.Tensor, List[pir.Tensor]]): Positional Tensor arguments
+            *targs (Union[popxl.Tensor, List[popxl.Tensor]]): Positional Tensor arguments
             args (Optional[TensorMap], optional): Optional Tensor arguments. Will overwrite any bound arguments for the
                 same graph input Tensor. Defaults to None.
 
@@ -59,45 +59,48 @@ class BoundGraph:
         """
         return BoundGraph(self.graph, {**self.args, **args})
 
-    def subgraph_io_map(self, *targs: pir.Tensor, args: Optional[TensorMap] = None, outs: Iterable[pir.Tensor] = None):
+    def subgraph_io_map(self,
+                        *targs: popxl.Tensor,
+                        args: Optional[TensorMap] = None,
+                        outs: Iterable[popxl.Tensor] = None):
         """Return a map of:
             * graph input Tensors to call inputs (*targs, args, self.args)
             * graph output Tensors to call outputs (outs)
 
         Args:
-            *targs (pir.Tensor): Positional call inputs
+            *targs (popxl.Tensor): Positional call inputs
             args (Optional[TensorMap], optional): Optional call inputs TensorMap. Defaults to None.
-            outs (Iterable[pir.Tensor], optional): Call outputs. Defaults to None.
+            outs (Iterable[popxl.Tensor], optional): Call outputs. Defaults to None.
 
         Returns:
             TensorMap
         """
         inputs_dict = {**self.args, **(args or {})}
         for idx, targ in enumerate(targs):
-            inputs_dict[pir.Tensor._from_pb_tensor(self.graph._pb_graph.getInputTensor(idx))] = targ
+            inputs_dict[popxl.Tensor._from_pb_tensor(self.graph._pb_graph.getInputTensor(idx))] = targ
 
         subgraph_out_to_parent_out = {}
         for idx, tout in enumerate(outs):
-            subgraph_out_to_parent_out[pir.Tensor._from_pb_tensor(self.graph._pb_graph.getOutputTensor(idx))] = tout
+            subgraph_out_to_parent_out[popxl.Tensor._from_pb_tensor(self.graph._pb_graph.getOutputTensor(idx))] = tout
 
         return {**subgraph_out_to_parent_out, **inputs_dict}
 
 
 class GraphWithNamedArgs:
     def __init__(self,
-                 graph: pir.Graph,
+                 graph: popxl.Graph,
                  args: Optional[NamedTensors] = None,
                  grad_graph_info: Optional[GradGraphInfo] = None):
         """
-        Container of `pir.Graph` and `NamedTensors`. The named tensors are members of the graph.
+        Container of `popxl.Graph` and `NamedTensors`. The named tensors are members of the graph.
         Method 'bind' can be used to create BoundGraphs.
 
         If the graph is a grad graph, `GradGraphInfo` object can also be included.
 
         Args:
-            graph (pir.Graph): Graph
+            graph (popxl.Graph): Graph
             args (Optional[NamedTensors]): Optional named tensors used for graph inputs.
-            grad_graph_info (Optional[pir.GradGraphInfo]): Optional `pir.GradGraphInfo` object if a grad graph
+            grad_graph_info (Optional[popxl.GradGraphInfo]): Optional `popxl.GradGraphInfo` object if a grad graph
         """
         self.graph = graph
         self.args = args or NamedTensors()
@@ -120,12 +123,12 @@ class GraphWithNamedArgs:
         tensor_map = to_mapping(self.args, args) if args else {}
         return BoundGraph(self.graph, tensor_map)
 
-    def call(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
-             args: Optional[TensorMap] = None) -> Tuple[pir.Tensor, ...]:
+    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+             args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
         """Call self.graph with no bound arguments.
 
         Args:
-            *targs (Union[pir.Tensor, List[pir.Tensor]]): Positional arguments
+            *targs (Union[popxl.Tensor, List[popxl.Tensor]]): Positional arguments
             args (Optional[TensorMap], optional): Optional Tensor arguments. Defaults to None.
 
         Returns:
@@ -133,12 +136,12 @@ class GraphWithNamedArgs:
         """
         return self.bind().call(*targs, args=args)
 
-    def call_with_info(self, *targs: Union[pir.Tensor, List[pir.Tensor]],
+    def call_with_info(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
                        args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call self.graph with no bound arguments. Output call with info object.
 
         Args:
-            *targs (Union[pir.Tensor, List[pir.Tensor]]): Positional arguments
+            *targs (Union[popxl.Tensor, List[popxl.Tensor]]): Positional arguments
             args (Optional[TensorMap], optional): Optional Tensor arguments. Defaults to None.
 
         Returns:
@@ -179,7 +182,7 @@ class GraphWithNamedArgs:
 
         def tensor_str(t):
             # TODO: Give each id a random color
-            t = pir.Tensor._from_pb_tensor(t)
+            t = popxl.Tensor._from_pb_tensor(t)
             return f"%{ids[t.id]} [{t.shape} {t.dtype._name}]"
 
         ss_graph_name = f"Graph : {self.graph.name}"

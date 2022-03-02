@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import numpy as np
-from popart.ir.tensor import HostTensor
+from popxl.tensor import HostTensor
 
 try:
     import torch

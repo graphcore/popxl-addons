@@ -5,11 +5,11 @@ from typing import Callable
 from functools import wraps
 from collections import OrderedDict
 
-import popart.ir as pir
-import popart.ir.ops as ops
-from popart.ir.context import get_current_context
-from popart_ir_extensions.graph import BoundGraph, GraphWithNamedArgs
-from popart_ir_extensions.named_tensors import NamedTensors
+import popxl
+from popxl import ops
+from popxl.context import get_current_context
+from popxl_addons.graph import BoundGraph, GraphWithNamedArgs
+from popxl_addons.named_tensors import NamedTensors
 
 
 def bound_arguments(fn, *args, **kwargs):
@@ -26,14 +26,14 @@ def bound_arguments(fn, *args, **kwargs):
     return bound.arguments
 
 
-def tensor_hash(t: pir.Tensor):
+def tensor_hash(t: popxl.Tensor):
     return hash((t.shape, t.dtype, t.meta_shape))
 
 
 def argument_hash(arg):
     """Hash an argument to a function. With special handling for Tensors.
         Recursively handles tuple/list/dict arguments."""
-    if isinstance(arg, pir.Tensor):
+    if isinstance(arg, popxl.Tensor):
         return tensor_hash(arg)
     elif isinstance(arg, BoundGraph):
         return hash((arg.graph, argument_hash(arg.args)))
@@ -74,19 +74,19 @@ class GraphCache:
     def __init__(self):
         self._cache = weakref.WeakKeyDictionary()
 
-    def _get_graph_cache(self, ir: pir.Ir):
+    def _get_graph_cache(self, ir: popxl.Ir):
         if ir not in self._cache:
             self._cache[ir] = weakref.WeakValueDictionary()
         return self._cache[ir]
 
-    def create_graph(self, fn, *args, **kwargs) -> pir.Graph:
-        """Returns a pir.Graph for `fn` in the current IR.
+    def create_graph(self, fn, *args, **kwargs) -> popxl.Graph:
+        """Returns a popxl.Graph for `fn` in the current IR.
             If a graph has already been constructed for this function and it's associated arguments
             a cached version is returned.
 
             Warning: Graphs are not immutable and can be changed after construction.
         """
-        ir = pir.gcg().ir
+        ir = popxl.gcg().ir
         cache = self._get_graph_cache(ir)
         graph_hash = get_function_hash(fn, *args, **kwargs)
         if graph_hash not in cache:
@@ -96,7 +96,7 @@ class GraphCache:
 
 def function(fn: Callable):
     """Outline the execution of a function. 
-        When it is called, a `pir.Graph` will be constructed for the function and `ops.call`. 
+        When it is called, a `popxl.Graph` will be constructed for the function and `ops.call`. 
         A GraphCache will be used to ensure graphs are reused where possible.
         Intended for use as a decorator:
         ```

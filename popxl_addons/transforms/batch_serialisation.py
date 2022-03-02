@@ -2,17 +2,18 @@
 from typing import Iterable, Tuple
 from numpy.lib.function_base import gradient
 import popart._internal.ir as _ir
-import popart.ir as pir
-import popart.ir.ops as ops
-from popart.ir.transforms.autodiff import GradGraphInfo
-from popart_ir_extensions.graph import GraphWithNamedArgs
-from popart_ir_extensions.route_tensor import route_tensor_into_graph
-from popart_ir_extensions.transforms.autodiff import remap_grad_info
+import popxl
+from popxl import ops
+from popxl.transforms.autodiff import GradGraphInfo
+from popxl_addons.graph import GraphWithNamedArgs
+from popxl_addons.route_tensor import route_tensor_into_graph
+from popxl_addons.transforms.autodiff import remap_grad_info
 
 __all__ = ["batch_serialise"]
 
 
-def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Iterable[pir.Tensor]) -> GraphWithNamedArgs:
+def batch_serialise(graph: GraphWithNamedArgs, steps: int,
+                    batched_inputs: Iterable[popxl.Tensor]) -> GraphWithNamedArgs:
     """Returns a new graph that wraps `graph`:
 
         BatchSerialGraph:
@@ -28,7 +29,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
     Args:
         graph (GraphWithNamedArgs): Graph to be batch serialised.
         steps (int): Number of batch serialised steps that should be executed.
-        batched_inputs (Iterable[pir.Tensor]): Input tensors to `graph` that should be batched.
+        batched_inputs (Iterable[popxl.Tensor]): Input tensors to `graph` that should be batched.
 
     Returns:
         GraphWithNamedArgs: Batch serialised graph
@@ -37,7 +38,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
     micro_batch_graph = graph.graph.ir.create_empty_graph(graph.graph.name + "_micro_batch")
     batch_serial_graph = graph.graph.ir.create_empty_graph(graph.graph.name + "_batch_serial")
     with batch_serial_graph:
-        index_t = ops.init((), pir.uint32, "batch_serial_index")
+        index_t = ops.init((), popxl.uint32, "batch_serial_index")
         ops.repeat(micro_batch_graph, steps)
 
     compute_to_micro_batch_map = {}
@@ -48,8 +49,8 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
 
         shape = (steps, *compute_t.shape) if batched_input else compute_t.shape
         with batch_serial_graph:
-            batch_serial_input = pir.graph_input(shape, compute_t.dtype, compute_t.name,
-                                                 compute_t in graph.graph._by_ref_inputs)
+            batch_serial_input = popxl.graph_input(shape, compute_t.dtype, compute_t.name,
+                                                   compute_t in graph.graph._by_ref_inputs)
 
         t = route_tensor_into_graph(batch_serial_input,
                                     modified=compute_t._pb_tensor.modifiedRegionsByOps(graph.graph._pb_graph.getOps()))
@@ -66,12 +67,12 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
         with batch_serial_graph:
             shape = (steps, *compute_out.shape)
             batch_serial_output = ops.init(shape, compute_out.dtype, compute_out.name)
-            pir.graph_output(batch_serial_output)
+            popxl.graph_output(batch_serial_output)
 
         out = route_tensor_into_graph(batch_serial_output, modified=True)
         ops.dynamic_update_(out, index, compute_out.reshape((1, *compute_out.shape)), [0], [1], True)
 
-    with micro_batch_graph, pir.in_sequence():
+    with micro_batch_graph, popxl.in_sequence():
         index_t = route_tensor_into_graph(index_t, modified=True)
 
         for compute_t in graph.graph.inputs:
@@ -82,7 +83,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
         for out in compute_batch_outputs:
             loop_output(out, index_t)
 
-        ops.var_updates.accumulate_(index_t, pir.constant(1, index_t.dtype))
+        ops.var_updates.accumulate_(index_t, popxl.constant(1, index_t.dtype))
 
     # Remap NamedTensors
     named_args = graph.args.remap(compute_to_micro_batch_map).remap(micro_batch_to_batch_serial_map)
@@ -92,7 +93,7 @@ def batch_serialise(graph: GraphWithNamedArgs, steps: int, batched_inputs: Itera
 
 def batch_serialise_forward_and_grad(
         forward_graph: GraphWithNamedArgs, gradient_graph: GraphWithNamedArgs, steps: int,
-        batched_inputs: Iterable[pir.Tensor]) -> Tuple[GraphWithNamedArgs, GraphWithNamedArgs]:
+        batched_inputs: Iterable[popxl.Tensor]) -> Tuple[GraphWithNamedArgs, GraphWithNamedArgs]:
     """
     Batch serialise a forward and gradient graph.
 
@@ -100,7 +101,7 @@ def batch_serialise_forward_and_grad(
         forward_graph (GraphWithNamedArgs): Forward graph to be batch serialised.
         gradient_graph (GraphWithNamedArgs): Gradient graph to be batch serialised.
         steps (int): Number of batch serialised steps that should be executed.
-        batched_inputs (Iterable[pir.Tensor]): Input tensors to `graph` that should be batched.
+        batched_inputs (Iterable[popxl.Tensor]): Input tensors to `graph` that should be batched.
 
     Returns:
         GraphWithNamedArgs: batch serialised forward graph

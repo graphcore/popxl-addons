@@ -1,7 +1,7 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 import pytest
 
-from popart_ir_extensions.dot_tree import DotTree
+from popxl_addons.dot_tree import DotTree
 
 
 def test_dot_tree_str():

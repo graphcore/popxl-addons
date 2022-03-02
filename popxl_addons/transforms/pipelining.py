@@ -7,16 +7,16 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 import numpy as np
 
 import popart._internal.ir as _ir
-import popart.ir as pir
-import popart.ir.ops as ops
-from popart.ir.context import get_current_context
-from popart.ir.ops.call import CallSiteInfo
-from popart.ir.transforms.autodiff import GradGraphInfo
+import popxl
+from popxl import ops
+from popxl.context import get_current_context
+from popxl.ops.call import CallSiteInfo
+from popxl.transforms.autodiff import GradGraphInfo
 
-from popart_ir_extensions.graph import BoundGraph
-from popart_ir_extensions.graph_cache import GraphCache
-from popart_ir_extensions.module import Module
-from popart_ir_extensions.route_tensor import route_tensor_into_graph
+from popxl_addons.graph import BoundGraph
+from popxl_addons.graph_cache import GraphCache
+from popxl_addons.module import Module
+from popxl_addons.route_tensor import route_tensor_into_graph
 
 __all__ = ["pipelined_execution", "stash_and_restore_activations"]
 
@@ -26,10 +26,10 @@ OpId = int
 class PipelineBoundGraph(BoundGraph):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._original_input_to_arg: Dict[str, pir.Tensor] = {}
+        self._original_input_to_arg: Dict[str, popxl.Tensor] = {}
         self._produces_original_tensor: List[str] = []
 
-    def _moved_args(self, inputs_dict: Optional[Mapping[pir.Tensor, pir.Tensor]] = None):
+    def _moved_args(self, inputs_dict: Optional[Mapping[popxl.Tensor, popxl.Tensor]] = None):
         # Move inputs into the current graph.
         moved_inputs = {
             sg_t: route_tensor_into_graph(v,
@@ -40,27 +40,27 @@ class PipelineBoundGraph(BoundGraph):
             moved_inputs.update({**inputs_dict})
         return moved_inputs
 
-    def call(self, *args: pir.Tensor,
-             inputs_dict: Optional[Mapping[pir.Tensor, pir.Tensor]] = None) -> Tuple[pir.Tensor, ...]:
+    def call(self, *args: popxl.Tensor,
+             inputs_dict: Optional[Mapping[popxl.Tensor, popxl.Tensor]] = None) -> Tuple[popxl.Tensor, ...]:
         return super().call(*args, args=self._moved_args(inputs_dict))
 
     @property
     def original_output_ids(self):
         return self._produces_original_tensor
 
-    def add_input_tensor(self, tensor: pir.Tensor):
+    def add_input_tensor(self, tensor: popxl.Tensor):
         with self.graph:
-            input_tensor = pir.graph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
+            input_tensor = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
             self._original_input_to_arg[tensor.id] = input_tensor
             self.args[input_tensor] = tensor
         return input_tensor
 
-    def add_output_tensor(self, tensor: pir.Tensor, original_id: str):
+    def add_output_tensor(self, tensor: popxl.Tensor, original_id: str):
         with self.graph:
-            pir.graph_output(tensor)
+            popxl.graph_output(tensor)
         self._produces_original_tensor.append(original_id)
 
-    def reconnect_input(self, original_id: str, new: pir.Tensor):
+    def reconnect_input(self, original_id: str, new: popxl.Tensor):
         if original_id in self._original_input_to_arg.keys():
             sg = self._original_input_to_arg[original_id]
             self.args[sg] = new
@@ -70,21 +70,21 @@ class PipelineBoundGraph(BoundGraph):
 
 
 class Pipelining:
-    def __init__(self, graph: pir.Graph, steps: int):
+    def __init__(self, graph: popxl.Graph, steps: int):
         self.ir = graph.ir
         self.graph = self.ir.create_empty_graph("pipeline_graph")
         self.original_graph = graph
         self.steps = steps
 
-        self.original_tid_to_cloned_tensor: Dict[str, pir.Tensor] = {}
+        self.original_tid_to_cloned_tensor: Dict[str, popxl.Tensor] = {}
         self.original_tid_to_graph: Dict[str, PipelineBoundGraph] = {}
-        self.external_inputs: Dict[PipelineBoundGraph, Dict[str, pir.Tensor]] = defaultdict(dict)
+        self.external_inputs: Dict[PipelineBoundGraph, Dict[str, popxl.Tensor]] = defaultdict(dict)
 
         self.stages: Dict[int, PipelineBoundGraph] = {}
         self.loads: Dict[int, PipelineBoundGraph] = {}
         self.stores: Dict[int, PipelineBoundGraph] = {}
         self.ipu_copies = PipelineBoundGraph(self.ir.create_empty_graph("ipu_copies"))
-        self.ipu_copy_dummy_inputs: Dict[str, pir.Tensor] = {}
+        self.ipu_copy_dummy_inputs: Dict[str, popxl.Tensor] = {}
 
     def apply(self, include_ops: Optional[List[OpId]] = None):
         self.construct_graphs(include_ops)
@@ -153,7 +153,7 @@ class Pipelining:
         outputs = op.getOutputIndexMap()
 
         for idx, tensor in inputs.items():
-            tensor = pir.Tensor._from_pb_tensor(tensor)
+            tensor = popxl.Tensor._from_pb_tensor(tensor)
 
             if tensor.id not in self.original_tid_to_cloned_tensor.keys():
                 external_inputs = self.external_inputs[graph]
@@ -178,7 +178,7 @@ class Pipelining:
             if isinstance(op, _ir.op.IpuCopyOp):
                 source_ipu = op.getSourceIpu(tensor.id)
                 cloned_op.connectInTensor(idx, sg_tensor.id, source_ipu)
-                with self.graph, pir.ipu(source_ipu):
+                with self.graph, popxl.ipu(source_ipu):
                     dummy_input = ops.init(tensor.shape, tensor.dtype, "dummy__" + tensor.name)
                     graph.reconnect_input(tensor.id, dummy_input)
                     self.ipu_copy_dummy_inputs[tensor.id] = dummy_input
@@ -186,9 +186,9 @@ class Pipelining:
                 cloned_op.connectInTensor(idx, sg_tensor.id)
 
         for idx, tensor in outputs.items():
-            tensor = pir.Tensor._from_pb_tensor(tensor)
+            tensor = popxl.Tensor._from_pb_tensor(tensor)
             cloned_op.createAndConnectOutTensor(idx, graph.graph._create_tensor_id(tensor.name))
-            out_tensor = pir.Tensor._from_pb_tensor(cloned_op.outTensor(idx))
+            out_tensor = popxl.Tensor._from_pb_tensor(cloned_op.outTensor(idx))
             self.original_tid_to_cloned_tensor[tensor.id] = out_tensor
             self.original_tid_to_graph[tensor.id] = graph
 
@@ -198,7 +198,7 @@ class Pipelining:
         op.disconnectAllOutputs()
         self.original_graph._pb_graph.eraseOp(op.id)
 
-    @pir.in_sequence()
+    @popxl.in_sequence()
     def build(self):
         ops.call(self.graph)
         with self.graph:
@@ -223,7 +223,7 @@ class Pipelining:
         # IPUCopy
         self.copy()
 
-    def remap_tensors(self, original_ids: Iterable[str], new_outputs: Iterable[pir.Tensor]):
+    def remap_tensors(self, original_ids: Iterable[str], new_outputs: Iterable[popxl.Tensor]):
         """Changes the connected tensors on each PipelineBoundGraph to a new tensor"""
         for original, new in zip(original_ids, new_outputs):
             for stage in range(self.num_stages):
@@ -244,7 +244,7 @@ class Pipelining:
         sg_graph.markAsOutput(sg_tensor.id)
 
         repeat_tensor = None
-        repeat_graph = pir.Graph._from_pb(repeat_op.getCalledGraphs()[0])
+        repeat_graph = popxl.Graph._from_pb(repeat_op.getCalledGraphs()[0])
         for op in repeat_graph._pb_graph.getOps():
             if isinstance(op, _ir.op.CallOp) and op.getCalledGraphs()[0].id == sg_graph.id:
                 repeat_tensor = repeat_graph._create_tensor_id(sg_tensor.name)
@@ -255,7 +255,7 @@ class Pipelining:
             raise RuntimeError("There should have been a CallOp in the repeat_op's graph")
 
         repeat_op.addLoopOutput(op_out_index, repeat_op.outId(op_out_index), repeat_tensor, True)
-        out_tensor = pir.Tensor._from_pb_tensor(repeat_op.outTensor(op_out_index))
+        out_tensor = popxl.Tensor._from_pb_tensor(repeat_op.outTensor(op_out_index))
 
         return out_tensor
 
@@ -263,15 +263,15 @@ class Pipelining:
         # The main graph has loop carried inputs for the ipu_copied tensors that will be
         # properly connected to the outputs of `self.ipu_copies` in `move_copied_tensor_out_of_nested_repeat_graph`
         # Importantly loop carried inputs must be before implicit inputs, so it must be setup first.
-        def main_repeat(*loop_carried: pir.Tensor):
+        def main_repeat(*loop_carried: popxl.Tensor):
             return loop_carried
 
         loop_carried_args = [self.original_tid_to_cloned_tensor[_id] for _id in self.ipu_copies.original_output_ids]
-        graph = pir.gcg().ir.create_graph(main_repeat, *loop_carried_args)
+        graph = popxl.gcg().ir.create_graph(main_repeat, *loop_carried_args)
 
         main_cycles = self.steps - (self.num_stages - 1)
         # LoopOp can have operations that require a graph to execute on.
-        with pir.ipu(0):
+        with popxl.ipu(0):
             r_info = ops.repeat_with_info(graph, main_cycles, *loop_carried_args)
 
         self.remap_tensors(self.ipu_copies.original_output_ids, graph.inputs)
@@ -299,7 +299,7 @@ class Pipelining:
                     if original in self.ipu_copies.original_output_ids:
                         remap_tensor = self.move_copied_tensor_out_of_nested_repeat_graph(idx, original, repeat_op)
                     else:
-                        remap_tensor = pir.Tensor._from_pb_tensor(in_tensor)
+                        remap_tensor = popxl.Tensor._from_pb_tensor(in_tensor)
 
                     remap_original.append(original)
                     remap_new.append(remap_tensor)
@@ -346,7 +346,7 @@ class Pipelining:
 def pipelined_execution(steps: int):
     """Pipeline Transformation Context.
         Ops created in this context will be executed in a pipeline where each stage is executed `steps` times.
-        Pipeline stages should be annotated using `pir.pipeline_stage(..)`.
+        Pipeline stages should be annotated using `popxl.pipeline_stage(..)`.
         All operations should have a pipeline stage.
         
         See `docs/pipelining.md` for more details
@@ -354,7 +354,7 @@ def pipelined_execution(steps: int):
     Args:
         steps (int): Number of times the scoped computation should execute.
     """
-    graph = pir.gcg()
+    graph = popxl.gcg()
     transform = Pipelining(graph, steps)
     ops: List[int] = []
 
@@ -369,9 +369,9 @@ def pipelined_execution(steps: int):
 
 
 class Stash(Module):
-    @pir.in_sequence()
-    def build(self, t: pir.Tensor, stash_size: int):
-        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), pir.uint32, by_ref=True)
+    @popxl.in_sequence()
+    def build(self, t: popxl.Tensor, stash_size: int):
+        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
 
         # Make `t` have the correct 0th dimension
         stashed_shape = t.shape
@@ -388,36 +388,36 @@ class Stash(Module):
 
 
 class Restore(Module):
-    @pir.in_sequence()
-    def build(self, stash: pir.TensorByRef):
-        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), pir.uint32, by_ref=True)
+    @popxl.in_sequence()
+    def build(self, stash: popxl.TensorByRef):
+        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)
         return t.reshape(t.shape[1:])
 
 
-def _is_external_input(t: pir.Tensor):
+def _is_external_input(t: popxl.Tensor):
     if t._pb_tensor.hasProducer():
         prod = t._pb_tensor.getProducer()
         return not prod.hasPipelineStage()
     return True
 
 
-def stash_and_restore_tensor(t: pir.Tensor, from_stage: Optional[int] = None) -> pir.Tensor:
+def stash_and_restore_tensor(t: popxl.Tensor, from_stage: Optional[int] = None) -> popxl.Tensor:
     """Create stash and counter variables to tensors t to. Stash size will be calculated from the
 
 
     Args:
-        t (pir.Tensor): tensor to stash
+        t (popxl.Tensor): tensor to stash
         from_stage (Optional[int], optional): stage to locate the stashOp. Defaults to None.
 
     Raises:
         RuntimeError: if `from_stage` is not specified and t does not have a producer.
-        RuntimeError: if `stash_and_restore_tensor` is not called in a `pir.pipeline_stage` context.
+        RuntimeError: if `stash_and_restore_tensor` is not called in a `popxl.pipeline_stage` context.
 
     Returns:
-        pir.Tensor: The restored tensor
+        popxl.Tensor: The restored tensor
     """
     if from_stage is None:
         if not t._pb_tensor.hasProducer():
@@ -429,23 +429,24 @@ def stash_and_restore_tensor(t: pir.Tensor, from_stage: Optional[int] = None) ->
     to_stage = get_current_context().pipeline_stage
 
     if to_stage is None:
-        raise RuntimeError("`stash_and_restore_tensor` must be called in a pir.pipeline_stage context.")
+        raise RuntimeError("`stash_and_restore_tensor` must be called in a popxl.pipeline_stage context.")
 
     stash_size = (to_stage - from_stage) + 1
 
-    with pir.pipeline_stage(from_stage):
+    with popxl.pipeline_stage(from_stage):
         args, graph = Stash().create_graph(t, stash_size)
         stash_args = args.init()
         graph.bind(stash_args).call(t)
 
-    with pir.pipeline_stage(to_stage):
+    with popxl.pipeline_stage(to_stage):
         args, graph = Restore().create_graph(stash_args.stash)
         restored, = graph.bind(args.init()).call(stash_args.stash)
 
     return restored
 
 
-def stash_and_restore_activations(call_info: CallSiteInfo, grad_info: GradGraphInfo) -> Dict[pir.Tensor, pir.Tensor]:
+def stash_and_restore_activations(call_info: CallSiteInfo,
+                                  grad_info: GradGraphInfo) -> Dict[popxl.Tensor, popxl.Tensor]:
     activations = grad_info.inputs_dict(call_info)
 
     # If the activation is produced on the current pipeline stage then don't create a stash.

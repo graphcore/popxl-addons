@@ -3,12 +3,12 @@ from functools import partial
 from typing import Tuple
 import numpy as np
 
-import popart.ir as pir
-import popart_ir_extensions as pir_ext
+import popxl
+import popxl_addons as addons
 
 
-class DoubleLinear(pir_ext.Module):
-    def build(self, x: pir.Tensor) -> pir.Tensor:
+class DoubleLinear(addons.Module):
+    def build(self, x: popxl.Tensor) -> popxl.Tensor:
         # Add is an example of a Op that does not require the input tensor to calculate the gradient.
         # This means that when DoubleLinear is recomputed x should be a 'new' expected input as  with recomputation
         # y would have been used instead.
@@ -19,18 +19,18 @@ class DoubleLinear(pir_ext.Module):
         return (y @ w1) @ w2
 
 
-def get_model_outputs(recompute: bool) -> Tuple[pir.Tensor, ...]:
+def get_model_outputs(recompute: bool) -> Tuple[popxl.Tensor, ...]:
     np.random.seed(1984)
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x_data, x_h2d, x = pir_ext.host_load(np.random.normal(0, 0.1, (2, 2)).astype(np.float32), pir.float32, "x")
+        x_data, x_h2d, x = addons.host_load(np.random.normal(0, 0.1, (2, 2)).astype(np.float32), popxl.float32, "x")
         args, graph = DoubleLinear().create_graph(x)
-        dgraph = pir_ext.autodiff(graph)
+        dgraph = addons.autodiff(graph)
 
         if recompute:
-            dgraph = pir_ext.recompute_graph(dgraph)
+            dgraph = addons.recompute_graph(dgraph)
 
         scale = graph.bind(args.init())
 
@@ -38,12 +38,12 @@ def get_model_outputs(recompute: bool) -> Tuple[pir.Tensor, ...]:
         call_info = scale.call_with_info(x)
         x, *_ = call_info.outputs
 
-        gradient = pir.constant(np.ones(x.shape), x.dtype, "gradient")
-        outputs_t: Tuple[pir.Tensor, ...] = dgraph.call(gradient, args=dgraph.grad_graph_info.inputs_dict(call_info))
+        gradient = popxl.constant(np.ones(x.shape), x.dtype, "gradient")
+        outputs_t: Tuple[popxl.Tensor, ...] = dgraph.call(gradient, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
-        outputs = tuple(map(pir_ext.host_store, outputs_t))
+        outputs = tuple(map(addons.host_store, outputs_t))
 
-    return pir_ext.Runner(ir=ir, outputs=outputs).run({x_h2d: x_data})  # type: ignore
+    return addons.Runner(ir=ir, outputs=outputs).run({x_h2d: x_data})  # type: ignore
 
 
 def test_recompute_correctness():

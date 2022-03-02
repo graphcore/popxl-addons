@@ -2,18 +2,18 @@
 from functools import wraps
 from typing import Any, Callable, Iterable, Optional, Tuple, Union, List
 import numpy as np
-import popart.ir as pir
-from popart.ir import dtypes
-from popart_ir_extensions.graph_cache import GraphCache
-from popart_ir_extensions.named_tensors import NamedTensors
-from popart_ir_extensions.input_factory import NamedInputFactories, add_input_tensor, add_replica_sharded_input_tensor, \
+import popxl
+from popxl import dtypes
+from popxl_addons.graph_cache import GraphCache
+from popxl_addons.named_tensors import NamedTensors
+from popxl_addons.input_factory import NamedInputFactories, add_input_tensor, add_replica_sharded_input_tensor, \
     InputFactory
-from popart_ir_extensions.graph import GraphWithNamedArgs
-from popart.ir.tensor import HostTensor, host_tensor_types
+from popxl_addons.graph import GraphWithNamedArgs
+from popxl.tensor import HostTensor, host_tensor_types
 
 
 class NameScopeMeta(type):
-    """Meta class to wrap `build` methods with a pir.name_scope"""
+    """Meta class to wrap `build` methods with a popxl.name_scope"""
 
     def __new__(cls, name, bases, dct):
         build_fn = dct.get("build", None)
@@ -23,7 +23,7 @@ class NameScopeMeta(type):
             def wrapper(self, *args, **kwargs):
                 scope = getattr(self, "_name_scope", None)
                 if scope is not None:
-                    with pir.name_scope(scope):
+                    with popxl.name_scope(scope):
                         return build_fn(self, *args, **kwargs)
                 return build_fn(self, *args, **kwargs)
 
@@ -31,7 +31,7 @@ class NameScopeMeta(type):
         return super().__new__(cls, name, bases, dct)
 
 
-class Module(pir.Module, metaclass=NameScopeMeta):
+class Module(popxl.Module, metaclass=NameScopeMeta):
     """Module class to allow construction of compute graphs that require state.
         TODO: expand, usage
     """
@@ -58,13 +58,13 @@ class Module(pir.Module, metaclass=NameScopeMeta):
                 self._args_cache[graph] = self._input_factories.copy(), self._named_inputs.copy()
             input_factories, named_inputs = self._args_cache[graph]
         else:
-            graph = pir.gcg().ir.create_graph(self, *args, **kwargs)
+            graph = popxl.gcg().ir.create_graph(self, *args, **kwargs)
             input_factories, named_inputs = self._input_factories, self._named_inputs
         result = (input_factories.copy(), GraphWithNamedArgs(graph, named_inputs.copy()))
         self._reset()
         return result
 
-    def add_input_factory(self, input_f: InputFactory, name: Optional[str] = None) -> pir.Tensor:
+    def add_input_factory(self, input_f: InputFactory, name: Optional[str] = None) -> popxl.Tensor:
         """Add an input factory as an input tensor.
 
         Args:
@@ -82,7 +82,7 @@ class Module(pir.Module, metaclass=NameScopeMeta):
                          data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                          dtype: Optional[dtypes.dtype] = None,
                          constant: bool = False,
-                         by_ref: bool = False) -> pir.Tensor:
+                         by_ref: bool = False) -> popxl.Tensor:
         """Add an initialised input tensor.
 
         Args:
@@ -106,7 +106,7 @@ class Module(pir.Module, metaclass=NameScopeMeta):
                                          data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                                          dtype: Optional[dtypes.dtype] = None,
                                          constant: bool = False,
-                                         by_ref: bool = False) -> pir.Tensor:
+                                         by_ref: bool = False) -> popxl.Tensor:
         """Add a replica sharded initialised input tensor. The graph input will be sharded, however the initialised Tensor will
             be constructed whole.
             `remote_replica_sharded_variable` or `ops.collectives.replicated_reduce_scatter(..., configure_output_for_replicated_tensor_sharding=True)`
@@ -144,7 +144,7 @@ class Module(pir.Module, metaclass=NameScopeMeta):
         """Add NamedInputFactories as inputs tensors. Returns NamedTensors which can be used in the graph.
             This is useful for reusing a Module within another module. Usage:
             ```
-                def build(self, x: pir.Tensor):
+                def build(self, x: popxl.Tensor):
                     args, graph = self.layer.create_graph(x)
                     layer1 = graph.bind(self.add_inputs("1", args))
                     layer2 = graph.bind(self.add_inputs("2", args))

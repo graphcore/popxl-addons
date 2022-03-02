@@ -3,11 +3,11 @@ from typing import Callable, Iterable, Optional, Union, Tuple
 import numpy as np
 
 from more_itertools import peekable
-import popart.ir as pir
-from popart.ir import dtypes
-from popart.ir.tensor import HostTensor, host_tensor_types
-from popart_ir_extensions.dot_tree import DotTree
-from popart_ir_extensions.named_tensors import NamedTensors
+import popxl
+from popxl import dtypes
+from popxl.tensor import HostTensor, host_tensor_types
+from popxl_addons.dot_tree import DotTree
+from popxl_addons.named_tensors import NamedTensors
 
 
 class InputFactory:
@@ -70,9 +70,9 @@ class InputFactory:
 
         if self.replica_sharded:
             self.shape = (int(np.prod(data_peek.shape)) //
-                          pir.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
+                          popxl.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
 
-    def create_input(self, prefix: Optional[str] = None) -> pir.Tensor:
+    def create_input(self, prefix: Optional[str] = None) -> popxl.Tensor:
         """
         Create a subgraph input for the current graph.
         Peaks at the data iterator's next element to determine data type and shape of the input.
@@ -84,7 +84,7 @@ class InputFactory:
         shape = self.shape or data.shape
         dtype = self.dtype or dtypes.dtype.as_dtype(data)
         meta_shape = data.shape if shape != data.shape else None
-        t = pir.graph_input(shape=shape, dtype=dtype, name=name, by_ref=self.by_ref, meta_shape=meta_shape)
+        t = popxl.graph_input(shape=shape, dtype=dtype, name=name, by_ref=self.by_ref, meta_shape=meta_shape)
         return t
 
     def create_tensor(self, name: Optional[str] = None):
@@ -101,9 +101,9 @@ class InputFactory:
         dtype = self.dtype or None
 
         if not self.constant:
-            return pir.variable(data, dtype, name=name)
+            return popxl.variable(data, dtype, name=name)
         else:
-            return pir.constant(data, dtype, name=name)
+            return popxl.constant(data, dtype, name=name)
 
 
 class NamedInputFactories(DotTree[InputFactory]):
@@ -116,7 +116,7 @@ class NamedInputFactories(DotTree[InputFactory]):
         .. code-block:: python
             nif = NamedInputFactories(a=InputFactory(lambda: 1), b=InputFactory(lambda: 2))
             nt = nif.init()
-            nt.dict() == {'a': pir.variable(1), 'b': pir.variable(2)}
+            nt.dict() == {'a': popxl.variable(1), 'b': popxl.variable(2)}
 
         Args:
             prefix (Optional[str], optional): Prefix the tensor name of the created tensors. Defaults to None.
@@ -136,7 +136,7 @@ def add_input_tensor(name: str,
                      data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                      dtype: Optional[dtypes.dtype] = None,
                      constant: bool = False,
-                     by_ref: bool = False) -> Tuple[pir.Tensor, InputFactory]:
+                     by_ref: bool = False) -> Tuple[popxl.Tensor, InputFactory]:
     """Create an InputFactory and graph_input in the current graph."""
     input_f = InputFactory(data_iter, dtype, name, constant, by_ref)
     tensor = input_f.create_input()
@@ -147,7 +147,7 @@ def add_replica_sharded_input_tensor(name: str,
                                      data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                                      dtype: Optional[dtypes.dtype] = None,
                                      constant: bool = False,
-                                     by_ref: bool = False) -> Tuple[pir.Tensor, InputFactory]:
+                                     by_ref: bool = False) -> Tuple[popxl.Tensor, InputFactory]:
     """Create an InputFactory and replica sharded graph_input in the current graph."""
     input_f = InputFactory(data_iter, dtype, name, constant, by_ref, True)
     tensor = input_f.create_input()

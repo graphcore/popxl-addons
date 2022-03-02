@@ -3,9 +3,9 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-import popart.ir as pir
+import popxl
 
-import popart_ir_extensions as pir_ext
+import popxl_addons as addons
 
 
 def test_cross_entropy_with_grad():
@@ -22,16 +22,16 @@ def test_cross_entropy_with_grad():
 
     def popart():
         logits, target = inputs()
-        ir = pir.Ir()
+        ir = popxl.Ir()
         with ir.main_graph:
-            logits = pir.variable(logits.detach().numpy().astype(np.float32))
-            target = pir.variable(target.detach().numpy().astype(np.uint32))
-            loss, dlogits = pir_ext.ops.cross_entropy_with_grad(logits, target, 64)
+            logits = popxl.variable(logits.detach().numpy().astype(np.float32))
+            target = popxl.variable(target.detach().numpy().astype(np.uint32))
+            loss, dlogits = addons.ops.cross_entropy_with_grad(logits, target, 64)
             outs = (
-                pir_ext.host_store(loss),
-                pir_ext.host_store(dlogits),
+                addons.host_store(loss),
+                addons.host_store(dlogits),
             )
-        return pir_ext.Runner(ir, outs).run()
+        return addons.Runner(ir, outs).run()
 
     for _t, _p in zip(pytorch(), popart()):
         np.testing.assert_almost_equal(_t, _p, 5)

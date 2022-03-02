@@ -6,10 +6,10 @@ from typing_extensions import Literal
 
 import numpy as np
 import popart
-from popart import ir as pir
-from popart.ir.streams import DeviceToHostStream, HostToDeviceStream
-from popart.ir.tensor import HostTensor
-from popart_ir_extensions.utils import to_numpy
+import popxl
+from popxl.streams import DeviceToHostStream, HostToDeviceStream
+from popxl.tensor import HostTensor
+from popxl_addons.utils import to_numpy
 
 from math import ceil, log
 import logging
@@ -19,9 +19,9 @@ __all__ = ["Runner"]
 
 class Runner:
     def __init__(self,
-                 ir: pir.Ir,
+                 ir: popxl.Ir,
                  outputs: Union[None, DeviceToHostStream, Iterable[DeviceToHostStream]] = None,
-                 weights: Optional[Mapping[pir.Tensor, HostTensor]] = None,
+                 weights: Optional[Mapping[popxl.Tensor, HostTensor]] = None,
                  device_type: Literal['cpu', 'hw'] = 'hw',
                  device_num: int = 1,
                  replicas: int = 1,
@@ -89,7 +89,7 @@ class Runner:
         self.ir = ir
         self.outputs = outputs
 
-    def write_weights(self, weights: Mapping[pir.Tensor, HostTensor]):
+    def write_weights(self, weights: Mapping[popxl.Tensor, HostTensor]):
         if weights:
             for t, ht in weights.items():
                 if t.shape != ht.shape:
@@ -99,7 +99,7 @@ class Runner:
                                     for t, v in weights.items()}))
         self.session.weightsFromHost()
 
-    def read_weights(self, weights: Optional[Iterable[pir.Tensor]] = None) -> Dict[pir.Tensor, np.ndarray]:
+    def read_weights(self, weights: Optional[Iterable[popxl.Tensor]] = None) -> Dict[popxl.Tensor, np.ndarray]:
         if weights is None:
             weights = self.ir.main_graph.variables
         self.session.weightsToHost()
@@ -116,7 +116,7 @@ class Runner:
 
     @property
     def expected_inputs(self):
-        stream_tensors = (pir.Tensor._from_pb_tensor(t) for t in self.ir._pb_ir.dataStreamTensors())
+        stream_tensors = (popxl.Tensor._from_pb_tensor(t) for t in self.ir._pb_ir.dataStreamTensors())
         return set(HostToDeviceStream._from_tensor(t) for t in stream_tensors)
 
     def run(self, inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None

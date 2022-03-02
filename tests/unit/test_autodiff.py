@@ -2,29 +2,29 @@
 from functools import partial
 import numpy as np
 import popart._internal.ir as _ir
-import popart.ir as pir
-import popart.ir.ops as ops
+import popxl
+from popxl import ops
 
-import popart_ir_extensions as pir_ext
-from popart_ir_extensions.testing_utils import ops_of_type
+import popxl_addons as addons
+from popxl_addons.testing_utils import ops_of_type
 
 
-class Scale(pir_ext.Module):
-    def build(self, x: pir.Tensor) -> pir.Tensor:
+class Scale(addons.Module):
+    def build(self, x: popxl.Tensor) -> popxl.Tensor:
         scale = self.add_input_tensor("scale", partial(np.ones, x.shape), x.dtype)
         return x * scale
 
 
 def test_autodiff_patterns_executed():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x_h2d = pir.h2d_stream((2, 2), pir.float32, name="x_stream")
+        x_h2d = popxl.h2d_stream((2, 2), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, "x")
         args, graph = Scale().create_graph(x)
 
-        dgraph = pir_ext.autodiff(graph)
+        dgraph = addons.autodiff(graph)
 
     grad_ops = dgraph.graph._pb_graph.getOps()
 

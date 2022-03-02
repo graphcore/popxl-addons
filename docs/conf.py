@@ -19,7 +19,7 @@ import sphinx_rtd_theme
 
 # -- Project information -----------------------------------------------------
 
-project = 'popart_ir_extensions'
+project = 'popxl_addons'
 copyright = '2021 Graphcore Ltd. MIT license'
 author = 'Graphcore Ltd.'
 

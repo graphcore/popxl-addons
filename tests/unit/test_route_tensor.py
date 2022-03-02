@@ -1,12 +1,12 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 import pytest
-import popart.ir as pir
-import popart.ir.ops as ops
-from popart_ir_extensions import is_subgraph, route_tensor_into_graph
+import popxl
+from popxl import ops
+from popxl_addons import is_subgraph, route_tensor_into_graph
 
 
 def test_is_subgraph():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg1 = ir.create_empty_graph("sg1")
     sg2 = ir.create_empty_graph("sg2")
@@ -29,12 +29,12 @@ def test_is_subgraph():
 
 
 def test_route_tensor_into_graph():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg = ir.create_empty_graph("sg1")
 
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
         ops.call(sg)
 
     with sg:
@@ -45,12 +45,12 @@ def test_route_tensor_into_graph():
 
 
 def test_route_tensor_into_graph_many_calls():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg = ir.create_empty_graph("sg1")
 
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
         ops.call(sg)
         ops.call(sg)
 
@@ -64,12 +64,12 @@ def test_route_tensor_into_graph_many_calls():
 
 
 def test_route_tensor_into_graph_multiple_moves():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg = ir.create_empty_graph("sg1")
 
     with g:
-        a = pir.variable(1, name="var")
+        a = popxl.variable(1, name="var")
         ops.call(sg)
 
     with sg:
@@ -80,13 +80,13 @@ def test_route_tensor_into_graph_multiple_moves():
 
 
 def test_route_tensor_into_graph_nested():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg1 = ir.create_empty_graph("sg1")
     sg2 = ir.create_empty_graph("sg2")
 
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
         ops.call(sg1)
     with sg1:
         ops.call(sg2)
@@ -95,14 +95,14 @@ def test_route_tensor_into_graph_nested():
 
 
 def test_route_tensor_into_graph_many_paths():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg1 = ir.create_empty_graph("sg1")
     sg2 = ir.create_empty_graph("sg2")
     sg3 = ir.create_empty_graph("sg3")
 
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
         ops.call(sg1)
     with sg1:
         ops.call(sg2)
@@ -119,12 +119,12 @@ def test_route_tensor_into_graph_many_paths():
 
 
 def test_route_tensor_into_graph_error():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg = ir.create_empty_graph("sg1")
 
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
 
     with pytest.raises(ValueError) as excinfo:
         sg_a = route_tensor_into_graph(a, sg)
@@ -134,12 +134,12 @@ def test_route_tensor_into_graph_error():
 
 
 def test_route_tensor_into_graph_loop():
-    ir = pir.Ir()
+    ir = popxl.Ir()
     g = ir.main_graph
     sg = ir.create_empty_graph("sg1")
     with g:
-        a = pir.variable(1)
+        a = popxl.variable(1)
         ops.repeat(sg, 5)
         with sg:
             b = route_tensor_into_graph(a) + 1
-            pir.graph_output(b)
+            popxl.graph_output(b)

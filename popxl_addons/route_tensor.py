@@ -1,9 +1,9 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 import popart._internal.ir as _ir
-from popart.ir.context import get_current_graph
-from popart.ir.tensor import Tensor, graph_input
-from popart.ir.graph import Graph
+from popxl.context import get_current_graph
+from popxl.tensor import Tensor, graph_input
+from popxl.graph import Graph
 
 __all__ = ["route_tensor_into_graph", "is_subgraph"]
 
@@ -20,7 +20,7 @@ def is_subgraph(parent: 'Graph', subgraph: 'Graph'):
 
 
 def called_graph_paths(parent_graph: Graph, subgraph: Graph) -> Set[Tuple[_ir.GraphId, ...]]:
-    """Finds all paths from `parent_graph` to `subgraph` by traversing the graph of `pir.Graph`s."""
+    """Finds all paths from `parent_graph` to `subgraph` by traversing the graph of `popxl.Graph`s."""
     graph_paths: Set[Tuple[_ir.GraphId, ...]] = set()
     search_graphs: List[Tuple[_ir.Graph, Tuple[_ir.GraphId, ...]]] = [(parent_graph._pb_graph, ())]
 
@@ -111,7 +111,7 @@ def connect_tensor_to_ops_on_path(path: Tuple[_ir.GraphId, ...], from_tensor: Te
         Example, we have the following call tree:
         ```
         with main:
-            a = pir.variable(1)
+            a = popxl.variable(1)
             ops.call(sg)
             with sg:
                 ops.call(sg1)
@@ -176,13 +176,13 @@ def route_tensor_into_graph(tensor: Tensor,
             Access a Variable from the main graph within a sub-subgraph
             ```
             with main:
-                a = pir.variable(1)
+                a = popxl.variable(1)
                 ops.repeat(sg)
                 with sg:
                     ops.call(sg1)
                     with sg1:
                         a_ = route_tensor_into_graph(a, modified=True)
-                        ops.var_updates.accumulate_(a_, pir.constant(1))
+                        ops.var_updates.accumulate_(a_, popxl.constant(1))
             ```
 
 

@@ -2,27 +2,27 @@
 from functools import partial
 import numpy as np
 
-import popart.ir as pir
+import popxl
 
-import popart_ir_extensions as pir_ext
-from popart_ir_extensions.input_factory import NamedInputFactories
-from popart_ir_extensions.module import Module
-from popart_ir_extensions.transforms.autodiff import autodiff, autodiff_with_accumulation
+import popxl_addons as addons
+from popxl_addons.input_factory import NamedInputFactories
+from popxl_addons.module import Module
+from popxl_addons.transforms.autodiff import autodiff, autodiff_with_accumulation
 
 
 class Scale(Module):
-    def build(self, x: pir.Tensor) -> pir.Tensor:
+    def build(self, x: popxl.Tensor) -> popxl.Tensor:
         scale = self.add_input_tensor("scale", partial(np.full, x.shape, 2), x.dtype)
         return x * scale
 
 
 def model(with_accumulation):
     np.random.seed(42)
-    ir = pir.Ir()
+    ir = popxl.Ir()
     main = ir.main_graph
 
     with main:
-        x = pir.variable(np.random.normal(0, 1, (2, 2)), pir.float32)
+        x = popxl.variable(np.random.normal(0, 1, (2, 2)), popxl.float32)
 
         args, graph = Scale().create_graph(x)
         if with_accumulation:
@@ -47,16 +47,16 @@ def model(with_accumulation):
         call_info_2 = fwd2.call_with_info(*call_info_1.outputs)
 
         # Call backward
-        seed = pir.constant(np.ones((2, 2)), pir.float32)
+        seed = popxl.constant(np.ones((2, 2)), popxl.float32)
         dscale2_out = dgraph.bind(accum1).call(seed, args=dgraph.grad_graph_info.inputs_dict(call_info_2))
         dscale1_out = dgraph.bind(accum2).call(dscale2_out[0], args=dgraph.grad_graph_info.inputs_dict(call_info_1))
 
         if with_accumulation:
             outs = []
         else:
-            outs = [pir_ext.host_store(t) for t in (dscale1_out[1], dscale2_out[1])]
+            outs = [addons.host_store(t) for t in (dscale1_out[1], dscale2_out[1])]
 
-    runner = pir_ext.Runner(ir, outs)
+    runner = addons.Runner(ir, outs)
     outputs = runner.run()
 
     if with_accumulation:

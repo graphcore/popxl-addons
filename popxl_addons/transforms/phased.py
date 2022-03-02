@@ -5,21 +5,21 @@ from weakref import WeakKeyDictionary
 from dataclasses import dataclass
 from collections import defaultdict
 
-import popart.ir as pir
-import popart.ir.ops as ops
-from popart.ir.context import debug_context_frame_offset, io_tiles
-from popart.ir.tensor import Variable
-from popart.ir.ops.call import CallSiteInfo
-from popart.ir.remote_buffer import RemoteBuffer
-from popart.ir.transforms.autodiff import ExpectedConnectionType, GradGraphInfo
-from popart.ir.transforms.merge_exchange import io_tile_exchange
-from popart_ir_extensions.graph import BoundGraph, GraphWithNamedArgs
+import popxl
+from popxl import ops
+from popxl.context import debug_context_frame_offset, io_tiles
+from popxl.tensor import Variable
+from popxl.ops.call import CallSiteInfo
+from popxl.remote_buffer import RemoteBuffer
+from popxl.transforms.autodiff import ExpectedConnectionType, GradGraphInfo
+from popxl.transforms.merge_exchange import io_tile_exchange
+from popxl_addons.graph import BoundGraph, GraphWithNamedArgs
 
-from popart_ir_extensions.dot_tree import DotTree, to_mapping
-from popart_ir_extensions.graph_cache import GraphCache
-from popart_ir_extensions.named_tensors import NamedTensors
-from popart_ir_extensions.remote import RemoteBuffers
-from popart_ir_extensions.dot_tree import sanitise
+from popxl_addons.dot_tree import DotTree, to_mapping
+from popxl_addons.graph_cache import GraphCache
+from popxl_addons.named_tensors import NamedTensors
+from popxl_addons.remote import RemoteBuffers
+from popxl_addons.dot_tree import sanitise
 
 __all__ = [
     "remote_variables", "remote_replica_sharded_variables", "all_gather_replica_sharded_tensors",
@@ -28,7 +28,7 @@ __all__ = [
     "copy_to_io_tiles", "store_to_buffers", "store_from_io_tiles"
 ]
 
-BufferEntry = Tuple[RemoteBuffer, Union[int, pir.Tensor]]
+BufferEntry = Tuple[RemoteBuffer, Union[int, popxl.Tensor]]
 
 
 class NamedBuffers(DotTree[BufferEntry]):
@@ -99,8 +99,8 @@ def load_from_buffers(*buffers: NamedBuffers) -> Tuple[NamedTensors, ...]:
 
 
 @debug_context_frame_offset(3)
-@pir.transforms.merge_exchange()
-@pir.in_sequence(False)
+@popxl.transforms.merge_exchange()
+@popxl.in_sequence(False)
 def load_from_buffers(*buffers: NamedBuffers):
     loaded = []
     entry_to_tensor = {}
@@ -216,28 +216,28 @@ class RemoteActivations:
 def remote_activations(call_info: CallSiteInfo,
                        grad_info: GradGraphInfo,
                        buffers: RemoteBuffers,
-                       existing: Optional[Mapping[pir.Tensor, BufferEntry]] = None) -> RemoteActivations:
+                       existing: Optional[Mapping[popxl.Tensor, BufferEntry]] = None) -> RemoteActivations:
     return remote_activations_from_map(grad_info.inputs_dict(call_info), buffers, existing)
 
 
-def activations_from_subgraph_io_map(subgraph_io_map: Mapping[pir.Tensor, pir.Tensor], grad_info: GradGraphInfo):
+def activations_from_subgraph_io_map(subgraph_io_map: Mapping[popxl.Tensor, popxl.Tensor], grad_info: GradGraphInfo):
     return {
-        pir.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getInputTensor(idx)): subgraph_io_map[act.fwd_tensor]
+        popxl.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getInputTensor(idx)): subgraph_io_map[act.fwd_tensor]
         for idx, act in enumerate(grad_info.expected_inputs) if act.connection_type == ExpectedConnectionType.Fwd
     }
 
 
 def remote_activations_from_subgraph_io_map(
-        subgraph_io_map: Mapping[pir.Tensor, pir.Tensor],
+        subgraph_io_map: Mapping[popxl.Tensor, popxl.Tensor],
         grad_info: GradGraphInfo,
         buffers: RemoteBuffers,
-        existing: Optional[Mapping[pir.Tensor, BufferEntry]] = None) -> RemoteActivations:
+        existing: Optional[Mapping[popxl.Tensor, BufferEntry]] = None) -> RemoteActivations:
     return remote_activations_from_map(activations_from_subgraph_io_map(subgraph_io_map, grad_info), buffers, existing)
 
 
-def remote_activations_from_map(acts_map: Mapping[pir.Tensor, pir.Tensor],
+def remote_activations_from_map(acts_map: Mapping[popxl.Tensor, popxl.Tensor],
                                 buffers: RemoteBuffers,
-                                existing: Optional[Mapping[pir.Tensor, BufferEntry]] = None):
+                                existing: Optional[Mapping[popxl.Tensor, BufferEntry]] = None):
     existing = existing or {}
     to_store = {}
     _buffers = {}
@@ -259,8 +259,8 @@ def remote_activations_from_map(acts_map: Mapping[pir.Tensor, pir.Tensor],
                              NamedTensors.from_dict(subgraph))
 
 
-def _make_constant(ts: Iterable[Union[int, pir.Tensor]]):
-    return tuple(map(lambda t: t if isinstance(t, pir.Tensor) else pir.constant(t, pir.uint32), ts))
+def _make_constant(ts: Iterable[Union[int, popxl.Tensor]]):
+    return tuple(map(lambda t: t if isinstance(t, popxl.Tensor) else popxl.constant(t, popxl.uint32), ts))
 
 
 R = TypeVar('R')
@@ -279,7 +279,7 @@ def _static_graph_cache(fn: Callable[..., R]) -> Callable[..., R]:
 def _load_from_buffers_function(cache: GraphCache, buffers: NamedBuffers) -> NamedTensors:
     names: List[str]
 
-    def flat_fn(ids: List[RemoteBuffer], offsets: List[pir.Tensor]) -> List[pir.Tensor]:
+    def flat_fn(ids: List[RemoteBuffer], offsets: List[popxl.Tensor]) -> List[popxl.Tensor]:
         nonlocal names
         output = []
         for buffer, offset, name in zip(ids, offsets, names):
@@ -323,7 +323,7 @@ def load_from_buffers_function(buffers: NamedBuffers) -> NamedTensors:
 
 @_static_graph_cache
 def _store_to_buffers_function(cache: GraphCache, tensors: NamedTensors, buffers: NamedBuffers) -> NamedTensors:
-    def flat_fn(tensors: List[pir.Tensor], ids: List[RemoteBuffer], offsets: List[pir.Tensor]):
+    def flat_fn(tensors: List[popxl.Tensor], ids: List[RemoteBuffer], offsets: List[popxl.Tensor]):
         for buffer, offset, tensor in zip(ids, offsets, tensors):
             ops.remote_store(buffer, offset, tensor)
 

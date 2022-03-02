@@ -6,9 +6,9 @@ import torch
 import torchvision
 from tqdm import tqdm
 import numpy as np
-import popart.ir as pir
-import popart.ir.ops as ops
-import popart_ir_extensions as pir_ext
+import popxl
+from popxl import ops
+import popxl_addons as addons
 
 
 def get_mnist_data(opts):
@@ -36,13 +36,13 @@ def get_mnist_data(opts):
     return training_data, validation_data
 
 
-class Linear(pir_ext.Module):
+class Linear(addons.Module):
     def __init__(self, out_features: int, bias: bool = True):
         super().__init__()
         self.out_features = out_features
         self.bias = bias
 
-    def build(self, x: pir.Tensor) -> pir.Tensor:
+    def build(self, x: popxl.Tensor) -> popxl.Tensor:
         w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
                                   x.dtype)
         y = x @ w
@@ -52,14 +52,14 @@ class Linear(pir_ext.Module):
         return y
 
 
-class Net(pir_ext.Module):
-    def __init__(self, cache: Optional[pir_ext.GraphCache] = None):
+class Net(addons.Module):
+    def __init__(self, cache: Optional[addons.GraphCache] = None):
         super().__init__(cache=cache)
         self.fc1 = Linear(512)
         self.fc2 = Linear(512)
         self.fc3 = Linear(10)
 
-    def build(self, x: pir.Tensor):
+    def build(self, x: popxl.Tensor):
         x = x.reshape((-1, 28 * 28))
         x = ops.gelu(self.fc1(x))
         x = ops.gelu(self.fc2(x))
@@ -96,17 +96,17 @@ def test(test_runner, test_data, streams):
 
 
 def train_program(opts):
-    ir = pir.Ir()
+    ir = popxl.Ir()
     with ir.main_graph:
         # Inputs
-        in_stream = pir.h2d_stream((opts.batch_size, 28, 28), pir.float32, "image")
+        in_stream = popxl.h2d_stream((opts.batch_size, 28, 28), popxl.float32, "image")
         in_t = ops.host_load(in_stream)
-        label_stream = pir.h2d_stream((opts.batch_size, ), pir.int32, "labels")
+        label_stream = popxl.h2d_stream((opts.batch_size, ), popxl.int32, "labels")
         labels = ops.host_load(label_stream, "labels")
 
         # Create graphs
         args, graph = Net().create_graph(in_t)
-        dgraph = pir_ext.autodiff(graph)
+        dgraph = addons.autodiff(graph)
 
         # Initialise variables
         params = args.init()
@@ -115,8 +115,8 @@ def train_program(opts):
         fwd_info = graph.bind(params).call_with_info(in_t)
         x = fwd_info.outputs[0]
         # Loss
-        loss, dx = pir_ext.ops.cross_entropy_with_grad(x, labels)
-        loss_stream = pir.d2h_stream(loss.shape, loss.dtype, "loss")
+        loss, dx = addons.ops.cross_entropy_with_grad(x, labels)
+        loss_stream = popxl.d2h_stream(loss.shape, loss.dtype, "loss")
         ops.host_store(loss_stream, loss)
         # Gradient
         bwd_info = dgraph.call_with_info(dx, args=dgraph.grad_graph_info.inputs_dict(fwd_info))
@@ -125,14 +125,14 @@ def train_program(opts):
         for t in params.tensors:
             ops.scaled_add_(t, grads[t], b=-opts.lr)
 
-    return pir_ext.Runner(ir, loss_stream), [in_stream, label_stream], params
+    return addons.Runner(ir, loss_stream), [in_stream, label_stream], params
 
 
 def test_program(opts):
-    ir = pir.Ir()
+    ir = popxl.Ir()
     with ir.main_graph:
         # Inputs
-        in_stream = pir.h2d_stream((opts.test_batch_size, 28, 28), pir.float32, "image")
+        in_stream = popxl.h2d_stream((opts.test_batch_size, 28, 28), popxl.float32, "image")
         in_t = ops.host_load(in_stream)
 
         # Create graphs
@@ -143,20 +143,20 @@ def test_program(opts):
 
         # Forward
         x, = graph.bind(params).call(in_t)
-        x_stream = pir.d2h_stream(x.shape, x.dtype, "x")
+        x_stream = popxl.d2h_stream(x.shape, x.dtype, "x")
         ops.host_store(x_stream, x)
 
-    return pir_ext.Runner(ir, x_stream), [in_stream], params
+    return addons.Runner(ir, x_stream), [in_stream], params
 
 
-def copy_checkpoint(src: pir_ext.NamedTensors, dst: pir_ext.NamedTensors,
-                    ckpt: Mapping[pir.Tensor, pir_ext.HostTensor]) -> Mapping[pir.Tensor, pir_ext.HostTensor]:
+def copy_checkpoint(src: addons.NamedTensors, dst: addons.NamedTensors,
+                    ckpt: Mapping[popxl.Tensor, addons.HostTensor]) -> Mapping[popxl.Tensor, addons.HostTensor]:
     src_dst = src.to_mapping(dst)
     return {src_dst[src_t]: t for src_t, t in ckpt.items()}
 
 
 def main():
-    parser = argparse.ArgumentParser(description='MNIST training in popart.ir extensions')
+    parser = argparse.ArgumentParser(description='MNIST training in popxl extensions')
     parser.add_argument('--batch-size', type=int, default=8, help='batch size for training (default: 8)')
     parser.add_argument('--test-batch-size', type=int, default=80, help='batch size for testing (default: 80)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 10)')
