@@ -1,13 +1,2 @@
 numpy
 more_itertools
-
-pytest
-pytest-xdist
-sphinx>=3.2.1
-codecov
-recommonmark
-sphinx-rtd-theme
-yapf
-
--f https://download.pytorch.org/whl/torch_stable.html
-torch==1.9.0+cpu

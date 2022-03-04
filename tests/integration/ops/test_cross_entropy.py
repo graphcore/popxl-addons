@@ -20,7 +20,7 @@ def test_cross_entropy_with_grad():
         sloss.backward()
         return loss.detach().numpy(), logits.grad.detach().numpy()
 
-    def popart():
+    def popxl_():
         logits, target = inputs()
         ir = popxl.Ir()
         with ir.main_graph:
@@ -33,5 +33,5 @@ def test_cross_entropy_with_grad():
             )
         return addons.Runner(ir, outs).run()
 
-    for _t, _p in zip(pytorch(), popart()):
+    for _t, _p in zip(pytorch(), popxl_()):
         np.testing.assert_almost_equal(_t, _p, 5)
