@@ -44,7 +44,8 @@ def test_batch_serialisation_fwd_only():
 
     inputs = np.arange(x.nelms).reshape(x.shape).astype(x.dtype.as_numpy())
 
-    outputs = addons.Runner(ir, out).run({x_h2d: inputs})
+    ir.num_host_transfers = 1
+    outputs = popxl.Session(ir, "ipu_hw").run({x_h2d: inputs})[out]
 
     print(inputs * 2)
     print(outputs)
@@ -86,7 +87,6 @@ def test_batch_serialisation_grad():
             # Bind variables
             fwd = graph.bind(linear)
             bwd = dgraph.bind(accums)
-
             # Create Program
             x_h2d = popxl.h2d_stream(combined_inputs.shape, popxl.float32, name="x_stream")
             x = ops.host_load(x_h2d, "x")
@@ -97,18 +97,18 @@ def test_batch_serialisation_grad():
             grad_seed = popxl.constant(grad.reshape(-1, 4) / bf)
             bwd.call(grad_seed, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
-        runner = addons.Runner(ir)
-        runner.run({x_h2d: combined_inputs})
-        accum = runner.read_weights([accums.weight])[accums.weight]
-        runner.detach()
-        return accum
+        ir.num_host_transfers = 1
+        session = popxl.Session(ir)
+        session.run({x_h2d: combined_inputs})
+        accum = session.get_tensor_data(accums.weight)
+        session.device.detach()
+        return accum.copy()
 
     def batch_serial():
         np.random.seed(42)
         ir = popxl.Ir()
         main = ir.main_graph
         with main:
-
             # Create graphs
             args, graph = Linear(4).create_graph(popxl.constant(inputs[0]))
             dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.inputs)
@@ -123,24 +123,25 @@ def test_batch_serialisation_grad():
             # Bind variables
             fwd = graph.bind(linear)
             bwd = dgraph.bind(accums)
-
             # Create Program
             x_h2d = popxl.h2d_stream(inputs.shape, popxl.float32, name="x_stream")
             x = ops.host_load(x_h2d, "x")
 
             call_info = fwd.call_with_info(x)
 
-            # Note Mean over batch_serialisation_factor
+            # no mean over bf
             bwd.call(popxl.constant(grad), args=dgraph.grad_graph_info.inputs_dict(call_info))
 
-        runner = addons.Runner(ir)
-        runner.run({x_h2d: inputs})
-        accum = runner.read_weights([accums.weight])[accums.weight]
-        runner.detach()
-        return accum
+        ir.num_host_transfers = 1
+        session = popxl.Session(ir, "ipu_hw")
+        session.run({x_h2d: inputs})
+        accum = session.get_tensor_data(accums.weight)
+        session.device.detach()
+        return accum.copy()
 
     print("\nNormal")
     normal = graph()
+    print(normal)
     print("Batch Serial")
     batch_ser = batch_serial()
     print(batch_ser)

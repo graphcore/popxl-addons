@@ -52,21 +52,22 @@ def model(with_accumulation):
         dscale1_out = dgraph.bind(accum2).call(dscale2_out[0], args=dgraph.grad_graph_info.inputs_dict(call_info_1))
 
         if with_accumulation:
-            outs = []
+            out_streams = []
         else:
-            outs = [addons.host_store(t) for t in (dscale1_out[1], dscale2_out[1])]
+            out_streams = [addons.host_store(t) for t in (dscale1_out[1], dscale2_out[1])]
 
-    runner = addons.Runner(ir, outs)
-    outputs = runner.run()
+    ir.num_host_transfers = 1
+    session = popxl.Session(ir, "ipu_hw")
+    outputs = session.run()
 
     if with_accumulation:
         accums = [accum1.scale, accum2.scale]
-        results = runner.read_weights(accums)
+        results = session.get_tensors_data(accums)
         return tuple(results[t] for t in accums)
 
-    runner.detach()
+    session.device.detach()
 
-    return outputs
+    return tuple(outputs[o_d2h] for o_d2h in out_streams)
 
 
 def test_gradient_accumulation_correctness():

@@ -14,12 +14,13 @@ from popxl_addons.transforms.pipelining import stash_and_restore_activations
 def test_pipeline_2_stage():
     ir = popxl.Ir()
     main = ir.main_graph
-
+    device_iterations = 10
+    inputs = np.arange(device_iterations).reshape(-1, 1).astype(np.uint32)
     with main:
         in_stream = popxl.h2d_stream((), popxl.uint32)
         out_stream = popxl.d2h_stream((), popxl.uint32)
 
-        with addons.pipelined_execution(10):
+        with addons.pipelined_execution(device_iterations):
             with popxl.pipeline_stage(0), popxl.ipu(0):
                 x = ops.host_load(in_stream)
                 x = x + 1
@@ -29,14 +30,17 @@ def test_pipeline_2_stage():
                 x = x + 1
                 ops.host_store(out_stream, x)
 
-    result: np.ndarray = addons.Runner(ir, out_stream, device_iterations=10, device_num=2).run(
-        {in_stream: np.arange(10).reshape(-1, 1).astype(np.uint32)})  # type: ignore
+    ir.num_host_transfers = device_iterations
+    session = popxl.Session(ir, "ipu_hw")
+    result: np.ndarray = session.run({in_stream: inputs})[out_stream]
     np.testing.assert_equal(result.reshape(-1), np.arange(10) + 2)
 
 
 def test_pipeline_4_stage():
     ir = popxl.Ir()
     main = ir.main_graph
+    device_iterations = 10
+    inputs = np.arange(device_iterations).reshape(-1, 1).astype(np.uint32)
 
     with main:
         in_stream = popxl.h2d_stream((), popxl.uint32)
@@ -60,8 +64,9 @@ def test_pipeline_4_stage():
                 x = x + 1
                 ops.host_store(out_stream, x)
 
-    result: np.ndarray = addons.Runner(ir, out_stream, device_iterations=10, device_num=4).run(
-        {in_stream: np.arange(10).reshape(-1, 1).astype(np.uint32)})  # type: ignore
+    ir.num_host_transfers = device_iterations
+    session = popxl.Session(ir, "ipu_hw")
+    result: np.ndarray = session.run({in_stream: inputs})[out_stream]
     np.testing.assert_equal(result.reshape(-1), np.arange(10) + 4)
 
 
@@ -84,7 +89,6 @@ def test_pipeline_training():
         np.random.seed(42)
         ir = popxl.Ir()
         main = ir.main_graph
-
         data = np.random.normal(0, 1, (steps, 1, 4)).astype(np.float32)
 
         with main:
@@ -109,14 +113,16 @@ def test_pipeline_training():
             with popxl.ipu(0):
                 dlinear_graph.bind(dlinear).call(x, args=dlinear_graph.grad_graph_info.inputs_dict(call_info))
 
-        runner = addons.Runner(ir, [], device_iterations=1, device_num=2)
+        device_iterations = 1
+        ir.num_host_transfers = device_iterations
+        session = popxl.Session(ir, "ipu_hw")
         for n in range(steps):
-            runner.run({x_stream: data[n]})  # type: ignore
+            result: np.ndarray = session.run({x_stream: data[n]})
 
-        weights = runner.read_weights([dlinear.weight])
-        runner.detach()
+        weights = session.get_tensor_data(dlinear.weight)
+        session.device.detach()
 
-        return weights[dlinear.weight]
+        return weights.copy()
 
     def pipelined_graph():
         np.random.seed(42)
@@ -153,16 +159,16 @@ def test_pipeline_training():
                                                      args=stash_and_restore_activations(
                                                          call_info, dlinear_graph.grad_graph_info))
 
-        runner = addons.Runner(ir, [], device_iterations=steps, device_num=2)
-        runner.run({x_stream: data})  # type: ignore
+        device_iterations = steps
+        ir.num_host_transfers = device_iterations
+        session = popxl.Session(ir, "ipu_hw")
+        session.run({x_stream: data})  # type: ignore
 
-        weights = runner.read_weights([dlinear.weight])
-        runner.detach()
+        weights = session.get_tensor_data(dlinear.weight)
+        session.device.detach()
 
-        return weights[dlinear.weight]
+        return weights.copy()
 
     normal = graph()
-
     pipelined = pipelined_graph()
-
     np.testing.assert_almost_equal(normal, pipelined)

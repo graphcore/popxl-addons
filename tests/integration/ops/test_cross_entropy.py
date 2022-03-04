@@ -27,11 +27,14 @@ def test_cross_entropy_with_grad():
             logits = popxl.variable(logits.detach().numpy().astype(np.float32))
             target = popxl.variable(target.detach().numpy().astype(np.uint32))
             loss, dlogits = addons.ops.cross_entropy_with_grad(logits, target, 64)
-            outs = (
-                addons.host_store(loss),
-                addons.host_store(dlogits),
-            )
-        return addons.Runner(ir, outs).run()
+            loss_d2h = addons.host_store(loss)
+            dlogits_d2h = addons.host_store(dlogits)
+
+        ir.num_host_transfers = 1
+        session = popxl.Session(ir, "ipu_hw")
+        outputs = session.run()
+        session.device.detach()
+        return (outputs[loss_d2h], outputs[dlogits_d2h])
 
     for _t, _p in zip(pytorch(), popxl_()):
         np.testing.assert_almost_equal(_t, _p, 5)

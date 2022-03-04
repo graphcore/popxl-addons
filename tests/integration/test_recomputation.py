@@ -41,9 +41,13 @@ def get_model_outputs(recompute: bool) -> Tuple[popxl.Tensor, ...]:
         gradient = popxl.constant(np.ones(x.shape), x.dtype, "gradient")
         outputs_t: Tuple[popxl.Tensor, ...] = dgraph.call(gradient, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
-        outputs = tuple(map(addons.host_store, outputs_t))
+        out_streams = tuple(map(addons.host_store, outputs_t))
 
-    return addons.Runner(ir=ir, outputs=outputs).run({x_h2d: x_data})  # type: ignore
+    ir.num_device_transfers = 1
+    session = popxl.Session(ir, "ipu_hw")
+    outputs = session.run({x_h2d: x_data})
+    session.device.detach()
+    return tuple(outputs[o_d2h] for o_d2h in out_streams)  # type: ignore
 
 
 def test_recompute_correctness():
