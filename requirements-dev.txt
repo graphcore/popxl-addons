@@ -7,4 +7,4 @@ sphinx>=3.2.1
 codecov
 recommonmark
 sphinx-rtd-theme
-yapf
+yapf==0.27.0
