@@ -132,6 +132,8 @@ class NamedInputFactories(DotTree[InputFactory]):
     def init(self, prefix: Optional[str] = None) -> NamedTensors:
         """Construct tensors for each InputFactory.
 
+        The tensors are created in alphabetical order to generate the data deterministically.
+
         Pseudo example:
         .. code-block:: python
             nif = NamedInputFactories(a=InputFactory(lambda: 1), b=InputFactory(lambda: 2))
@@ -146,13 +148,15 @@ class NamedInputFactories(DotTree[InputFactory]):
                 input factories.
         """
         inputs = {}
-        for name, value in self.to_dict().items():
+        for name, value in sorted(self.to_dict().items()):
             prefixed = f"{prefix}.{name}" if prefix else name
             inputs[name] = value.create_tensor(prefixed)
         return NamedTensors.from_dict(inputs)
 
     def init_remote(self, buffers: "NamedRemoteBuffers", entry: int = 0, prefix: Optional[str] = None) -> NamedTensors:
         """Construct remote variables for each InputFactory using the buffer with a matching name in `buffers`.
+
+        The tensors are created in alphabetical order to generate the data deterministically.
 
         Args:
             buffers (NamedRemoteBuffers): Buffers to store the variables in.
@@ -165,7 +169,7 @@ class NamedInputFactories(DotTree[InputFactory]):
         """
         variables = {}
         buffers_ = buffers.to_dict()
-        for name, factory in self.to_dict().items():
+        for name, factory in sorted(self.to_dict().items()):
             prefixed = f"{prefix}.{name}" if prefix else name
             variables[name] = factory.create_remote_tensor(buffers_[name], entry, prefixed)
         return NamedTensors.from_dict(variables)

@@ -45,17 +45,18 @@ class BatchSerialResult:
         return ts.remap(self._compute_to_micro).remap(self._micro_to_repeat)
 
 
-def batch_serial_buffer(t: popxl.Tensor, offset: int = 0) -> RemoteBufferAndOffset:
+def batch_serial_buffer(t: popxl.Tensor, entries: int = 1) -> RemoteBufferAndOffset:
     """Create a RemoteBuffer and offset tuple from that matches a Tensor `t`
 
     Args:
         t (popxl.Tensor): Tensor to make a RemoteBuffer for.
-        offset (int, optional): offset value. Defaults to 0.
+        entries (int, optional): the size of the buffer. Defaults to 1
 
     Returns:
         RemoteBufferAndOffset: (buffer, offset)
     """
-    return (popxl.remote_buffer(t.shape, t.dtype, 1), offset)
+    offset = 0
+    return (popxl.remote_buffer(t.shape, t.dtype, entries), offset)
 
 
 def _graphs(ir: popxl.Ir, steps: int, name: str,
@@ -190,8 +191,7 @@ def store_outputs(compute_info: CallSiteInfo,
     stored = {}
     store_buffers_in_graph = filter(lambda t: t[0] in compute_info.called_graph, store_buffers.items())
     for t, (buffer, offset) in store_buffers_in_graph:
-        if False and t in load_handles.keys() and not isinstance(load_handles[t], popxl.HostToDeviceStream):
-            # TODO: Figure out why reusing stored values breaks training.
+        if t in load_handles.keys() and not isinstance(load_handles[t], popxl.HostToDeviceStream):
             # If the tensor is already in a RemoteBuffer don't store it again.
             stored[t] = load_handles[t]
         else:
@@ -331,8 +331,7 @@ def batch_serialise_fwd_and_grad(
             fwd_idx = named_fwd_inputs.index(t)
             named_expected_fwd_inputs.add(t)
             named_expected_grad_inputs[fwd_input_names[fwd_idx]] = grad_inputs[grad_idx]
-        elif False and t in load_handles.keys() and not isinstance(load_handles[t], popxl.HostToDeviceStream):
-            # TODO: Figure out why reusing stored values breaks training.
+        elif t in load_handles.keys() and not isinstance(load_handles[t], popxl.HostToDeviceStream):
             # activation already stored in the input handles
             store_buffers[t] = load_handles[t]
         else:
