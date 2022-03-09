@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+import re
 import numpy as np
 from popxl.tensor import HostTensor
 
@@ -18,3 +19,8 @@ def to_numpy(x: HostTensor, dtype=None) -> np.ndarray:
         x = np.array(x, dtype=dtype)
 
     return x.copy()
+
+
+def suffix_graph_name(name: str, suffix: str):
+    removed_subgraph = re.sub(r"_subgraph\(\d+\)", "", name)
+    return f"{removed_subgraph}_{suffix}"

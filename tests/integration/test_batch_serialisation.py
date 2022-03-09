@@ -5,144 +5,256 @@ import popxl
 from popxl import ops
 
 import popxl_addons as addons
-from popxl_addons.module import Module
-from popxl_addons.transforms.batch_serialisation import batch_serialise, batch_serialise_forward_and_grad
-from popxl_addons.transforms.autodiff import autodiff_with_accumulation
+from popxl_addons.transforms.batch_serialisation import (batch_serial_buffer, batch_serialise,
+                                                         batch_serialise_fwd_and_grad)
 
 
-class Scale(Module):
+class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         scale = self.add_input_tensor("scale", partial(np.full, x.shape, 2), x.dtype)
         return x * scale
 
 
-def test_batch_serialisation_fwd_only():
+def test_batch_serialisation_fwd_single():
     ir = popxl.Ir()
     main = ir.main_graph
 
     cb = 2
     bf = 4
 
-    with main:
+    with main, popxl.in_sequence(True):
+        in_h2d = popxl.h2d_stream((cb, 2), popxl.float32, name="x_stream")
         # Create graphs
-        input_spec = popxl.constant(np.ones((cb, 2)), popxl.float32)
-        args, graph = Scale().create_graph(input_spec)
+        args, graph = Scale().create_graph(in_h2d.spec)
 
         # Transform graphs
-        graph = batch_serialise(graph, bf, graph.graph.inputs[:1])
+        bs_result = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: in_h2d},
+            store_streams={},
+            store_buffers={t: batch_serial_buffer(t)
+                           for t in graph.graph.outputs},
+        )
 
         # Create variables and bind
-        scale = graph.bind(args.init())
+        scale = bs_result.graph.bind(args.init())
 
         # Create Program
-        x_h2d = popxl.h2d_stream((bf, cb, 2), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, "x")
+        scale.call(popxl.constant(0))
 
-        scaled, = scale.call(x)
+        # Load values out of the remote buffers
+        out_buffer, _ = bs_result.stored_buffers[graph.graph.outputs[0]]
+        out = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype)
+        for i in range(bf):
+            y = ops.remote_load(out_buffer, i)
+            ops.host_store(out, y)
 
-        out = addons.host_store(scaled)
+    inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
 
-    inputs = np.arange(x.nelms).reshape(x.shape).astype(x.dtype.as_numpy())
-
-    ir.num_host_transfers = 1
-    outputs = popxl.Session(ir, "ipu_hw").run({x_h2d: inputs})[out]
-
-    print(inputs * 2)
-    print(outputs)
+    ir.num_host_transfers = bf
+    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out]
     np.testing.assert_equal(inputs * 2, outputs)
 
 
-class Linear(Module):
-    def __init__(self, out_features: int):
-        super().__init__()
-        self.out_features = out_features
+def test_batch_serialisation_entries():
+    ir = popxl.Ir()
+    main = ir.main_graph
 
+    cb = 2
+    bf = 4
+
+    with main, popxl.in_sequence(True):
+        in_h2d = popxl.h2d_stream((cb, 2), popxl.float32, name="x_stream")
+        # Create graphs
+        args, graph = Scale().create_graph(in_h2d.spec)
+
+        # Transform graphs
+        bs_result = batch_serialise(graph,
+                                    bf,
+                                    load_handles={graph.graph.inputs[0]: in_h2d},
+                                    store_streams={},
+                                    store_buffers={t: batch_serial_buffer(t)
+                                                   for t in graph.graph.outputs},
+                                    entries=2)
+
+        # Create variables and bind
+        scale = bs_result.graph.bind(args.init())
+
+        # Create Program
+        scale.call(popxl.constant(1))
+
+        # Load values out of the remote buffers
+        out_buffer, _ = bs_result.stored_buffers[graph.graph.outputs[0]]
+        out = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype)
+        for i in range(bf):
+            y = ops.remote_load(out_buffer, bf + i)
+            ops.host_store(out, y)
+
+    inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
+
+    ir.num_host_transfers = bf
+    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out]
+    np.testing.assert_equal(inputs * 2, outputs)
+
+
+def test_batch_serialisation_sequence():
+    ir = popxl.Ir()
+    main = ir.main_graph
+
+    cb = 2
+    bf = 4
+
+    with main, popxl.in_sequence(True):
+        in_h2d = popxl.h2d_stream((cb, 2), popxl.float32, name="in_stream")
+        out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
+        # Create graphs
+        args, graph = Scale().create_graph(in_h2d.spec)
+
+        # Transform graphs
+        buffer, _ = batch_serial_buffer(graph.graph.outputs[0])
+        bs_load = batch_serialise(graph,
+                                  bf,
+                                  load_handles={graph.graph.inputs[0]: in_h2d},
+                                  store_streams={},
+                                  store_buffers={graph.graph.outputs[0]: (buffer, 0)})
+
+        bs_remote = batch_serialise(graph,
+                                    bf,
+                                    load_handles={graph.graph.inputs[0]: (buffer, 0)},
+                                    store_streams={},
+                                    store_buffers={graph.graph.outputs[0]: (buffer, 1)},
+                                    entries=2)
+
+        bs_store = batch_serialise(graph,
+                                   bf,
+                                   load_handles={graph.graph.inputs[0]: (buffer, 2)},
+                                   store_streams={graph.graph.outputs[0]: out_d2h},
+                                   store_buffers={})
+
+        # Create variables and bind
+        var = args.init()
+        scale_load = bs_load.graph.bind(var)
+        scale_remote = bs_remote.graph.bind(var)
+        scale_store = bs_store.graph.bind(var)
+
+        # Create Program
+        scale_load.call(0)
+
+        scale_remote.call(0)
+        scale_remote.call(1)
+
+        scale_store.call(0)
+
+    inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
+
+    ir.num_host_transfers = bf
+    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out_d2h]
+
+    np.testing.assert_equal(inputs * (2**4), outputs)
+
+
+class Linear(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        x = x + 1
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 1, (x.shape[-1], self.out_features)), x.dtype)
+        w = self.add_input_tensor("w", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
         return x @ w
 
 
 def test_batch_serialisation_grad():
-    np.random.seed(42)
-    cb = 3
+    cb = 2
     bf = 4
-    inputs = np.random.normal(0, 1, (bf, cb, 2)).astype(np.float32)
-    grad = np.random.normal(0, 1, (bf, cb, 4)).astype(np.float32)
 
-    def graph():
-        np.random.seed(42)
+    inputs = np.random.normal(0, 1, (bf, cb, 2)).astype(np.float32)
+    w = np.random.normal(0, 0.1, (2, 2)).astype(np.float32)
+    grad_inputs = np.random.normal(0, 1, (bf, cb, 2)).astype(np.float32)
+
+    def normal():
         ir = popxl.Ir()
         main = ir.main_graph
-        combined_inputs = inputs.reshape((-1, 2))
+
         with main:
-            # Create graphs
-            args, graph = Linear(4).create_graph(popxl.constant(combined_inputs))
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.inputs)
+            # --- Create inputs
+            in_h2d = popxl.h2d_stream((bf * cb, 2), popxl.float32, name="in_stream")
+            out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
+            # --- Create graphs
+            args, graph = Linear().create_graph(in_h2d.spec)
+            dargs, dgraph = addons.autodiff_with_accumulation(graph,
+                                                              graph.args.tensors,
+                                                              grads_required=graph.graph.inputs[:1])
 
-            # Create variables
-            linear = args.init()
-            accums = dargs.init()
+            # --- Create variables and bind
+            weights = args.init()
+            fwd = graph.bind(weights)
+            grad = dgraph.bind(dargs.init())
 
-            # Bind variables
-            fwd = graph.bind(linear)
-            bwd = dgraph.bind(accums)
-            # Create Program
-            x_h2d = popxl.h2d_stream(combined_inputs.shape, popxl.float32, name="x_stream")
-            x = ops.host_load(x_h2d, "x")
+            # --- Create Program
+            with popxl.in_sequence():
+                x = ops.host_load(in_h2d)
+                # Call forward
+                fwd_info = fwd.call_with_info(x)
+                # Call gradient
+                dx, = grad.call(popxl.constant(grad_inputs.reshape(-1, 2)),
+                                args=dgraph.grad_graph_info.inputs_dict(fwd_info))
 
-            call_info = fwd.call_with_info(x)
+                ops.host_store(out_d2h, dx)
 
-            # Note Mean over batch_serialisation_factor
-            grad_seed = popxl.constant(grad.reshape(-1, 4) / bf)
-            bwd.call(grad_seed, args=dgraph.grad_graph_info.inputs_dict(call_info))
-
-        ir.num_host_transfers = 1
-        session = popxl.Session(ir)
-        session.run({x_h2d: combined_inputs})
-        accum = session.get_tensor_data(accums.weight)
-        session.device.detach()
-        return accum.copy()
+        sess = popxl.Session(ir, "ipu_hw")
+        sess.write_variable_data(weights.w, w)
+        out = sess.run({in_h2d: inputs.reshape(-1, 2)})[out_d2h]
+        sess.device.detach()
+        return out
 
     def batch_serial():
-        np.random.seed(42)
         ir = popxl.Ir()
         main = ir.main_graph
+
         with main:
-            # Create graphs
-            args, graph = Linear(4).create_graph(popxl.constant(inputs[0]))
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.weight], graph.graph.inputs)
+            # --- Create inputs
+            in_h2d = popxl.h2d_stream((cb, 2), popxl.float32, name="in_stream")
+            out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
+            # --- Create graphs
+            args, graph = Linear().create_graph(in_h2d.spec)
+            dargs, dgraph = addons.autodiff_with_accumulation(graph,
+                                                              graph.args.tensors,
+                                                              grads_required=graph.graph.inputs[:1])
 
-            # Transform graphs
-            graph, dgraph = batch_serialise_forward_and_grad(graph, dgraph, bf, graph.graph.inputs[:1])
+            # --- Transform graphs
+            input_grad = dgraph.graph.inputs[0]
+            grad_buffer, _ = batch_serial_buffer(input_grad)
+            bs_fwd, bs_grad, named_expected_inputs = batch_serialise_fwd_and_grad(
+                graph,
+                dgraph,
+                bf,
+                load_handles={
+                    graph.graph.inputs[0]: in_h2d,
+                    input_grad: (grad_buffer, 0)
+                },
+                store_streams={dgraph.graph.outputs[0]: out_d2h},
+                store_buffers={})
 
-            # Create variablesrecompute_graphre
-            linear = args.init()
-            accums = dargs.init()
+            # --- Create variables and bind
+            weights = args.init()
+            fwd = bs_fwd.graph.bind(weights)
+            grad = bs_grad.graph.bind(dargs.init())
 
-            # Bind variables
-            fwd = graph.bind(linear)
-            bwd = dgraph.bind(accums)
-            # Create Program
-            x_h2d = popxl.h2d_stream(inputs.shape, popxl.float32, name="x_stream")
-            x = ops.host_load(x_h2d, "x")
+            # --- Create Program
+            with popxl.in_sequence():
+                # Store upstream grad in input buffer
+                for i in range(bf):
+                    ops.remote_store(grad_buffer, i, popxl.constant(grad_inputs[i]))
 
-            call_info = fwd.call_with_info(x)
+                # Call forward
+                fwd.call(popxl.constant(0))
+                # Call gradient
+                grad.call(popxl.constant(0), args=named_expected_inputs.to_mapping(weights))
 
-            # no mean over bf
-            bwd.call(popxl.constant(grad), args=dgraph.grad_graph_info.inputs_dict(call_info))
+        ir.num_host_transfers = bf
+        sess = popxl.Session(ir, "ipu_hw")
+        sess.write_variable_data(weights.w, w)
+        out = sess.run({in_h2d: inputs})[out_d2h]
+        sess.device.detach()
+        return out
 
-        ir.num_host_transfers = 1
-        session = popxl.Session(ir, "ipu_hw")
-        session.run({x_h2d: inputs})
-        accum = session.get_tensor_data(accums.weight)
-        session.device.detach()
-        return accum.copy()
-
-    print("\nNormal")
-    normal = graph()
-    print(normal)
-    print("Batch Serial")
-    batch_ser = batch_serial()
-    print(batch_ser)
-    np.testing.assert_almost_equal(normal, batch_ser, 6)
+    norm = normal()
+    bs = batch_serial()
+    np.testing.assert_almost_equal(norm.reshape(-1), bs.reshape(-1))

@@ -1,13 +1,18 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-from typing import Callable, Iterable, Optional, Union, Tuple
+from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Union, Tuple
 import numpy as np
 
 from more_itertools import peekable
 import popxl
+from popxl import ops
 from popxl import dtypes
 from popxl.tensor import HostTensor, host_tensor_types
+from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.dot_tree import DotTree
 from popxl_addons.named_tensors import NamedTensors
+
+if TYPE_CHECKING:
+    from popxl_addons.transforms.phased import NamedRemoteBuffers
 
 
 class InputFactory:
@@ -59,8 +64,6 @@ class InputFactory:
         self.name = name
         self.constant = constant
         self.by_ref = by_ref
-        self.dtype = dtype
-        self.shape = None
         self.replica_sharded = replica_sharded
 
         data_peek = self.data_iter.peek()
@@ -68,24 +71,23 @@ class InputFactory:
             raise ValueError(f"`data_iter` must be of a numpy array, torch tensor or iterable. "
                              f"It provided: {data_peek}.")
 
+        self.dtype = dtype or dtypes.dtype.as_dtype(data_peek)
+
         if self.replica_sharded:
-            self.shape = (int(np.prod(data_peek.shape)) //
-                          popxl.gcg().ir._pb_ir.getSessionOptions().replicatedGraphCount, )
+            self.meta_shape = data_peek.shape
+            self.shape = (int(np.prod(self.meta_shape)) // popxl.gcg().ir.replication_factor, )
+        else:
+            self.meta_shape = None
+            self.shape = data_peek.shape
 
     def create_input(self, prefix: Optional[str] = None) -> popxl.Tensor:
-        """
-        Create a subgraph input for the current graph.
-        Peaks at the data iterator's next element to determine data type and shape of the input.
-        """
+        """Create a subgraph input for the current graph."""
         name = self.name if prefix is None else f"{prefix}.{self.name}"
-
-        data: HostTensor = self.data_iter.peek()
-        data = np.array(data)
-        shape = self.shape or data.shape
-        dtype = self.dtype or dtypes.dtype.as_dtype(data)
-        meta_shape = data.shape if shape != data.shape else None
-        t = popxl.graph_input(shape=shape, dtype=dtype, name=name, by_ref=self.by_ref, meta_shape=meta_shape)
-        return t
+        return popxl.graph_input(shape=self.shape,
+                                 dtype=self.dtype,
+                                 name=name,
+                                 by_ref=self.by_ref,
+                                 meta_shape=self.meta_shape)
 
     def create_tensor(self, name: Optional[str] = None):
         """
@@ -101,13 +103,31 @@ class InputFactory:
         dtype = self.dtype or None
 
         if not self.constant:
-            return popxl.variable(data, dtype, name=name)
+            return popxl.variable(data, dtype, name)
         else:
-            return popxl.constant(data, dtype, name=name)
+            return popxl.constant(data, dtype, name)
+
+    def create_remote_tensor(self, buffer: popxl.RemoteBuffer, entry: int, name: Optional[str] = None):
+        if self.constant:
+            raise ValueError("Constant InputFactories cannot create remote tensors.")
+
+        name = name or self.name
+        data: HostTensor = next(self.data_iter)
+        dtype = self.dtype or None
+
+        if buffer.meta_shape:
+            return popxl.remote_replica_sharded_variable(data, buffer, entry, dtype, name)
+        else:
+            return popxl.remote_variable(data, buffer, entry, dtype, name)
 
 
 class NamedInputFactories(DotTree[InputFactory]):
     """A `DotTree` collection of InputFactories """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._init_zero_graph: Optional[GraphWithNamedArgs] = None
+        self._init_zero_names: Optional[List[str]] = None
 
     def init(self, prefix: Optional[str] = None) -> NamedTensors:
         """Construct tensors for each InputFactory.
@@ -130,6 +150,49 @@ class NamedInputFactories(DotTree[InputFactory]):
             prefixed = f"{prefix}.{name}" if prefix else name
             inputs[name] = value.create_tensor(prefixed)
         return NamedTensors.from_dict(inputs)
+
+    def init_remote(self, buffers: "NamedRemoteBuffers", entry: int = 0, prefix: Optional[str] = None) -> NamedTensors:
+        """Construct remote variables for each InputFactory using the buffer with a matching name in `buffers`.
+
+        Args:
+            buffers (NamedRemoteBuffers): Buffers to store the variables in.
+            entry (int, optional): Entry into the remote buffer to store the variable. Defaults to 0.
+            prefix (Optional[str], optional): Prefix the tensor name of the created tensors. Defaults to None.
+
+        Returns:
+            NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
+                input factories.
+        """
+        variables = {}
+        buffers_ = buffers.to_dict()
+        for name, factory in self.to_dict().items():
+            prefixed = f"{prefix}.{name}" if prefix else name
+            variables[name] = factory.create_remote_tensor(buffers_[name], entry, prefixed)
+        return NamedTensors.from_dict(variables)
+
+    def init_zero(self) -> NamedTensors:
+        """Zero initialise a Tensor using `ops.init` for each InputFactory in the current Graph scope. (Can be non-main graphs)
+
+        Returns:
+            NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
+                input factories.
+        """
+        ts = {}
+        for name, factory in self.to_dict().items():
+            ts[name] = ops.init(factory.shape, factory.dtype, name, "zero")
+        return NamedTensors.from_dict(ts)
+
+    def init_undef(self) -> NamedTensors:
+        """Undefined initialise a Tensor using `ops.init` for each InputFactory in the current Graph scope. (Can be non-main graphs)
+
+        Returns:
+            NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
+                input factories.
+        """
+        ts = {}
+        for name, factory in self.to_dict().items():
+            ts[name] = ops.init(factory.shape, factory.dtype, name, "undef")
+        return NamedTensors.from_dict(ts)
 
 
 def add_input_tensor(name: str,

@@ -12,7 +12,6 @@ from popxl.tensor import HostTensor
 from popxl_addons.utils import to_numpy
 
 from math import ceil, log
-import logging
 
 __all__ = ["Runner"]
 
@@ -24,7 +23,6 @@ class Runner:
                  weights: Optional[Mapping[popxl.Tensor, HostTensor]] = None,
                  device_type: Literal['cpu', 'hw'] = 'hw',
                  device_num: int = 1,
-                 replicas: int = 1,
                  device_iterations: int = 1):
 
         outputs = outputs or []
@@ -45,10 +43,6 @@ class Runner:
         opts.aliasZeroCopy = True
         opts.explicitRecomputation = True
 
-        if replicas > 1:
-            opts.enableReplicatedGraphs = True
-            opts.replicatedGraphCount = replicas
-
         if device_type == "hw":
             dm = popart.DeviceManager()
             dm.setOnDemandAttachTimeout(int(1e4))
@@ -62,6 +56,8 @@ class Runner:
 
         ir_ipus = set(ipu for g in _ir.getAllGraphs() for ipu in g.getAllVirtualGraphIds(True))
         max_ipus = max(ir_ipus) + 1
+        if opts.enableReplicatedGraphs:
+            max_ipus *= opts.replicatedGraphCount
         if max_ipus > device_num:
             raise ValueError(f"The IR uses {max_ipus} IPUs but you have only requested to acquire {device_num}. "
                              f"Please request {2**ceil(log(max_ipus))} IPUs (must be power of 2).")
@@ -82,7 +78,7 @@ class Runner:
         self.session.checkInplacingAmbiguity()
 
         self.session.prepareDevice()
-        logging.info(f"Compiled. Duration {time.perf_counter() - compile_start:.1f} seconds")
+        print(f"Compiled. Duration {time.perf_counter() - compile_start:.1f} seconds")
 
         self.write_weights(weights or {})
 
@@ -119,8 +115,7 @@ class Runner:
         stream_tensors = (popxl.Tensor._from_pb_tensor(t) for t in self.ir._pb_ir.dataStreamTensors())
         return set(HostToDeviceStream._from_tensor(t) for t in stream_tensors)
 
-    def run(self, inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None
-            ) -> Union[None, np.ndarray, Tuple[np.ndarray, ...]]:
+    def run(self, inputs: Optional[Mapping[HostToDeviceStream, HostTensor]] = None) -> Tuple[np.ndarray, ...]:
         inputs = inputs or {}
 
         if set(inputs.keys()) != set(self.expected_inputs):

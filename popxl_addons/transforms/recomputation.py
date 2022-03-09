@@ -1,9 +1,10 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-from typing import Dict, Tuple
+from typing import Dict
 import popart._internal.ir as _ir
 import popxl
-from popxl.transforms.autodiff import (ExpectedConnection, GradGraphInfo, ExpectedConnectionType)
-from popxl_addons.graph import BoundGraph, GraphWithNamedArgs
+from popxl.transforms.autodiff import ExpectedConnection, GradGraphInfo, ExpectedConnectionType
+from popxl_addons import BoundGraph, GraphWithNamedArgs
+from popxl_addons.utils import suffix_graph_name
 
 
 def add_recompute_inputs(grad_info: GradGraphInfo):
@@ -49,7 +50,7 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         GraphWithNamedArgs: gradient graph with recomputation
     """
     ir = grad_graph.graph.ir
-    r_graph = ir.create_empty_graph(grad_graph.graph.name + "_recomp")
+    r_graph = ir.create_empty_graph(suffix_graph_name(grad_graph.graph.name, 'recomp'))
 
     grad_info = grad_graph.grad_graph_info
 

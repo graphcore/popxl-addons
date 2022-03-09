@@ -348,8 +348,8 @@ def pipelined_execution(steps: int):
         Ops created in this context will be executed in a pipeline where each stage is executed `steps` times.
         Pipeline stages should be annotated using `popxl.pipeline_stage(..)`.
         All operations should have a pipeline stage.
-        
-        See `docs/pipelining.md` for more details
+
+        See `docs/pipelining.md` for more details.
 
     Args:
         steps (int): Number of times the scoped computation should execute.

@@ -113,44 +113,7 @@ def function(fn: Callable):
     @wraps(fn)
     def cached_function(*args, **kwargs):
         graph = cache.create_graph(fn, *args, **kwargs)
+        # TODO: Filter out non-Tensor arguments
         return ops.call(graph, *args, **kwargs)
-
-    return cached_function
-
-
-def named_tensors_function(fn: Callable[[NamedTensors], NamedTensors]):
-    """Outline the execution of a function that takes a single argument of type NamedTensors. 
-        The result of the function should be a NamedTensors instance with the same names as the input.
-        This is useful for outlining an method that performs an operation on each of the Tensors.
-
-    Args:
-        fn (Callable): Function to outline.
-    """
-    cache = GraphCache()
-    graph_inputs_names = None
-
-    @wraps(fn)
-    def flat_args_graph(args):
-        nonlocal graph_inputs_names
-        assert graph_inputs_names is not None
-        args = NamedTensors.pack(graph_inputs_names, args)
-
-        result = fn(args)
-
-        _, return_tensors = zip(*result.to_dict().items())
-        return return_tensors
-
-    @wraps(fn)
-    def cached_function(named_tensors: NamedTensors) -> NamedTensors:
-        nonlocal graph_inputs_names
-
-        # Flatten inputs
-        graph_inputs_names, tensors = named_tensors.unpack()
-
-        graph = cache.create_graph(flat_args_graph, tensors)
-
-        return_tensors = ops.call(graph, tensors)
-
-        return NamedTensors.pack(graph_inputs_names, return_tensors)
 
     return cached_function

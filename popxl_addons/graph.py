@@ -17,7 +17,8 @@ class BoundGraph:
         self.graph = graph
         self.args = dict(args or {})
 
-    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+    @debug_context_frame_offset(1)
+    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
              args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
         """Call the bound graph.
 
@@ -33,7 +34,8 @@ class BoundGraph:
         return call_info.outputs
 
     @debug_context_frame_offset(1)
-    def call_with_info(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+    def call_with_info(self,
+                       *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
                        args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call the bound graph and return call info object.
 
@@ -123,7 +125,7 @@ class GraphWithNamedArgs:
         tensor_map = to_mapping(self.args, args) if args else {}
         return BoundGraph(self.graph, tensor_map)
 
-    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
              args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
         """Call self.graph with no bound arguments.
 
@@ -136,7 +138,8 @@ class GraphWithNamedArgs:
         """
         return self.bind().call(*targs, args=args)
 
-    def call_with_info(self, *targs: Union[popxl.Tensor, List[popxl.Tensor]],
+    def call_with_info(self,
+                       *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
                        args: Optional[TensorMap] = None) -> CallSiteInfo:
         """Call self.graph with no bound arguments. Output call with info object.
 

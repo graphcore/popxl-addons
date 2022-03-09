@@ -1,6 +1,6 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 import re
-from typing import Dict, Generic, Iterable, List, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, Generic, Iterable, List, Tuple, Type, TypeVar, Union
 
 
 def sanitise(name: str) -> str:

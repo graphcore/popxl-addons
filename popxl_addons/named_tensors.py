@@ -1,10 +1,13 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-from typing import Mapping, Tuple, Union, Dict
+from typing import TYPE_CHECKING, Callable, List, Mapping, Tuple, Dict
 import popxl
 from popxl import ops
 from popxl.context import debug_context_frame_offset
 from popxl.tensor import Variable
 from popxl_addons.dot_tree import DotTree
+
+if TYPE_CHECKING:
+    from popxl_addons import GraphWithNamedArgs
 
 TensorMap = Mapping[popxl.Tensor, popxl.Tensor]
 
