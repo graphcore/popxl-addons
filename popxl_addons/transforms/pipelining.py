@@ -18,7 +18,7 @@ from popxl_addons.graph_cache import GraphCache
 from popxl_addons.module import Module
 from popxl_addons.route_tensor import route_tensor_into_graph
 
-__all__ = ["pipelined_execution", "stash_and_restore_activations"]
+__all__ = ["pipelined_execution"]
 
 OpId = int
 
@@ -86,18 +86,13 @@ class Pipelining:
         self.ipu_copies = PipelineBoundGraph(self.ir.create_empty_graph("ipu_copies"))
         self.ipu_copy_dummy_inputs: Dict[str, popxl.Tensor] = {}
 
-    def apply(self, include_ops: Optional[List[OpId]] = None):
+    def apply(self, include_ops: Optional[Dict[int, List[_ir.Op]]] = None):
         self.construct_graphs(include_ops)
         self.num_stages = len(self.stages.keys())
         if self.steps < 2 * self.num_stages:
             raise ValueError("Pipelining requires the steps at least 2x the number of stages in the pipeline. "
                              f"steps={self.steps} stages={self.num_stages}")
         self.build()
-
-    def get_op_pipeline_stage(self, op: _ir.Op):
-        if not op.hasPipelineStage():
-            raise ValueError("All Ops in pipelined execution should have a pipelineStage")
-        return op.getPipelineStage()
 
     def required_for_host_load(self, op: _ir.Op):
         if isinstance(op, _ir.op.exchange.HostLoadOp):
@@ -110,18 +105,25 @@ class Pipelining:
                 return True
         return False
 
-    def construct_graphs(self, include_ops: Optional[List[OpId]]):
+    def construct_graphs(self, include_ops: Optional[Dict[int, List[_ir.Op]]]):
         load_ops = defaultdict(list)
         compute_ops = defaultdict(list)
         store_ops = defaultdict(list)
         copy_ops = defaultdict(list)
 
+        # stage op dictionary to op stage dictionary
+        op_stage = dict()
+        for stage, ops_list in include_ops.items():
+            for op in ops_list:
+                op_stage[op] = stage
+
+        # group each op into one of the load, store, copy and compute
+        ops_flat = sum(include_ops.values(), [])
         for op in self.original_graph._pb_graph.getOpSchedule(False):
-            if include_ops and op.id not in include_ops:
+            if include_ops and op not in ops_flat:
                 continue
 
-            stage = self.get_op_pipeline_stage(op)
-
+            stage = op_stage[op]
             if self.required_for_host_load(op):
                 load_ops[stage].append(op)
             elif isinstance(op, _ir.op.exchange.HostStoreOp):
@@ -342,11 +344,108 @@ class Pipelining:
         self.remap_tensors(self.ipu_copies.original_output_ids, outputs)
 
 
+class StageContext:
+    def __init__(self):
+        self._stage = None
+        self.ops = defaultdict(list)
+
+    def hook(self, op: _ir.Op):
+        assert self._stage is not None
+        self.ops[self._stage].append(op)
+
+    @contextmanager
+    def stage(self, i: int):
+        """Set the pipeline stage on operations created in this scope.
+
+            See `docs/pipelining.md` for more details.
+
+        Args:
+            i (int): the stage number for the scope.
+        """
+        prev = self._stage
+        self._stage = i
+        yield
+        self._stage = prev
+
+    def _is_external_input(self, t: popxl.Tensor):
+        if t._pb_tensor.hasProducer():
+            prod = t._pb_tensor.getProducer()
+            return get_op_pipeline_stage(prod, self.ops) is None
+        return True
+
+    def stash_and_restore_tensor(self, t: popxl.Tensor, from_stage: Optional[int] = None) -> popxl.Tensor:
+        """Stash and restore a tensor t.
+
+
+        Args:
+            t (popxl.Tensor): tensor to stash
+            from_stage (Optional[int], optional): stage to locate the stashOp. Defaults to None.
+
+        Raises:
+            RuntimeError: if `from_stage` is not specified and t does not have a producer.
+            RuntimeError: if `stash_and_restore_tensor` is not called in a `stage` context.
+
+        Returns:
+            popxl.Tensor: The restored tensor
+        """
+
+        if from_stage is None:
+            if not t._pb_tensor.hasProducer():
+                raise RuntimeError(
+                    "If the tensor to be stash does not have a producer `from_stage` must be specified to `stash_and_restore_tensor`"
+                )
+            prod = t._pb_tensor.getProducer()
+            from_stage = get_op_pipeline_stage(prod, self.ops)
+
+        to_stage = self._stage
+
+        if to_stage is None:
+            raise RuntimeError("`stash_and_restore_tensor` must be called in a stage context.")
+
+        stash_size = (to_stage - from_stage) + 1
+
+        with self.stage(from_stage):
+            args, graph = Stash().create_graph(t, stash_size)
+            stash_args = args.init()
+            graph.bind(stash_args).call(t)
+
+        with self.stage(to_stage):
+            args, graph = Restore().create_graph(stash_args.stash)
+            restored, = graph.bind(args.init()).call(stash_args.stash)
+
+        return restored
+
+    def stash_and_restore_activations(self, call_info: CallSiteInfo,
+                                      grad_info: GradGraphInfo) -> Dict[popxl.Tensor, popxl.Tensor]:
+        """Stash and restore activations.
+
+
+        Args:
+            call_info (CallSiteInfo): Call site info in forward graph
+            grad_info (GradGraphInfo): Grad graph call info
+
+        Returns:
+            Dict[popxl.Tensor, popxl.Tensor]: A mapping from activations to stash and stored activations
+        """
+
+        activations = grad_info.inputs_dict(call_info)
+
+        # If the activation is produced on the current pipeline stage then don't create a stash.
+        from_stage = get_op_pipeline_stage(call_info._op, self.ops)
+        to_stage = self._stage
+        if to_stage != from_stage:
+            for sg_tensor, act in activations.items():
+                if not self._is_external_input(act):
+                    act = self.stash_and_restore_tensor(act, from_stage=from_stage)
+                activations[sg_tensor] = act
+        return activations
+
+
 @contextmanager
 def pipelined_execution(steps: int):
     """Pipeline Transformation Context.
         Ops created in this context will be executed in a pipeline where each stage is executed `steps` times.
-        Pipeline stages should be annotated using `popxl.pipeline_stage(..)`.
+        Pipeline stages should be annotated using `stage(..)`.
         All operations should have a pipeline stage.
 
         See `docs/pipelining.md` for more details.
@@ -356,16 +455,13 @@ def pipelined_execution(steps: int):
     """
     graph = popxl.gcg()
     transform = Pipelining(graph, steps)
-    ops: List[int] = []
+    stages = StageContext()
 
-    def hook(op: _ir.Op):
-        ops.append(op.id)
-
-    handle = graph.register_op_created_hook(hook)
-    yield
+    handle = graph.register_op_created_hook(stages.hook)
+    yield stages
     graph.remove_op_created_hook(handle)
 
-    transform.apply(ops)
+    transform.apply(stages.ops)
 
 
 class Stash(Module):
@@ -397,65 +493,8 @@ class Restore(Module):
         return t.reshape(t.shape[1:])
 
 
-def _is_external_input(t: popxl.Tensor):
-    if t._pb_tensor.hasProducer():
-        prod = t._pb_tensor.getProducer()
-        return not prod.hasPipelineStage()
-    return True
-
-
-def stash_and_restore_tensor(t: popxl.Tensor, from_stage: Optional[int] = None) -> popxl.Tensor:
-    """Create stash and counter variables to tensors t to. Stash size will be calculated from the
-
-
-    Args:
-        t (popxl.Tensor): tensor to stash
-        from_stage (Optional[int], optional): stage to locate the stashOp. Defaults to None.
-
-    Raises:
-        RuntimeError: if `from_stage` is not specified and t does not have a producer.
-        RuntimeError: if `stash_and_restore_tensor` is not called in a `popxl.pipeline_stage` context.
-
-    Returns:
-        popxl.Tensor: The restored tensor
-    """
-    if from_stage is None:
-        if not t._pb_tensor.hasProducer():
-            raise RuntimeError(
-                "If the tensor to be stash does not have a producer `from_stage` must be specified to `stash_and_restore_tensor`"
-            )
-        from_stage = t._pb_tensor.getProducer().getPipelineStage()
-
-    to_stage = get_current_context().pipeline_stage
-
-    if to_stage is None:
-        raise RuntimeError("`stash_and_restore_tensor` must be called in a popxl.pipeline_stage context.")
-
-    stash_size = (to_stage - from_stage) + 1
-
-    with popxl.pipeline_stage(from_stage):
-        args, graph = Stash().create_graph(t, stash_size)
-        stash_args = args.init()
-        graph.bind(stash_args).call(t)
-
-    with popxl.pipeline_stage(to_stage):
-        args, graph = Restore().create_graph(stash_args.stash)
-        restored, = graph.bind(args.init()).call(stash_args.stash)
-
-    return restored
-
-
-def stash_and_restore_activations(call_info: CallSiteInfo,
-                                  grad_info: GradGraphInfo) -> Dict[popxl.Tensor, popxl.Tensor]:
-    activations = grad_info.inputs_dict(call_info)
-
-    # If the activation is produced on the current pipeline stage then don't create a stash.
-    from_stage = call_info._op.getPipelineStage()
-    to_stage = get_current_context().pipeline_stage
-
-    if to_stage != from_stage:
-        for sg_tensor, act in activations.items():
-            if not _is_external_input(act):
-                act = stash_and_restore_tensor(act, from_stage=from_stage)
-            activations[sg_tensor] = act
-    return activations
+def get_op_pipeline_stage(op: _ir.Op, op_dict: Dict[int, List[_ir.Op]]):
+    for stage, op_list in op_dict.items():
+        if op in op_list:
+            return stage
+    return None

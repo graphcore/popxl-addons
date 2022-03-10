@@ -8,7 +8,6 @@ from popxl import ops
 import popxl_addons as addons
 from popxl_addons.module import Module
 from popxl_addons.transforms.autodiff import autodiff_with_accumulation
-from popxl_addons.transforms.pipelining import stash_and_restore_activations
 
 
 def test_pipeline_2_stage():
@@ -20,13 +19,13 @@ def test_pipeline_2_stage():
         in_stream = popxl.h2d_stream((), popxl.uint32)
         out_stream = popxl.d2h_stream((), popxl.uint32)
 
-        with addons.pipelined_execution(device_iterations):
-            with popxl.pipeline_stage(0), popxl.ipu(0):
+        with addons.pipelined_execution(device_iterations) as p:
+            with p.stage(0), popxl.ipu(0):
                 x = ops.host_load(in_stream)
                 x = x + 1
                 x = x.copy_to_ipu(1)
 
-            with popxl.pipeline_stage(1), popxl.ipu(1):
+            with p.stage(1), popxl.ipu(1):
                 x = x + 1
                 ops.host_store(out_stream, x)
 
@@ -46,28 +45,28 @@ def test_pipeline_4_stage():
         in_stream = popxl.h2d_stream((), popxl.uint32)
         out_stream = popxl.d2h_stream((), popxl.uint32)
 
-        with addons.pipelined_execution(10):
-            with popxl.pipeline_stage(0), popxl.ipu(0):
+        with addons.pipelined_execution(device_iterations) as p:
+            with p.stage(0), popxl.ipu(0):
                 x = ops.host_load(in_stream)
                 x = x + 1
                 x = x.copy_to_ipu(1)
 
-            with popxl.pipeline_stage(1), popxl.ipu(1):
+            with p.stage(1), popxl.ipu(1):
                 x = x + 1
                 x = x.copy_to_ipu(2)
 
-            with popxl.pipeline_stage(2), popxl.ipu(2):
+            with p.stage(2), popxl.ipu(2):
                 x = x + 1
                 x = x.copy_to_ipu(3)
 
-            with popxl.pipeline_stage(3), popxl.ipu(3):
+            with p.stage(3), popxl.ipu(3):
                 x = x + 1
                 ops.host_store(out_stream, x)
 
     ir.num_host_transfers = device_iterations
     session = popxl.Session(ir, "ipu_hw")
     result: np.ndarray = session.run({in_stream: inputs})[out_stream]
-    np.testing.assert_equal(result.reshape(-1), np.arange(10) + 4)
+    np.testing.assert_equal(result.reshape(-1), np.arange(device_iterations) + 4)
 
 
 class Linear(Module):
@@ -133,8 +132,8 @@ def test_pipeline_training():
         data = np.random.normal(0, 1, (steps, 1, 4)).astype(np.float32)
 
         with main:
-            with addons.pipelined_execution(steps):
-                with popxl.pipeline_stage(0), popxl.ipu(0):
+            with addons.pipelined_execution(steps) as p:
+                with p.stage(0), popxl.ipu(0):
                     _, x_stream, x = addons.host_load(data[0], popxl.float32, "x")
 
                     # Compute Graphs
@@ -150,13 +149,13 @@ def test_pipeline_training():
                     x, _ = call_info.outputs
                     x = x.copy_to_ipu(1)
 
-                with popxl.pipeline_stage(1), popxl.ipu(1):
+                with p.stage(1), popxl.ipu(1):
                     x = x + 1
                     x = x.copy_to_ipu(0)
 
-                with popxl.pipeline_stage(2), popxl.ipu(0):
+                with p.stage(2), popxl.ipu(0):
                     dlinear_graph.bind(dlinear).call(x,
-                                                     args=stash_and_restore_activations(
+                                                     args=p.stash_and_restore_activations(
                                                          call_info, dlinear_graph.grad_graph_info))
 
         device_iterations = steps
