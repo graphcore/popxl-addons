@@ -350,7 +350,9 @@ class StageContext:
         self.ops = defaultdict(list)
 
     def hook(self, op: _ir.Op):
-        assert self._stage is not None
+        if self._stage is None:
+            raise RuntimeError("Operation must be created in a stage context.")
+
         self.ops[self._stage].append(op)
 
     @contextmanager
@@ -449,7 +451,8 @@ def pipelined_execution(steps: int):
         All operations should have a pipeline stage.
 
         See `docs/pipelining.md` for more details.
-
+    Raises:
+            RuntimeError: if an operation is created outside a `stage` context.
     Args:
         steps (int): Number of times the scoped computation should execute.
     """
