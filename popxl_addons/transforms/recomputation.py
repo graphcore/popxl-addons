@@ -30,7 +30,8 @@ def add_recompute_inputs(grad_info: GradGraphInfo):
             expected_inputs.append(ec)
 
     # Finally add any additional inputs to graph that haven't been created
-    for tensor in set(fwd_inputs) - set(fwd_input_mapping.keys()):
+    diff = set(fwd_inputs) - set(fwd_input_mapping.keys())
+    for tensor in sorted(diff, key=lambda t: t.name):
         fwd_input_mapping[tensor] = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name)
         expected_inputs.append(
             ExpectedConnection._from_pb(grad_info.forward_graph._pb_graph,
@@ -67,7 +68,8 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         grad_inputs.update(activations)
 
         # These are inputs to the grad graph that aren't from `GradGraphInfo`. Such as gradient accumulators.
-        for tensor in set(grad_graph.graph.inputs) - set(grad_inputs.keys()):
+        diff = set(grad_graph.graph.inputs) - set(grad_inputs.keys())
+        for tensor in sorted(diff, key=lambda t: t.name):
             grad_inputs[tensor] = popxl.graph_input(tensor.shape,
                                                     tensor.dtype,
                                                     tensor.name,
