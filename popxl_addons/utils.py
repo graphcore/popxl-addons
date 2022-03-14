@@ -12,13 +12,13 @@ except ModuleNotFoundError:
 
 def to_numpy(x: HostTensor, dtype=None) -> np.ndarray:
     if torch_imported and isinstance(x, torch.Tensor):
-        x = x.detach().numpy().copy()
+        x = x.detach().numpy()
         if dtype:
             x = x.astype(dtype)
     else:
         x = np.array(x, dtype=dtype)
 
-    return x
+    return x.copy()
 
 
 def suffix_graph_name(name: str, suffix: str):
