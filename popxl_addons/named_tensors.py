@@ -17,7 +17,7 @@ class NamedTensors(DotTree[popxl.Tensor]):
 
     @property
     def tensors(self) -> Tuple[popxl.Tensor, ...]:
-        return tuple(t for t in self.to_dict().values())
+        return tuple(sorted(self.to_dict().values(), key=lambda t: t.name))
 
     @property
     def named_tensors(self) -> Dict[str, popxl.Tensor]:
