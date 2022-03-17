@@ -25,7 +25,7 @@ def null_context():
 
 def replica_sharded_spec(t: popxl.Tensor, threshold: int = 1024) -> popxl.TensorSpec:
     rf = popxl.gcg().ir.replication_factor
-    if rf > 1 and t.nelms >= threshold and not t.meta_shape:
+    if rf > 1 and t.nelms >= threshold and not t.meta_shape and t.nelms % rf == 0:
         shape = (int(np.prod(t.shape)) // rf, )
         return popxl.TensorSpec(shape, t.dtype, t.shape)
     return t.spec
@@ -71,11 +71,13 @@ def named_input_buffers(inputs: NamedInputFactories, entries: int = 1, sharded_t
     """
     buffers = {}
     for name, f in inputs.to_dict().items():
+        nelms = np.prod(f.shape)
+        rf = popxl.gcg().ir.replication_factor
         if f.replica_sharded:
             buffer = popxl.remote_buffer(f.shape, f.dtype, entries)
             buffer.meta_shape = f.meta_shape
-        elif popxl.gcg().ir.replication_factor > 1 and np.prod(f.shape) >= sharded_threshold:
-            shape = (int(np.prod(f.shape)) // popxl.gcg().ir.replication_factor, )
+        elif popxl.gcg().ir.replication_factor > 1 and nelms >= sharded_threshold and nelms % rf == 0:
+            shape = (nelms // rf, )
             buffer = popxl.remote_buffer(shape, f.dtype, entries)
             buffer.meta_shape = f.shape
         else:
@@ -246,7 +248,7 @@ def reduce_replica_sharded_graph(tensors: NamedTensors,
             if use_io_tiles:
                 sg_t = ops.io_tile_copy(sg_t)
 
-            if sg_t.nelms >= threshold:
+            if sg_t.nelms >= threshold and sg_t.nelms % graph.ir.replication_factor == 0:
                 sg_t = ops.collectives.replicated_reduce_scatter(sg_t,
                                                                  op=op,
                                                                  configure_output_for_replicated_tensor_sharding=True)

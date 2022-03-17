@@ -5,6 +5,7 @@ from .route_tensor import *
 from .runner import *
 from .ops import *
 from .transforms import *
+from .streams import *
 from .utils import *
 
 import git

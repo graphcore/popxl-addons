@@ -51,8 +51,8 @@ class DotTree(Generic[L]):
         As well as to/from lists with `unpack`/`pack`.
     """
 
-    def __init__(self, **kwargs: 'Union[L, DotTree[L]]'):
-        self._map: Dict[str, Union[L, DotTree[L]]] = {}
+    def __init__(self: CLS, **kwargs: 'Union[L, CLS]'):
+        self._map: Dict[str, Union[L, CLS]] = {}
         for k, v in kwargs.items():
             self.insert(k, v)
 
@@ -67,10 +67,10 @@ class DotTree(Generic[L]):
             keys = "    \n".join(self._map.keys())
             raise AttributeError(f"No attribute '{key}'. Available Keys:\n{keys}") from ae
 
-    def __getitem__(self, key: Union[str, int]) -> 'Union[L, DotTree[L]]':
+    def __getitem__(self: CLS, key: Union[str, int]) -> 'Union[L, CLS]':
         return self.get(key)
 
-    def get(self, key: Union[str, int]) -> 'Union[L, DotTree[L]]':
+    def get(self: CLS, key: Union[str, int]) -> 'Union[L, CLS]':
         """Get a value. Ints and strings that are numerical are interpreted as a numerical key."""
         if isinstance(key, int) or key.isnumeric():
             key = int(key)
@@ -90,7 +90,7 @@ class DotTree(Generic[L]):
             return self._map[key]
         raise KeyError(f"Key does not exist: {key}")
 
-    def insert(self, key: Union[str, int], value: Union[L, 'DotTree[L]'], overwrite: bool = False):
+    def insert(self: CLS, key: Union[str, int], value: Union[L, CLS], overwrite: bool = False):
         """Set item with key. Numerical keys represented using an int will automatically be converted to a string."""
         if isinstance(key, int):
             if key < 0:
