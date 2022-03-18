@@ -160,8 +160,7 @@ def train(train_session, training_data, opts, input_streams, loss_stream):
         bar = tqdm(training_data, total=nr_batches)
         for data, labels in bar:
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams,
-                    [data.squeeze().float(), labels.int()]))
+                zip(input_streams, [data.squeeze().float(), labels.int()]))
             loss = train_session.run(inputs)
             bar.set_description("Loss:{:0.4f}".format(loss[loss_stream]))
 
@@ -172,8 +171,7 @@ def test(test_session, test_data, input_streams, out_stream):
     with torch.no_grad():
         for data, labels in tqdm(test_data, total=nr_batches):
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams,
-                    [data.squeeze().float(), labels.int()]))
+                zip(input_streams, [data.squeeze().float(), labels.int()]))
             output = test_session.run(inputs)
             sum_acc += accuracy(output[out_stream], labels)
     print("Accuracy on test set: {:0.2f}%".format(sum_acc / len(test_data)))
