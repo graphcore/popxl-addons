@@ -5,7 +5,7 @@ import popxl
 from popxl import ops
 from popxl.streams import HostToDeviceStream, DeviceToHostStream
 from popxl.tensor import HostTensor
-from popxl_addons.utils import to_numpy
+from popxl.utils import to_numpy
 import numpy as np
 
 __all__ = ["host_load", "host_store"]

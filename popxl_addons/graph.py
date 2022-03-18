@@ -186,7 +186,7 @@ class GraphWithNamedArgs:
         def tensor_str(t):
             # TODO: Give each id a random color
             t = popxl.Tensor._from_pb_tensor(t)
-            return f"%{ids[t.id]} [{t.shape} {t.dtype._name}]"
+            return f"%{ids[t.id]} [{t.shape} {t.dtype.name}]"
 
         ss_graph_name = f"Graph : {self.graph.name}"
 

@@ -11,6 +11,7 @@ import popxl
 import popxl_addons as addons
 import popxl.ops as ops
 
+np.random.seed(42)
 
 def get_mnist_data(test_batch_size: int, batch_size: int):
     training_data = torch.utils.data.DataLoader(
@@ -88,8 +89,8 @@ def train(train_session, training_data, opts, input_streams, loss_stream):
         bar = tqdm(training_data, total=nr_batches)
         for data, labels in bar:
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams, [addons.utils.to_numpy(data.squeeze().float()),
-                                    addons.utils.to_numpy(labels.int())]))
+                zip(input_streams,
+                    [data.squeeze().float(), labels.int()]))
             loss = train_session.run(inputs)
             bar.set_description("Loss:{:0.4f}".format(loss[loss_stream]))
 
@@ -100,8 +101,8 @@ def test(test_session, test_data, input_streams, out_stream):
     with torch.no_grad():
         for data, labels in tqdm(test_data, total=nr_batches):
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams, [addons.utils.to_numpy(data.squeeze().float()),
-                                    addons.utils.to_numpy(labels.int())]))
+                zip(input_streams,
+                    [data.squeeze().float(), labels.int()]))
             output = test_session.run(inputs)
             sum_acc += accuracy(output[out_stream], labels)
     print("Accuracy on test set: {:0.2f}%".format(sum_acc / len(test_data)))
