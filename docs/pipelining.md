@@ -30,7 +30,7 @@ This program has no data dependencies between layer0 and layer1 within the loop.
 
 ## Defining a pipeline
 
-Using the `popart-ir-extensions` pipelining transformation we can describe how to decompose our loop and execute in parallel.
+Using the `addons` pipelining transformation we can describe how to decompose our loop and execute in parallel.
 
 First we must create a pipelining context:
 ```python
@@ -74,8 +74,8 @@ Our next concern is how to provide inputs to the gradient layer. Gradient layers
 
 Without pipelining we can use the method `addons.connect_activations` to attach expected `Fwd` connections from a callsite of the forward's graph to a `CallableGradGraph` (created from `ConcreteGradGraph.to_callable`).
 
-When pipelining there will be a _delay_ between the execution of the forward and gradient stages. In this delay additional forward execution will happen what will overwrite the activations of the a previous step. To avoid this we must keep activations in a "stash" to be able to "restore" them later.
-`Stash` and `Restor` classes have been provided to add the required stash and restore operations. The method `stash_and_restore_activations` calculates the required stash size then add `Stash` graphs to the required forward stage and `Restore` graphs to the gradient stage. This can be used as follows:
+When pipelining there will be a _delay_ between the execution of the forward and gradient stages. In this delay additional forward execution will happen that will overwrite the activations of the a previous step. To avoid this we must keep activations in a "stash" to be able to "restore" them later.
+`Stash` and `Restore` classes have been provided to add the required stash and restore operations. The method `stash_and_restore_activations` calculates the required stash size then add `Stash` graphs to the required forward stage and `Restore` graphs to the gradient stage. This can be used as follows:
 ```python
 with addons.pipelined_execution(10) as p:
   with p.stage(0), popxl.ipu(0):
