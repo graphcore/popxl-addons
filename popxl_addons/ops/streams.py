@@ -6,7 +6,6 @@ from popxl import ops
 from popxl.streams import HostToDeviceStream, DeviceToHostStream
 from popxl.tensor import HostTensor
 from popxl.utils import to_numpy
-import numpy as np
 
 __all__ = ["host_load", "host_store"]
 
@@ -14,7 +13,7 @@ __all__ = ["host_load", "host_store"]
 def host_load(t: HostTensor, dtype: popxl.dtype, name: str) -> Tuple[HostTensor, HostToDeviceStream, popxl.Tensor]:
     """Create a HostToDeviceStream and HostLoadOp at the same time."""
     x_h2d = popxl.h2d_stream(t.shape, dtype, name=f"{name}_stream")
-    return to_numpy(t, dtype=dtype.as_numpy()), x_h2d, ops.host_load(x_h2d, name)
+    return to_numpy(t, dtype=dtype), x_h2d, ops.host_load(x_h2d, name)
 
 
 def host_store(t: popxl.Tensor) -> DeviceToHostStream:
