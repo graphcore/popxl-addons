@@ -7,10 +7,15 @@ import torch
 import torchvision
 from tqdm import tqdm
 import numpy as np
+from time import time
+
 import popxl
 import popxl_addons as addons
 import popxl.ops as ops
 from typing import Union, Dict
+from popxl_addons.graph import GraphWithNamedArgs
+from popxl_addons.named_tensors import NamedTensors
+from popxl_addons.input_factory import NamedInputFactories
 
 np.random.seed(42)
 
@@ -138,18 +143,23 @@ Update all variables creating per-variable optimizers.
 '''
 
 
-def optimizer_step(variables,
+def optimizer_step(variables: NamedTensors,
                    grads: Dict[popxl.Tensor, popxl.Tensor],
                    optimizer: addons.Module,
+                   accum_counter: popxl.Tensor,
                    lr: popxl.float32 = 1e-3):
     for name, var in variables.named_variables.items():
         #create optimizer and state factories for the variable
         opt_facts, opt_graph = optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
         state = opt_facts.init()
         # bind the graph to its state and call it.
-        # Both the state and the variables are updated in place and are passed by ref,
-        # hence after the graph is called they are updated.
         opt_graph.bind(state).call(var, grads[var])
+
+    if accum_counter is not None:
+        # Reset accumulators.
+        # Resetting the counter for mean gradient accumulation is sufficient to zero the accumulators
+        # in the next call to ops.accumulate_mean_
+        ops.var_updates.accumulator_scale_(accum_counter, 0.0)
 
 
 def train(train_session, training_data, opts, input_streams, loss_stream):
@@ -158,10 +168,42 @@ def train(train_session, training_data, opts, input_streams, loss_stream):
         print("Epoch {0}/{1}".format(epoch, opts.epochs))
         bar = tqdm(training_data, total=nr_batches)
         for data, labels in bar:
+            #reshape data accounting for replication and num hosts transfers
+            data = data.reshape(train_session.ir.num_host_transfers, train_session.ir.replication_factor,
+                                opts.train_micro_batch_size, 28, 28).squeeze()
+            labels = labels.reshape(
+                train_session.ir.num_host_transfers,
+                train_session.ir.replication_factor,
+                opts.train_micro_batch_size,
+            ).squeeze()
+
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
                 zip(input_streams, [data.squeeze().float(), labels.int()]))
             loss = train_session.run(inputs)
-            bar.set_description("Loss:{:0.4f}".format(loss[loss_stream]))
+            losses_np = loss[loss_stream]  # shape(opts.gradient_accumulation, opts.data_parallel, )
+            avg_loss = np.mean(losses_np)
+            bar.set_description("Loss:{:0.4f}".format(avg_loss))
+
+
+def evaluate_throughput(session, samples_per_step, epochs: int = 5):
+    inputs = {
+        stream: np.ones(session._full_input_shape(stream.shape), stream.dtype.as_numpy())
+        for stream in session.expected_inputs()
+    }
+
+    durations = []
+    for i in range(epochs):
+        start = time()
+        session.run(inputs)
+        dur = time() - start
+        durations.append(dur)
+
+    duration = np.mean(durations)
+
+    result_str = \
+        f"Mean duration: {duration} s " \
+        f"Throughput: {samples_per_step/duration:6.1f} samples/s "
+    print(result_str)
 
 
 def test(test_session, test_data, input_streams, out_stream):
@@ -178,45 +220,75 @@ def test(test_session, test_data, input_streams, out_stream):
 
 def train_program(opts):
     ir = popxl.Ir()
-    ir.replication_factor = 1
+    # total number of replicas used in the program, regardeless their use
+    # here, we are using them to implement data parallelism, and no other
+    # use of replication is involved.
+    ir.replication_factor = opts.data_parallel
 
     with ir.main_graph:
         # Create input streams from host to device
-        img_stream = popxl.h2d_stream((opts.batch_size, 28, 28), popxl.float32, "image")
-        img_t = ops.host_load(img_stream)  #load data
-        label_stream = popxl.h2d_stream((opts.batch_size, ), popxl.int32, "labels")
-        labels = ops.host_load(label_stream, "labels")
+        img_spec = popxl.TensorSpec((opts.train_micro_batch_size, 28, 28), popxl.float32)
+
+        img_stream = popxl.h2d_stream(img_spec.shape, popxl.float32, "image")
+        label_stream = popxl.h2d_stream((opts.train_micro_batch_size, ), popxl.int32, "labels")
+        loss_stream = popxl.d2h_stream((), popxl.float32, "loss")
 
         # Create forward graph
-        facts, fwd_graph = Net().create_graph(img_t)
-        # Create backward graph via autodiff transform
-        bwd_graph = addons.autodiff(fwd_graph)
-
-        # Initialise variables (weights)
+        facts, fwd_graph = Net().create_graph(img_spec)
         variables = facts.init()
+        bound_fwd = fwd_graph.bind(variables)
 
-        # Call the forward with call_with_info because we want to retrieve information from the call site
-        fwd_info = fwd_graph.bind(variables).call_with_info(img_t)
-        x = fwd_info.outputs[0]  # forward output
+        counter = None
+        required_grads = fwd_graph.args.tensors
 
-        # Compute loss and starting gradient for backprop
-        loss, dx = addons.ops.cross_entropy_with_grad(x, labels)
+        if opts.gradient_accumulation > 1:
+            bwd_facts, bwd_graph = addons.autodiff_with_accumulation(fwd_graph, required_grads)
+            accumulated_grads = bwd_facts.init()
+            counter = accumulated_grads.mean_accum_counter
+            bound_bwd = bwd_graph.bind(accumulated_grads)
+        else:
+            # standard autodiff, avoid extra memory
+            bwd_graph = addons.autodiff(fwd_graph, grads_required=required_grads)
 
-        # Setup a stream to retrieve loss values from the host
-        loss_stream = popxl.d2h_stream(loss.shape, loss.dtype, "loss")
-        ops.host_store(loss_stream, loss)
+        # in sequence needed for in place ops
+        with popxl.in_sequence(True):
+            # gradient accumulation loop
+            for ga_step in range(opts.gradient_accumulation):
+                #load data
+                img_t = ops.host_load(img_stream)
+                labels = ops.host_load(label_stream, "labels")
 
-        # retrieve activations from the forward
-        activations = bwd_graph.grad_graph_info.inputs_dict(fwd_info)
-        # call the backward providing the starting value for backprop and activations
-        bwd_info = bwd_graph.call_with_info(dx, args=activations)
+                #fwd
+                fwd_info = bound_fwd.call_with_info(img_t)
+                x = fwd_info.outputs[0]
 
-        # Adam Optimizer, with cache
-        grads_dict = bwd_graph.grad_graph_info.fwd_parent_ins_to_grad_parent_outs(fwd_info, bwd_info)
-        optimizer = Adam(cache=True)
-        optimizer_step(variables, grads_dict, optimizer, opts.lr)
+                #loss
+                loss, dx = addons.ops.cross_entropy_with_grad(x, labels)
+                ops.host_store(loss_stream, loss)
 
-    ir.num_host_transfers = 1
+                #bwd
+                activations = bwd_graph.grad_graph_info.inputs_dict(fwd_info)
+
+                if opts.gradient_accumulation > 1:
+                    bound_bwd.call(dx, args=activations)
+                    grads = accumulated_grads.tensors[:-1]  # exclude the counter
+
+                else:
+                    grads = bwd_graph.call(dx, args=activations)
+
+            # reduce gradients across replicas with add and divide by the number of replicas
+            if opts.data_parallel > 1:
+                for g in grads:
+                    g = ops.collectives.replicated_all_reduce_(g, op='mean')
+
+            # optimizer step: the optimizer resets the accumulators
+            grads_dict = dict(zip(variables.variables, grads))
+            optimizer = Adam(cache=True)
+            optimizer_step(variables, grads_dict, optimizer, counter, opts.lr)
+
+    # we have a for loop, the number of host loads is equal to gradient_accumulation
+    ir.num_host_transfers = opts.gradient_accumulation
+
     return popxl.Session(ir, 'ipu_hw'), [img_stream, label_stream], variables, loss_stream
 
 
@@ -246,26 +318,38 @@ def test_program(opts):
 
 def main():
     parser = argparse.ArgumentParser(description='MNIST training in popxl.addons')
-    parser.add_argument('--batch-size', type=int, default=8, help='batch size for training (default: 8)')
+    parser.add_argument('--train-micro-batch-size', type=int, default=32, help='batch size for training (default: 8)')
     parser.add_argument('--test-batch-size', type=int, default=80, help='batch size for testing (default: 80)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
+    parser.add_argument('--data-parallel', type=int, default=2, help='data parallelism (default: 2)')
+    parser.add_argument('--gradient-accumulation', type=int, default=4, help='gradient accumulation (default: 4)')
+
     opts = parser.parse_args()
 
-    training_data, test_data = get_mnist_data(opts.test_batch_size, opts.batch_size)
+    train_global_batch_size = opts.train_micro_batch_size * opts.gradient_accumulation * opts.data_parallel
+
+    training_data, test_data = get_mnist_data(opts.test_batch_size, train_global_batch_size)
 
     train_session, train_input_streams, train_variables, loss_stream = train_program(opts)
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
     trained_weights_data_dict = train_session.get_tensors_data(train_variables.variables)
+
+    samples_per_step = opts.train_micro_batch_size * opts.gradient_accumulation * opts.data_parallel
+    evaluate_throughput(train_session, samples_per_step)
+
     train_session.device.detach()
 
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
     test_session.write_variables_data(dict(zip(test_variables.variables, trained_weights_data_dict.values())))
 
+    samples_per_step = opts.test_batch_size  # no replication for inference in this program
     test(test_session, test_data, test_input_streams, out_stream)
+    evaluate_throughput(test_session, samples_per_step)
+
     test_session.device.detach()
 
 

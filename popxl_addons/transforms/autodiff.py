@@ -83,7 +83,7 @@ def autodiff_with_accumulation(
         grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedInputFactories, GraphWithNamedArgs]:
     """
     Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
-    graph which takes a running mean of the tensor and the result stored in an accumator tensor. The accumulators are
+    graph which takes a running mean of the tensor and the result stored in an accumulator tensor. The accumulators are
     added as NamedArgs TensorByRef inputs to the grad graph and the corresponding output of the original tensor removed.
 
     This is known as a Gradient Accumulation Step (GAS) for pipeline or batch serialisation execution.
@@ -94,7 +94,7 @@ def autodiff_with_accumulation(
 
     Args:
         graph (popxl.Graph)
-        tensors_to_accumulate_grads (Iterable[popxl.Tensor]). Tensors to accumulate and calculate a running mean.
+        tensors_to_accumulate_grads (Iterable[popxl.Tensor]). Tensors to accumulate and calculate a running mean. They are automatically added as grads required.
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
 
     Returns:
