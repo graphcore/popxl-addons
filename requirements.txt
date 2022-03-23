@@ -1,3 +1,5 @@
 numpy
 more_itertools
 gitpython
+cppimport
+pybind11==2.6.2

@@ -14,31 +14,28 @@ EXCLUDED = []
 
 
 def check_file(path, language, amend):
+    if os.stat(path).st_size == 0:
+        # Empty file
+        return True
+
     comment = "#" if language == "python" else "//"
     found_copyright = False
     first_line_index = 0
-    empty_file = False
+    line = ''
     with open(path, "r") as f:
-        first_line = f.readline()
-
-        if first_line == '':
-            empty_file = True
-
-        if language == "python" and first_line.startswith("#!"):
-            first_line_index += 1
-            first_line = f.readline()
-
-        # if the line is encoding, then skip line
-        if first_line.startswith("{} coding=utf-8".format(comment)):
-            first_line_index += 1
-            first_line = f.readline()
-
         regexp = r"{} Copyright \(c\) \d+ Graphcore Ltd. All (r|R)ights (r|R)eserved.".format(comment)
 
-        if re.match(regexp, first_line):
+        # Skip blank, comments and shebang
+        while (line == '' or line.startswith(comment) or line.startswith("#!")) and not re.match(regexp, line):
+            if line.startswith("#!"):
+                first_line_index += 1
+            line = f.readline()
+
+        # Check first line after skips
+        if re.match(regexp, line):
             found_copyright = True
 
-    if not empty_file and not found_copyright:
+    if not found_copyright:
         if amend:
             now = datetime.datetime.now()
             year = now.year
