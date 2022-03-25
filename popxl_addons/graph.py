@@ -204,7 +204,10 @@ class GraphWithNamedArgs:
         for op in self.graph._pb_graph.getOpSchedule(True):
             inputs = "(" + (", ".join(tensor_str(t) for t in op.getInputTensors())) + ")"
             outputs = "(" + (", ".join(tensor_str(t) for t in op.getOutputTensors())) + ")"
-            ops.append(" ".join((f"{op.opType()}.{op.id}", inputs, "->", outputs)))
+            id = f"{op.opType()}.{op.id}"
+            if hasattr(op, "getCalledGraph"):
+                id += f"({op.getCalledGraph().id})"
+            ops.append(" ".join((id, inputs, "->", outputs)))
         ss_ops = "\n".join(ops)
 
         outputs = []
