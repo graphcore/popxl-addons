@@ -55,14 +55,14 @@ layer = graph.bind(scale_vars)
 y, = layer.call(x)
 ```
 
-#### `pir` vs `addons` examples
+#### `popxl` vs `addons` examples
 
 **Example 1**
 * A subgraph is created that performs scale
 * The subgraph is called twice to before the operation twice with the same input varibles
 * The code is outlined as you are reusing the same subgraph
 
-`pir`:
+`popxl`:
 
 ```python
 import numpy as np
@@ -109,7 +109,7 @@ with main:
 **Example 2**:
 * Reuse of the same subgraph but with a different scale variable
 
-`pir`:
+`popxl`:
 ```python
 def scale_fn(x: popxl.Tensor, scale: popxl.Tensor):
         return x * scale
