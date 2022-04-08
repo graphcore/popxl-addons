@@ -2,20 +2,25 @@
 
 import argparse
 from functools import partial
+from telnetlib import FORWARD_X
 from typing import Mapping, Optional
+from typing_extensions import Required
 import torch
 import torchvision
 from tqdm import tqdm
 import numpy as np
 from time import time
+from dataclasses import dataclass, field
 
 import popxl
 import popxl_addons as addons
 import popxl.ops as ops
 from typing import Union, Dict
-from popxl_addons.graph import GraphWithNamedArgs
+from popxl_addons.graph import GraphWithNamedArgs, BoundGraph
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.input_factory import NamedInputFactories
+from popxl.transforms import GradGraphInfo
+import logging
 
 np.random.seed(42)
 
@@ -54,11 +59,13 @@ def accuracy(predictions: np.ndarray, labels: np.ndarray):
     return np.mean(ind == labels) * 100.0
 
 
+# includes gelu
 class Linear(addons.Module):
-    def __init__(self, out_features: int, bias: bool = True):
+    def __init__(self, out_features: int, bias: bool = True, gelu: bool = True):
         super().__init__()
         self.out_features = out_features
         self.bias = bias
+        self.gelu = gelu
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         # add a state variable to the module
@@ -69,22 +76,25 @@ class Linear(addons.Module):
             # add a state variable to the module
             b = self.add_input_tensor("bias", partial(np.zeros, y.shape[-1]), x.dtype)
             y = y + b
+        if self.gelu:
+            y = ops.gelu(y)
         return y
 
 
+# gelu included in the linear layer
 class Net(addons.Module):
     def __init__(self, cache: Optional[addons.GraphCache] = None):
         super().__init__(cache=cache)
         self.fc1 = Linear(512)
         self.fc2 = Linear(512)
         self.fc3 = Linear(512)
-        self.fc4 = Linear(10)
+        self.fc4 = Linear(10, gelu=False)
 
     def build(self, x: popxl.Tensor):
         x = x.reshape((-1, 28 * 28))
-        x = ops.gelu(self.fc1(x))
-        x = ops.gelu(self.fc2(x))
-        x = ops.gelu(self.fc3(x))
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = self.fc3(x)
         x = self.fc4(x)
         return x
 
@@ -139,27 +149,63 @@ class Adam(addons.Module):
 
 
 '''
-Update all variables creating per-variable optimizers. 
+Groups together the forward and backward graphs of a layer for easy access and handling.
 '''
 
 
-def optimizer_step(variables: NamedTensors,
-                   grads: Dict[popxl.Tensor, popxl.Tensor],
-                   optimizer: addons.Module,
-                   accum_counter: popxl.Tensor,
-                   lr: popxl.float32 = 1e-3):
-    for name, var in variables.named_variables.items():
-        #create optimizer and state factories for the variable
-        opt_facts, opt_graph = optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
-        state = opt_facts.init()
-        # bind the graph to its state and call it.
-        opt_graph.bind(state).call(var, grads[var])
+@dataclass
+class ModuleGraphs:
+    layer_name: str
+    fwd: GraphWithNamedArgs
+    bwd: GraphWithNamedArgs
+    facts: NamedInputFactories
+    optimizer: addons.Module
+    vars: NamedTensors = field(default_factory=NamedTensors)
 
-    if accum_counter is not None:
-        # Reset accumulators.
-        # Resetting the counter for mean gradient accumulation is sufficient to zero the accumulators
-        # in the next call to ops.accumulate_mean_
-        ops.var_updates.accumulator_scale_(accum_counter, 0.0)
+    def init_and_bind_fwd(self):
+        self.vars.insert("fwd", self.facts.fwd.init(self.layer_name))
+        return self.fwd.bind(self.vars.fwd)
+
+    def init_and_bind_bwd(self):
+        self.vars.insert("bwd", self.facts.bwd.init(self.layer_name))
+        return self.bwd.bind(self.vars.bwd)
+
+    def recompute_graph(self):
+        self.bwd = addons.transforms.recompute_graph(self.bwd)
+
+    def replicated_all_reduce(self):
+        for g in self.vars.bwd.tensors[:-1]:
+            g = ops.collectives.replicated_all_reduce_(g, op='mean')
+
+    def optimizer_step(self, lr: Union[float, popxl.Tensor]):
+        var_dict = self.vars.fwd.named_variables
+        grad_dict = self.vars.bwd.named_variables
+        for name, var in var_dict.items():
+            opt_facts, opt = self.optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
+            state = opt_facts.init()
+            opt.bind(state).call(var, grad_dict[name])
+
+        ops.var_updates.accumulator_scale_(self.vars.bwd.mean_accum_counter, 0.0)
+
+    def reset_vars(self):
+        self.vars._clear()
+
+
+def create_graphs(layer_name: str, layer: addons.Module, optimizer: addons.module, opts, require_input0: bool, *args,
+                  **kwargs):
+    facts, graph = layer.create_graph(*args)
+    # tensors_to_accumulate_grads = graph.args.tensors : accumulate gradients of the weights
+    # grads_required = (graph.graph.inputs[0],): we need to return the gradient of the first input of the layer, since it
+    # will be starting value for backpropagation in the other layers
+    req_grads = (graph.graph.inputs[0], ) if require_input0 else ()
+    bwd_facts, bwd_graph = addons.transforms.autodiff_with_accumulation(graph,
+                                                                        tensors_to_accumulate_grads=graph.args.tensors,
+                                                                        grads_required=req_grads)
+    factories = NamedInputFactories()
+    factories.insert("fwd", facts)
+    factories.insert("bwd", bwd_facts)
+
+    return ModuleGraphs(layer_name, graph, bwd_graph, factories, optimizer)
 
 
 def train(train_session, training_data, opts, input_streams, loss_stream):
@@ -169,11 +215,11 @@ def train(train_session, training_data, opts, input_streams, loss_stream):
         bar = tqdm(training_data, total=nr_batches)
         for data, labels in bar:
             #reshape data accounting for replication and num hosts transfers
-            data = data.reshape(train_session.ir.num_host_transfers, train_session.ir.replication_factor,
-                                opts.train_micro_batch_size, 28, 28).squeeze()
+            data = data.reshape(opts.gradient_accumulation, opts.data_parallel, opts.train_micro_batch_size,
+                                28 * 28).squeeze()
             labels = labels.reshape(
-                train_session.ir.num_host_transfers,
-                train_session.ir.replication_factor,
+                opts.gradient_accumulation,
+                opts.data_parallel,
                 opts.train_micro_batch_size,
             ).squeeze()
 
@@ -220,76 +266,129 @@ def test(test_session, test_data, input_streams, out_stream):
 
 def train_program(opts):
     ir = popxl.Ir()
-    # total number of replicas used in the program, regardeless their use
-    # here, we are using them to implement data parallelism, and no other
-    # use of replication is involved.
     ir.replication_factor = opts.data_parallel
 
     with ir.main_graph:
-        # Create input streams from host to device
-        img_spec = popxl.TensorSpec((opts.train_micro_batch_size, 28, 28), popxl.float32)
+        # -----  Define input and output streams -----
+        img_spec = popxl.TensorSpec((opts.train_micro_batch_size, 28 * 28), popxl.float32)
+        inner_spec = popxl.TensorSpec((opts.train_micro_batch_size, 512), popxl.float32)
 
         img_stream = popxl.h2d_stream(img_spec.shape, popxl.float32, "image")
         label_stream = popxl.h2d_stream((opts.train_micro_batch_size, ), popxl.int32, "labels")
         loss_stream = popxl.d2h_stream((), popxl.float32, "loss")
 
-        # Create forward graph
-        facts, fwd_graph = Net().create_graph(img_spec)
-        variables = facts.init()
-        bound_fwd = fwd_graph.bind(variables)
+        optimizer = Adam(cache=True)
+        steps = opts.gradient_accumulation
 
-        counter = None
-        required_grads = fwd_graph.args.tensors
+        # ----- Create graphs -----
 
-        if opts.gradient_accumulation > 1:
-            bwd_facts, bwd_graph = addons.autodiff_with_accumulation(fwd_graph, required_grads)
-            accumulated_grads = bwd_facts.init()
-            counter = accumulated_grads.mean_accum_counter
-            bound_bwd = bwd_graph.bind(accumulated_grads)
-        else:
-            # standard autodiff, avoid extra memory
-            bwd_graph = addons.autodiff(fwd_graph, grads_required=required_grads)
+        # create graphs in the appropriate ipu context
+        with popxl.ipu(0):
+            fc1 = create_graphs("fc1", Linear(512), optimizer, opts, False, img_spec)
+            fc2 = create_graphs("fc2", Linear(512), optimizer, opts, True, inner_spec)
+        with popxl.ipu(1):
+            fc3 = create_graphs("fc3", Linear(512), optimizer, opts, True, inner_spec)
+            fc4 = create_graphs("fc4", Linear(10, gelu=False), optimizer, opts, True, inner_spec)
 
-        # in sequence needed for in place ops
+        # ----- Transform graphs -----
+        # for example, add recomputation
+        if opts.recomputation:
+            fc1.recompute_graph()
+            fc2.recompute_graph()
+            fc3.recompute_graph()
+            fc4.recompute_graph()
+
+        # ----- Construct Execution Scheme -----
+        #
+        #  Pipeline
+        #   stage0, ipu0: fc1 forward, fc2 forward
+        #   stage1, ipu1: fc3 forward, fc4 forward, loss, fc4 backward, fc3 backward
+        #   stage2, ipu0: fc2 backward, fc1 backward
+        #
+        #  Replica Reduction
+        #  Optimizer
+        #
+        # --------------------------------------
+
+        # ----- Pipeline -----
         with popxl.in_sequence(True):
-            # gradient accumulation loop
-            for ga_step in range(opts.gradient_accumulation):
-                #load data
-                img_t = ops.host_load(img_stream)
-                labels = ops.host_load(label_stream, "labels")
+            # context for pipeline: when the context closes the pipeline tranformation is applied  to the graph
+            with addons.pipelined_execution(steps) as pipeline:
 
-                #fwd
-                fwd_info = bound_fwd.call_with_info(img_t)
-                x = fwd_info.outputs[0]
+                with pipeline.stage(0), popxl.ipu(0):
+                    # fc1 fc2 forward
+                    img_t = ops.host_load(img_stream)
+                    x: popxl.Tensor
+                    fc1_info = fc1.init_and_bind_fwd().call_with_info(img_t)
+                    x = fc1_info.outputs[0]
+                    fc2_info = fc2.init_and_bind_fwd().call_with_info(x)
+                    x = fc2_info.outputs[0]
+                    x = x.copy_to_ipu(1)
 
-                #loss
-                loss, dx = addons.ops.cross_entropy_with_grad(x, labels)
-                ops.host_store(loss_stream, loss)
+                with pipeline.stage(1), popxl.ipu(1):
+                    # fc3 fc4 forward
+                    labels = ops.host_load(label_stream, "labels")
+                    fc3_info = fc3.init_and_bind_fwd().call_with_info(x)
+                    x = fc3_info.outputs[0]
+                    fc4_info = fc4.init_and_bind_fwd().call_with_info(x)
+                    x = fc4_info.outputs[0]
 
-                #bwd
-                activations = bwd_graph.grad_graph_info.inputs_dict(fwd_info)
+                    # loss
+                    loss, dx = addons.ops.cross_entropy_with_grad(x, labels)
+                    ops.host_store(loss_stream, loss)
 
-                if opts.gradient_accumulation > 1:
-                    bound_bwd.call(dx, args=activations)
-                    grads = accumulated_grads.tensors[:-1]  # exclude the counter
+                    # grads
+                    fc3_activations = fc3.bwd.grad_graph_info.inputs_dict(fc3_info)
+                    fc4_activations = fc4.bwd.grad_graph_info.inputs_dict(fc4_info)
+                    dx, = fc4.init_and_bind_bwd().call(dx, args=fc4_activations)  # provide fc4 activations
+                    dx, = fc3.init_and_bind_bwd().call(dx, args=fc3_activations)  # provide fc3 activations
 
-                else:
-                    grads = bwd_graph.call(dx, args=activations)
+                    dx = dx.copy_to_ipu(0)
 
-            # reduce gradients across replicas with mean op
+                with pipeline.stage(2), popxl.ipu(0):
+                    # using stash_and_restore_activations ensure that when the pipeline graph is created
+                    # activations are stashed during forward and retrieved from the FIFO stash during backward.
+                    # Needs to be called inside a stage
+
+                    # grads
+                    fc2_activ = pipeline.stash_and_restore_activations(fc2_info, fc2.bwd.grad_graph_info)
+                    dx, = fc2.init_and_bind_bwd().call(dx, args=fc2_activ)
+
+                    fc1_activ = pipeline.stash_and_restore_activations(fc1_info, fc1.bwd.grad_graph_info)
+                    fc1.init_and_bind_bwd().call(dx, args=fc1_activ)
+
+            # -----/ Pipeline -----
+
+            # ----- Replica Reduction -----
             if opts.data_parallel > 1:
-                for g in grads:
-                    g = ops.collectives.replicated_all_reduce_(g, op='mean')
+                with popxl.ipu(0):
+                    fc1.replicated_all_reduce()
+                    fc2.replicated_all_reduce()
 
-            # optimizer step: the optimizer resets the accumulators
-            grads_dict = dict(zip(variables.tensors, grads))
-            optimizer = Adam(cache=True)
-            optimizer_step(variables, grads_dict, optimizer, counter, opts.lr)
+                with popxl.ipu(1):
+                    fc3.replicated_all_reduce()
+                    fc4.replicated_all_reduce()
+
+            # ----- Optimizer -----
+            with popxl.ipu(0):
+                fc1.optimizer_step(opts.lr)
+                fc2.optimizer_step(opts.lr)
+
+            with popxl.ipu(1):
+                fc3.optimizer_step(opts.lr)
+                fc4.optimizer_step(opts.lr)
 
     # we have a for loop, the number of host loads is equal to gradient_accumulation
     ir.num_host_transfers = opts.gradient_accumulation
 
-    return popxl.Session(ir, 'ipu_hw'), [img_stream, label_stream], variables, loss_stream
+    # group all the variables to be able to copy weights to the test session
+    vars = NamedTensors()
+    vars.insert("fc1", fc1.vars.fwd)
+    vars.insert("fc2", fc2.vars.fwd)
+    vars.insert("fc3", fc3.vars.fwd)
+    vars.insert("fc4", fc4.vars.fwd)
+
+    return popxl.Session(ir, 'ipu_hw'), [img_stream, label_stream], vars, loss_stream
 
 
 def test_program(opts):
@@ -318,12 +417,13 @@ def test_program(opts):
 
 def main():
     parser = argparse.ArgumentParser(description='MNIST training in popxl.addons')
-    parser.add_argument('--train-micro-batch-size', type=int, default=8, help='batch size for training (default: 8)')
+    parser.add_argument('--train-micro-batch-size', type=int, default=5, help='batch size for training (default: 3)')
     parser.add_argument('--test-batch-size', type=int, default=80, help='batch size for testing (default: 80)')
     parser.add_argument('--epochs', type=int, default=1, help='number of epochs to train (default: 1)')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate (default: 1e-3)')
-    parser.add_argument('--data-parallel', type=int, default=2, help='data parallelism (default: 2)')
-    parser.add_argument('--gradient-accumulation', type=int, default=4, help='gradient accumulation (default: 4)')
+    parser.add_argument('--data-parallel', type=int, default=1, help='data parallelism (default: 1)')
+    parser.add_argument('--gradient-accumulation', type=int, default=6, help='gradient accumulation (default: 6)')
+    parser.add_argument('--recomputation', type=bool, default=True, help='use recomputation for activations')
 
     opts = parser.parse_args()
 
@@ -331,17 +431,11 @@ def main():
 
     training_data, test_data = get_mnist_data(opts.test_batch_size, train_global_batch_size)
 
-    train_session, train_input_streams, train_variables, loss_stream = train_program(opts)
+    train_session, train_input_streams, layers_variables, loss_stream = train_program(opts)
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
-
-    # since get tensors data returns a view, we want to copy the values before evaluating throughput on
-    # syntetic data, otherwise weights are changed
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
-    trained_weights_data_dict = {
-        t: trained_weights_data_dict[t].copy()
-        for t in sorted(trained_weights_data_dict.keys(), key=lambda t: t.name)
-    }
+    trained_weights = train_session.get_tensors_data(layers_variables.tensors)
+    trained_weights = {t: trained_weights[t].copy() for t in sorted(trained_weights.keys(), key=lambda t: t.name)}
 
     samples_per_step = opts.train_micro_batch_size * opts.gradient_accumulation * opts.data_parallel
     evaluate_throughput(train_session, samples_per_step)
@@ -350,7 +444,7 @@ def main():
 
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
+    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights.values())))
 
     samples_per_step = opts.test_batch_size  # no replication for inference in this program
     test(test_session, test_data, test_input_streams, out_stream)
