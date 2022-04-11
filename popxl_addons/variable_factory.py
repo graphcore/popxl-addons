@@ -15,27 +15,24 @@ if TYPE_CHECKING:
     from popxl_addons.transforms.phased import NamedRemoteBuffers
 
 
-class InputFactory:
+class VariableFactory:
     def __init__(self,
                  data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                  dtype: Optional[dtypes.dtype] = None,
                  name: Optional[str] = None,
-                 constant: bool = False,
                  by_ref: bool = False,
                  replica_sharded: bool = False):
         """
-        Generates input tensors for a subgraph from a host tensor data iterator.
+        Generates variable tensors for a subgraph from a host tensor data iterator.
 
         Args:
             data_iter:
-                Either a function or iterable that generates data for each instance of the input tensor. Each element of
+                Either a function or iterable that generates data for each instance of the variable tensor. Each element of
                 data should be a HostTensor type (numpy, pytorch, ect.) with the same shape and data type (this is not
                 checked at runtime). If you want your data to be the same for all tensor instances wrap it in a
                 lambda function e.g. `lambda: data`.
             name (str):
-                The name of the input tensor - by default 't'
-            constant (bool):
-                If false a variable tensor will be generated, otherwise a constant.
+                The name of the variable tensor - by default 't'
             by_ref (bool = False):
                 If true the graph_input's created for this tensor will be flagged as pass by reference.
         """
@@ -62,7 +59,6 @@ class InputFactory:
 
         self.data_iter: peekable[HostTensor] = peekable(data_iter_)
         self.name = name
-        self.constant = constant
         self.by_ref = by_ref
         self.replica_sharded = replica_sharded
 
@@ -102,15 +98,9 @@ class InputFactory:
         data: HostTensor = next(self.data_iter)
         dtype = self.dtype or None
 
-        if not self.constant:
-            return popxl.variable(data, dtype, name)
-        else:
-            return popxl.constant(data, dtype, name)
+        return popxl.variable(data, dtype, name)
 
     def create_remote_tensor(self, buffer: popxl.RemoteBuffer, entry: int, name: Optional[str] = None):
-        if self.constant:
-            raise ValueError("Constant InputFactories cannot create remote tensors.")
-
         name = name or self.name
         data: HostTensor = next(self.data_iter)
         dtype = self.dtype or None
@@ -121,8 +111,8 @@ class InputFactory:
             return popxl.remote_variable(data, buffer, entry, dtype, name)
 
 
-class NamedInputFactories(DotTree[InputFactory]):
-    """A `DotTree` collection of InputFactories """
+class NamedVariableFactories(DotTree[VariableFactory]):
+    """A `DotTree` collection of VariableFactories """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -130,13 +120,13 @@ class NamedInputFactories(DotTree[InputFactory]):
         self._init_zero_names: Optional[List[str]] = None
 
     def init(self, prefix: Optional[str] = None) -> NamedTensors:
-        """Construct tensors for each InputFactory.
+        """Construct tensors for each VariableFactory.
 
         The tensors are created in alphabetical order to generate the data deterministically.
 
         Pseudo example:
         .. code-block:: python
-            nif = NamedInputFactories(a=InputFactory(lambda: 1), b=InputFactory(lambda: 2))
+            nif = NamedVariableFactories(a=VariableFactory(lambda: 1), b=VariableFactory(lambda: 2))
             nt = nif.init()
             nt.dict() == {'a': popxl.variable(1), 'b': popxl.variable(2)}
 
@@ -145,7 +135,7 @@ class NamedInputFactories(DotTree[InputFactory]):
 
         Returns:
             NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
-                input factories.
+                variable factories.
         """
         inputs = {}
         for name, value in sorted(self.to_dict().items()):
@@ -154,7 +144,7 @@ class NamedInputFactories(DotTree[InputFactory]):
         return NamedTensors.from_dict(inputs)
 
     def init_remote(self, buffers: "NamedRemoteBuffers", entry: int = 0, prefix: Optional[str] = None) -> NamedTensors:
-        """Construct remote variables for each InputFactory using the buffer with a matching name in `buffers`.
+        """Construct remote variables for each VariableFactory using the buffer with a matching name in `buffers`.
 
         The tensors are created in alphabetical order to generate the data deterministically.
 
@@ -165,7 +155,7 @@ class NamedInputFactories(DotTree[InputFactory]):
 
         Returns:
             NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
-                input factories.
+                variable factories.
         """
         variables = {}
         buffers_ = buffers.to_dict()
@@ -175,11 +165,11 @@ class NamedInputFactories(DotTree[InputFactory]):
         return NamedTensors.from_dict(variables)
 
     def init_zero(self) -> NamedTensors:
-        """Zero initialise a Tensor using `ops.init` for each InputFactory in the current Graph scope. (Can be non-main graphs)
+        """Zero initialise a Tensor using `ops.init` for each VariableFactory in the current Graph scope. (Can be non-main graphs)
 
         Returns:
             NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
-                input factories.
+                variable factories.
         """
         ts = {}
         for name, factory in self.to_dict().items():
@@ -187,11 +177,11 @@ class NamedInputFactories(DotTree[InputFactory]):
         return NamedTensors.from_dict(ts)
 
     def init_undef(self) -> NamedTensors:
-        """Undefined initialise a Tensor using `ops.init` for each InputFactory in the current Graph scope. (Can be non-main graphs)
+        """Undefined initialise a Tensor using `ops.init` for each VariableFactory in the current Graph scope. (Can be non-main graphs)
 
         Returns:
             NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
-                input factories.
+                variable factories.
         """
         ts = {}
         for name, factory in self.to_dict().items():
@@ -199,23 +189,21 @@ class NamedInputFactories(DotTree[InputFactory]):
         return NamedTensors.from_dict(ts)
 
 
-def add_input_tensor(name: str,
-                     data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                     dtype: Optional[dtypes.dtype] = None,
-                     constant: bool = False,
-                     by_ref: bool = False) -> Tuple[popxl.Tensor, InputFactory]:
-    """Create an InputFactory and graph_input in the current graph."""
-    input_f = InputFactory(data_iter, dtype, name, constant, by_ref)
+def add_variable_input(name: str,
+                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+                       dtype: Optional[dtypes.dtype] = None,
+                       by_ref: bool = False) -> Tuple[popxl.Tensor, VariableFactory]:
+    """Create a VariableFactory and graph_input in the current graph."""
+    input_f = VariableFactory(data_iter, dtype, name, by_ref)
     tensor = input_f.create_input()
     return tensor, input_f
 
 
-def add_replica_sharded_input_tensor(name: str,
-                                     data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                                     dtype: Optional[dtypes.dtype] = None,
-                                     constant: bool = False,
-                                     by_ref: bool = False) -> Tuple[popxl.Tensor, InputFactory]:
-    """Create an InputFactory and replica sharded graph_input in the current graph."""
-    input_f = InputFactory(data_iter, dtype, name, constant, by_ref, True)
+def add_replica_sharded_variable_input(name: str,
+                                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+                                       dtype: Optional[dtypes.dtype] = None,
+                                       by_ref: bool = False) -> Tuple[popxl.Tensor, VariableFactory]:
+    """Create a VariableFactory and replica sharded graph_input in the current graph."""
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, True)
     tensor = input_f.create_input()
     return tensor, input_f

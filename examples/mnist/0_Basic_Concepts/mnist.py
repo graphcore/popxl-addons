@@ -56,12 +56,12 @@ class Linear(addons.Module):
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         # add a state variable to the module
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
-                                  x.dtype)
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
+                                    x.dtype)
         y = x @ w
         if self.bias:
             # add a state variable to the module
-            b = self.add_input_tensor("bias", partial(np.zeros, y.shape[-1]), x.dtype)
+            b = self.add_variable_input("bias", partial(np.zeros, y.shape[-1]), x.dtype)
             y = y + b
         return y
 

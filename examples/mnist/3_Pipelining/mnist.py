@@ -18,7 +18,7 @@ import popxl.ops as ops
 from typing import Union, Dict
 from popxl_addons.graph import GraphWithNamedArgs, BoundGraph
 from popxl_addons.named_tensors import NamedTensors
-from popxl_addons.input_factory import NamedInputFactories
+from popxl_addons.variable_factory import NamedVariableFactories
 from popxl.transforms import GradGraphInfo
 import logging
 
@@ -69,12 +69,12 @@ class Linear(addons.Module):
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         # add a state variable to the module
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
-                                  x.dtype)
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
+                                    x.dtype)
         y = x @ w
         if self.bias:
             # add a state variable to the module
-            b = self.add_input_tensor("bias", partial(np.zeros, y.shape[-1]), x.dtype)
+            b = self.add_variable_input("bias", partial(np.zeros, y.shape[-1]), x.dtype)
             y = y + b
         if self.gelu:
             y = ops.gelu(y)
@@ -122,17 +122,20 @@ class Adam(addons.Module):
               bias_correction: bool = True):
 
         # gradient estimators for the variable var - same shape as the variable
-        first_order = self.add_input_tensor("first_order", partial(np.zeros, var.shape), first_order_dtype, by_ref=True)
+        first_order = self.add_variable_input("first_order",
+                                              partial(np.zeros, var.shape),
+                                              first_order_dtype,
+                                              by_ref=True)
         ops.var_updates.accumulate_moving_average_(first_order, grad, f=beta1)
 
         # variance estimators for the variable var - same shape as the variable
-        second_order = self.add_input_tensor("second_order", partial(np.zeros, var.shape), popxl.float32, by_ref=True)
+        second_order = self.add_variable_input("second_order", partial(np.zeros, var.shape), popxl.float32, by_ref=True)
         ops.var_updates.accumulate_moving_average_square_(second_order, grad, f=beta2)
 
         # adam is a biased estimator: provide the step to correct bias
         step = None
         if bias_correction:
-            step = self.add_input_tensor("step", partial(np.zeros, ()), popxl.float32, by_ref=True)
+            step = self.add_variable_input("step", partial(np.zeros, ()), popxl.float32, by_ref=True)
 
         # calculate the weight increment with adam euristic
         updater = ops.var_updates.adam_updater(first_order,
@@ -158,7 +161,7 @@ class ModuleGraphs:
     layer_name: str
     fwd: GraphWithNamedArgs
     bwd: GraphWithNamedArgs
-    facts: NamedInputFactories
+    facts: NamedVariableFactories
     optimizer: addons.Module
     vars: NamedTensors = field(default_factory=NamedTensors)
 
@@ -201,7 +204,7 @@ def create_graphs(layer_name: str, layer: addons.Module, optimizer: addons.modul
     bwd_facts, bwd_graph = addons.transforms.autodiff_with_accumulation(graph,
                                                                         tensors_to_accumulate_grads=graph.args.tensors,
                                                                         grads_required=req_grads)
-    factories = NamedInputFactories()
+    factories = NamedVariableFactories()
     factories.insert("fwd", facts)
     factories.insert("bwd", bwd_facts)
 

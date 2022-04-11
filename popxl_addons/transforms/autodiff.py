@@ -9,7 +9,7 @@ from popxl import ops
 from popxl.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo)
 from popxl_addons.dot_tree import sanitise
 
-from popxl_addons.input_factory import InputFactory, NamedInputFactories, add_input_tensor
+from popxl_addons.variable_factory import VariableFactory, NamedVariableFactories, add_variable_input
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.graph import GraphWithNamedArgs
 
@@ -80,7 +80,7 @@ def autodiff(
 def autodiff_with_accumulation(
         graph: GraphWithNamedArgs,
         tensors_to_accumulate_grads: Iterable[popxl.Tensor],
-        grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedInputFactories, GraphWithNamedArgs]:
+        grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
     """
     Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
     graph which takes a running mean of the tensor and the result stored in an accumulator tensor. The accumulators are
@@ -98,7 +98,7 @@ def autodiff_with_accumulation(
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
 
     Returns:
-        NamedInputFactories: input factories for the accumulation tensors (initialised as zeros) needed for graph inputs
+        NamedVariableFactories: variable factories for the accumulation tensors (initialised as zeros) needed for graph inputs
         GraphWithNamedArgs: grad graph of `graph` with NamedArgs
         GradGraphInfo: grad graph of `graph`
     """
@@ -114,15 +114,15 @@ def autodiff_with_accumulation(
     indices_to_remove: List[int] = []
 
     named_inputs: Dict[str, popxl.Tensor] = {}
-    input_factories: Dict[str, InputFactory] = {}
+    variable_factories: Dict[str, VariableFactory] = {}
 
     # Flatten named tensors
     names = {t: name for name, t in graph.args.named_tensors.items()}
 
     def add_input(name, *args, **kwargs):
-        t, f = add_input_tensor(name, *args, **kwargs)
+        t, f = add_variable_input(name, *args, **kwargs)
         named_inputs[name] = t
-        input_factories[name] = f
+        variable_factories[name] = f
         return t
 
     with grad_info.graph, popxl.in_sequence(True):
@@ -144,7 +144,7 @@ def autodiff_with_accumulation(
     for idx in indices_to_remove:
         grad_info.graph._pb_graph.removeOutput(idx)
 
-    return (NamedInputFactories.from_dict(input_factories),
+    return (NamedVariableFactories.from_dict(variable_factories),
             GraphWithNamedArgs.from_grad_graph(grad_info, NamedTensors.from_dict(named_inputs)))
 
 

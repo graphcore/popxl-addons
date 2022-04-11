@@ -19,8 +19,8 @@ The basic steps needed to build and run a model in popxl.addons are the followin
 
 1. subclass ```addons.Module``` to create your layers and models in a object-oriented fashion. 
 2. initialize an ir which represents your full compiled program and set the ```ir.replication_factor```
-3. in the ```ir.main_graph()``` context, generate the computational graph and the input factories associated to your module with ```Module``` ```create_graph``` method
-4. in the ```ir.main_graph()``` context, instantiate actual variables with ```NamedInputFactory``` ```init``` method.
+3. in the ```ir.main_graph()``` context, generate the computational graph and the variable factories associated to your module with ```Module``` ```create_graph``` method
+4. in the ```ir.main_graph()``` context, instantiate actual variables with ```NamedVariableFactory``` ```init``` method.
 5. in the ```ir.main_graph()``` context, bind the computational graph to the variables using the ```bind``` method of ```GraphWithNamedArgs``` 
 6. in the ```ir.main_graph()``` context,  call the bound graph providing only the inputs
 7. Specify the properties of the ir and create a [session]() to run your ir.
@@ -38,7 +38,7 @@ class myModule(addons.Module):
 ir = popxl.Ir()
 ir.replication_factor = 1
 with popxl.main_graph():
-    # generate the computational graph and the input factories
+    # generate the computational graph and the variable factories
     facts, graph = myModule.create_graph(inputs_tensor_specs) 
     # instantiate actual variables
     variables = facts.init()
@@ -80,20 +80,20 @@ class Linear(addons.Module):
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         # add a state variable to the module
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
                                   x.dtype)
         y = x @ w
         if self.bias:
             # add a state variable to the module
-            b = self.add_input_tensor("bias", partial(np.zeros, y.shape[-1]), x.dtype)
+            b = self.add_variable_input("bias", partial(np.zeros, y.shape[-1]), x.dtype)
             y = y + b
         return y
 ```
 Each module implements a ```build(self, x: popxl.Tensor) -> popxl.Tensor``` method where the graph is defined.
-There are two kind of inputs, those provided as arguments of the ```build``` method (```x``` here) and **named inputs**, added via ```add_input_tensor``` method (```w``` and ```b``` here).  
+There are two kind of inputs, those provided as arguments of the ```build``` method (```x``` here) and **named inputs**, added via ```add_variable_input``` method (```w``` and ```b``` here).  
 
 Named inputs are the state variables of the module, its internal parameters. 
-Remember that in popxl variables can only live in the main graph. Hence, state tensor variables can't be instatiated directly in the graph. Their creation needs to take place in the main graph. The ```add_input_tensor``` creates a named local placeholder which will be later bound to a variable in the main graph.
+Remember that in popxl variables can only live in the main graph. Hence, state tensor variables can't be instatiated directly in the graph. Their creation needs to take place in the main graph. The ```add_variable_input``` creates a named local placeholder which will be later bound to a variable in the main graph.
 
 The ```module.create_graph``` method creates the actual graph (a **GraphWithNamedArgs**) and **InputFactories** for the named inputs. It requires a ```TensorSpec``` or a ```Tensor``` for each of the unnamed inputs (```x```).
 
@@ -175,12 +175,12 @@ If you want to achieve a better code reuse you can manually **outline** the mode
 To outline a graph you need to:
 
 - create the graph you want to share ```factories, subgraph= Linear(512).create_graph(x)```
-- generate different named input tensors (different local placeholders) for each of the duplicated layers. You can use the ```module.add_inputs(name, factories)``` method. In this way you create different **local** tensors.
+- generate different named input tensors (different local placeholders) for each of the duplicated layers. You can use the ```module.add_variable_inputs(name, factories)``` method. In this way you create different **local** tensors.
 - bind the graph to the local tensors
 - add call operations to the bound graphs
     
 To outline a subgraph you need to generate different named input tensors (different local placeholders) for each of the duplicated layers. In this example, we need different variables for ```fc2``` and ```fc3```. 
-The ```module.add_inputs(name, factories)``` method can be used for this purpose. It produces different local named tensors (```named_tensors_0```and ```named_tensors_1``` in the example below) that you can use to create two different bound graph, each bound to its own set of variables. Once you have the bound graphs you can call them.
+The ```module.add_variable_inputs(name, factories)``` method can be used for this purpose. It produces different local named tensors (```named_tensors_0```and ```named_tensors_1``` in the example below) that you can use to create two different bound graph, each bound to its own set of variables. Once you have the bound graphs you can call them.
 
 When you call ``` facories.init()``` in the main context you generate variables for all the local tensors, including ```named_tensors_0``` and ```named_tensors_1```.  
 When you finally bind the graph, the local tensors are bound to the main variables. Since the subgraph is bound to the local tensors, it is effectively bound to them too.
@@ -200,10 +200,10 @@ class NetOutlined(addons.Module):
         x = ops.gelu(self.fc1(x))
         
         #create a single subgraph to be used both for fc2 and fc3 
-        facts, subgraph = Linear(512).create_graph(x) #create input factories and subgraph
-        named_tensors_0 = self.add_inputs("fc2", facts) # generate specific named inputs for fc2
+        facts, subgraph = Linear(512).create_graph(x) #create variable factories and subgraph
+        named_tensors_0 = self.add_variable_inputs("fc2", facts) # generate specific named inputs for fc2
         fc2 = subgraph.bind(named_tensors_0) #fc2 is a bound graph using the shared, single subgraph and custom params
-        named_tensors_1 = self.add_inputs("fc3", facts) # generate specific named inputs for fc3
+        named_tensors_1 = self.add_variable_inputs("fc3", facts) # generate specific named inputs for fc3
         fc3 = subgraph.bind(named_tensors_1) #fc3 is a bound graph using the shared, single subgraph and custom params
 
         x, = fc2.call(x)

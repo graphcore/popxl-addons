@@ -26,7 +26,7 @@ First we define a Module class.
 ```
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        scale = self.add_input_tensor("scale", partial(np.ones, x.shape), x.dtype)
+        scale = self.add_variable_input("scale", partial(np.ones, x.shape), x.dtype)
         return x * scale
 ```
 Then we create a graph from the module:
@@ -35,7 +35,7 @@ args, graph = Scale().create_graph(x)
 ```
 A tuple is returned from `Module.create_graph`.
 
-The first value is a `NamedInputFactories` object. This contains all inputs to the graph that are created using `Module.add_input_tensor`
+The first value is a `NamedVariableFactories` object. This contains all inputs to the graph that are created using `Module.add_variable_input`
 during the construction of the graph. In most cases these can be considered the constructors of variables of your modules. 
 If we want an instance of these variables we can initialise one:
 ```
@@ -43,7 +43,7 @@ scale_vars = args.init()
 ```
 
 The second value is a `GraphWithNamedArgs`. This is a combination of a `popxl.Graph` and `NamedTensors`. The named tensors keep a record
-of each input to the graph created using `Module.add_input_tensor` and has the same naming as the `NamedInputFactories` above.
+of each input to the graph created using `Module.add_variable_input` and has the same naming as the `NamedVariableFactories` above.
 To be able to call this graph we must first provide tensors for each of the named args. This can be done by using `bind`:
 ```
 layer = graph.bind(scale_vars)
@@ -88,7 +88,7 @@ with main:
 ```python
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        self.scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
+        self.scale = self.add_variable_input("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
         return x * self.scale
 
 ir = popxl.Ir()
@@ -130,7 +130,7 @@ with main:
 ```python
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        self.scale = self.add_input_tensor("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
+        self.scale = self.add_variable_input("scale", lambda: np.ones(x.shape, x.dtype.as_numpy()))
         return x * self.scale
 
 ir = popxl.Ir()

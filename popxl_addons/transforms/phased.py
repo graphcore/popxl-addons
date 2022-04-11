@@ -9,7 +9,7 @@ from popxl import ops
 from popxl.ops.collectives.collectives import CollectiveOps
 
 from popxl_addons.dot_tree import DotTree
-from popxl_addons import GraphWithNamedArgs, NamedInputFactories, NamedTensors
+from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensors
 
 __all__ = [
     "all_gather_replica_sharded_graph", "reduce_replica_sharded_graph", "load_remote_graph", "store_remote_graph",
@@ -57,17 +57,17 @@ def named_buffers(tensors: NamedTensors, entries: int = 1, sharded_threshold: in
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def named_input_buffers(inputs: NamedInputFactories, entries: int = 1, sharded_threshold: int = 1024):
-    """Create a buffer for each InputFactory in `inputs`. The buffers will have `entries` set.
+def named_input_buffers(inputs: NamedVariableFactories, entries: int = 1, sharded_threshold: int = 1024):
+    """Create a buffer for each VariableFactory in `inputs`. The buffers will have `entries` set.
     Any factory with `nelms >= sharded_threshold` will have a replica sharded RemoteBuffer created instead.
 
     Args:
-        inputs (NamedInputFactories): InputFactories to create buffers for.
+        inputs (NamedVariableFactories): InputFactories to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         sharded_threshold (int, optional): factories with nelms >= this will have replica sharded buffers. Defaults to 1024.
 
     Returns:
-        NamedRemoteBuffers: A buffer for each factory with names matching the NamedInputFactories' names.
+        NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
     for name, f in inputs.to_dict().items():

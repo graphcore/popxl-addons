@@ -136,9 +136,9 @@ To add also gradient accumulation the first thing to do is using the ```addons.t
 def autodiff_with_accumulation(
         graph: GraphWithNamedArgs,
         tensors_to_accumulate_grads: Iterable[popxl.Tensor],
-        grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedInputFactories, GraphWithNamedArgs]
+        grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]
 ```
-While the standard ```autodiff``` transform produces a graph without state, i.e, without variables, the ```autodiff_with_accumulation``` transform generates a graph with state, hence returning both the graph and the input factories for the ```NamedArgs```, which are the accumulators for the ```tensors_to_accumulate_grads``` and a ```mean_accum_counter``` which is incremented with each call of the gradient graph.  
+While the standard ```autodiff``` transform produces a graph without state, i.e, without variables, the ```autodiff_with_accumulation``` transform generates a graph with state, hence returning both the graph and the variable factories for the ```NamedArgs```, which are the accumulators for the ```tensors_to_accumulate_grads``` and a ```mean_accum_counter``` which is incremented with each call of the gradient graph.  
 Each tensor in ```tensors_to_accumulate_grads``` is automatically added as a required grad. You can provide another list of tensors in ```grads_required``` for non-accumulated gradients. 
 
 ![Figure 2: Differences between autodiff and autodiff_with_accumulation](images/autodiff.jpg)

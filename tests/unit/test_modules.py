@@ -4,7 +4,7 @@ import numpy as np
 
 import popxl
 
-from popxl_addons import InputFactory, NamedTensors, Module
+from popxl_addons import VariableFactory, NamedTensors, Module
 from popxl_addons.transforms.autodiff import autodiff_with_accumulation
 from popxl_addons.transforms.recomputation import recompute_graph
 
@@ -15,8 +15,8 @@ class Linear(Module):
         self.features = features
 
     def build(self, x: popxl.Tensor):
-        w = self.add_input_tensor("w", partial(np.zeros, (x.shape[-1], self.features)), popxl.float32)
-        b = self.add_input_tensor("b", partial(np.zeros, (self.features, )), popxl.float32)
+        w = self.add_variable_input("w", partial(np.zeros, (x.shape[-1], self.features)), popxl.float32)
+        b = self.add_variable_input("b", partial(np.zeros, (self.features, )), popxl.float32)
         return (x @ w) + b
 
 
@@ -138,10 +138,10 @@ class DoubleLinearOutlined(Module):
     def build(self, x: popxl.Tensor):
         args, graph = Linear(10).create_graph(x)
 
-        args1 = self.add_inputs("linear1", args)
+        args1 = self.add_variable_inputs("linear1", args)
         x, = graph.bind(args1).call(x)
 
-        args2 = self.add_inputs("linear2", args)
+        args2 = self.add_variable_inputs("linear2", args)
         return graph.bind(args2).call(x)
 
 
@@ -211,7 +211,7 @@ class LinearsOutlined(Module):
         args, graph = Linear(10).create_graph(x)
 
         for i in range(self.n):
-            args_nt = self.add_inputs(i, args)
+            args_nt = self.add_variable_inputs(i, args)
             x, = graph.bind(args_nt).call(x)
         return x
 
@@ -243,8 +243,8 @@ class MultiMatMul(Module):
         self.n = n
 
     def build(self, x):
-        self.weights = Module.from_input_factories(
-            self.n * [InputFactory(lambda: np.random.normal(0, 0.02, (10, 10)), popxl.float16)])
+        self.weights = Module.from_variable_factories(
+            self.n * [VariableFactory(lambda: np.random.normal(0, 0.02, (10, 10)), popxl.float16)])
 
         for i in range(self.n):
             x = x @ self.weights[i]
@@ -252,7 +252,7 @@ class MultiMatMul(Module):
         return x
 
 
-def test_from_input_factories():
+def test_from_variable_factories():
     ir = popxl.Ir()
     main = ir.main_graph
 

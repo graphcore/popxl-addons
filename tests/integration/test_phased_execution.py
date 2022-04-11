@@ -12,7 +12,7 @@ from popxl_addons.transforms.phased import (all_gather_replica_sharded_graph, na
 
 class Add(Module):
     def build(self, x: popxl.Tensor):
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, x.shape), x.dtype, by_ref=True)
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, x.shape), x.dtype, by_ref=True)
         ops.scaled_add_(w, x)
 
 

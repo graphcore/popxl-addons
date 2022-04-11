@@ -48,7 +48,7 @@ class PipelineBoundGraph(BoundGraph):
     def original_output_ids(self):
         return self._produces_original_tensor
 
-    def add_input_tensor(self, tensor: popxl.Tensor):
+    def add_variable_input(self, tensor: popxl.Tensor):
         with self.graph:
             input_tensor = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, by_ref=True)
             self._original_input_to_arg[tensor.id] = input_tensor
@@ -162,7 +162,7 @@ class Pipelining:
                 if tensor.id in external_inputs.keys():
                     sg_tensor = external_inputs[tensor.id]
                 else:
-                    sg_tensor = graph.add_input_tensor(tensor)
+                    sg_tensor = graph.add_variable_input(tensor)
                     external_inputs[tensor.id] = sg_tensor
             else:
                 sg_tensor = self.original_tid_to_cloned_tensor[tensor.id]
@@ -173,7 +173,7 @@ class Pipelining:
                 last_graph = self.original_tid_to_graph[tensor.id]
                 if tensor.id not in last_graph.original_output_ids:
                     last_graph.add_output_tensor(sg_tensor, tensor.id)
-                sg_tensor = graph.add_input_tensor(tensor)
+                sg_tensor = graph.add_variable_input(tensor)
                 self.original_tid_to_cloned_tensor[tensor.id] = sg_tensor
                 self.original_tid_to_graph[tensor.id] = graph
 
@@ -470,7 +470,7 @@ def pipelined_execution(steps: int):
 class Stash(Module):
     @popxl.in_sequence()
     def build(self, t: popxl.Tensor, stash_size: int):
-        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
+        counter = self.add_variable_input("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
 
         # Make `t` have the correct 0th dimension
         stashed_shape = t.shape
@@ -481,7 +481,7 @@ class Stash(Module):
         if stash_size <= 1:
             raise TypeError(f"Stash must be larger than 1. size={stash_size}, t={t}")
 
-        stash = self.add_input_tensor(f"stash", partial(np.zeros, (stash_size, *stashed_shape)), t.dtype, by_ref=True)
+        stash = self.add_variable_input(f"stash", partial(np.zeros, (stash_size, *stashed_shape)), t.dtype, by_ref=True)
         ops.dynamic_update_(stash, counter, t, axes=[0], sizes=[1], no_overlap=True)
         ops.increment_mod_(counter, 1, stash_size)
 
@@ -489,7 +489,7 @@ class Stash(Module):
 class Restore(Module):
     @popxl.in_sequence()
     def build(self, stash: popxl.TensorByRef):
-        counter = self.add_input_tensor("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
+        counter = self.add_variable_input("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)

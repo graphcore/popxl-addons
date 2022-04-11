@@ -76,8 +76,8 @@ class Linear(Module):
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         x = x + 1
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
-                                  x.dtype)
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
+                                    x.dtype)
         return x @ w
 
 

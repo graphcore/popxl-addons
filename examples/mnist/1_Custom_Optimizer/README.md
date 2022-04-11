@@ -26,17 +26,17 @@ class Adam(addons.Module):
               bias_correction: bool = True):
 
         # gradient estimators for the variable var - same shape as the variable 
-        first_order = self.add_input_tensor("first_order", partial(np.zeros, var.shape), first_order_dtype, by_ref=True)
+        first_order = self.add_variable_input("first_order", partial(np.zeros, var.shape), first_order_dtype, by_ref=True)
         ops.var_updates.accumulate_moving_average_(first_order, grad, f=beta1)
 
         # variance estimators for the variable var - same shape as the variable 
-        second_order = self.add_input_tensor("second_order", partial(np.zeros, var.shape), popxl.float32, by_ref=True)
+        second_order = self.add_variable_input("second_order", partial(np.zeros, var.shape), popxl.float32, by_ref=True)
         ops.var_updates.accumulate_moving_average_square_(second_order, grad, f=beta2)
 
         # adam is a biased estimator: provide the step to correct bias
         step = None
         if bias_correction:
-            step = self.add_input_tensor("step", partial(np.zeros, ()), popxl.float32, by_ref=True)
+            step = self.add_variable_input("step", partial(np.zeros, ()), popxl.float32, by_ref=True)
 
         # calculate the weight increment with adam euristic 
         updater = ops.var_updates.adam_updater(

@@ -111,7 +111,7 @@ from functools import partial
 
 class Add(addons.Module):
     def build(self, x: popxl.Tensor):
-        w = self.add_input_tensor("weight", partial(np.random.normal, 0, 0.02, x.shape), x.dtype)
+        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, x.shape), x.dtype)
         x = popxl.ops.add(w, x)
         return x
     

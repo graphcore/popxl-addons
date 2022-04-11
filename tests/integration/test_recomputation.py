@@ -14,8 +14,8 @@ class DoubleLinear(addons.Module):
         # y would have been used instead.
         y = x + 2
 
-        w1 = self.add_input_tensor("w1", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
-        w2 = self.add_input_tensor("w2", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
+        w1 = self.add_variable_input("w1", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
+        w2 = self.add_variable_input("w2", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
         return (y @ w1) @ w2
 
 

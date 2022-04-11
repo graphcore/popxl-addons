@@ -12,7 +12,7 @@ from popxl.tensor import Variable
 
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        scale = self.add_input_tensor("scale", partial(np.ones, x.shape), x.dtype)
+        scale = self.add_variable_input("scale", partial(np.ones, x.shape), x.dtype)
         return x * scale
 
 

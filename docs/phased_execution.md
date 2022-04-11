@@ -7,7 +7,7 @@ For example, given the Graph:
 ```python
 class Linear(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        w = self.add_input_tensor("w", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
+        w = self.add_variable_input("w", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
         y = x @ w
         return y
 
@@ -34,7 +34,7 @@ vs = NamedTensors.pack(names, ts)
 
 ## Replica Sharding
 To improve the performance of loading from external memory we can shard our variables across replicas of our graph.
-This can be controlled by the argument `sharded_threshold` of `named_input_buffers`, or using `Module.add_replica_sharded_input_tensor`.
+This can be controlled by the argument `sharded_threshold` of `named_input_buffers`, or using `Module.add_replica_sharded_variable_input`.
 ```python
 buffers = named_input_buffers(args, sharded_threshold=16)
 variables = args.init_remote(buffers, 0)

@@ -5,14 +5,14 @@ import numpy as np
 import popxl
 
 import popxl_addons as addons
-from popxl_addons.input_factory import NamedInputFactories
+from popxl_addons.variable_factory import NamedVariableFactories
 from popxl_addons.module import Module
 from popxl_addons.transforms.autodiff import autodiff, autodiff_with_accumulation
 
 
 class Scale(Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        scale = self.add_input_tensor("scale", partial(np.full, x.shape, 2), x.dtype)
+        scale = self.add_variable_input("scale", partial(np.full, x.shape, 2), x.dtype)
         return x * scale
 
 
@@ -30,7 +30,7 @@ def model(with_accumulation):
         else:
             dgraph = autodiff(graph, grads_required=graph.graph.inputs)
             # Create empty. No named inputs.
-            dargs = NamedInputFactories()
+            dargs = NamedVariableFactories()
 
         # Construct variables for the graph.
         scale1 = args.init()

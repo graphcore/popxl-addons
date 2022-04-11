@@ -11,7 +11,7 @@ from popxl_addons.transforms.batch_serialisation import (batch_serial_buffer, ba
 
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        scale = self.add_input_tensor("scale", partial(np.full, x.shape, 2), x.dtype)
+        scale = self.add_variable_input("scale", partial(np.full, x.shape, 2), x.dtype)
         return x * scale
 
 
@@ -156,7 +156,7 @@ def test_batch_serialisation_sequence():
 
 class Linear(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
-        w = self.add_input_tensor("w", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
+        w = self.add_variable_input("w", partial(np.random.normal, 0, 0.1, (2, 2)), x.dtype)
         return x @ w
 
 
