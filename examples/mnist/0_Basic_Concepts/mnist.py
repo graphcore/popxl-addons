@@ -146,7 +146,7 @@ def train_program(opts):
         # get a dictionary between forward tensors and corresponding gradients and use it to update
         # each tensor
         grads_dict = bwd_graph.grad_graph_info.fwd_parent_ins_to_grad_parent_outs(fwd_info, bwd_info)
-        for t in variables.variables:
+        for t in variables.tensors:
             ops.scaled_add_(t, grads_dict[t], b=-opts.lr)
 
     ir.num_host_transfers = 1
@@ -190,17 +190,17 @@ def main():
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.variables)
+    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
     train_session.device.detach()
 
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.variables, trained_weights_data_dict.values())))
+    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
 
     #check that weights have been copied correctly
-    weights_data_dict = test_session.get_tensors_data(test_variables.variables)
-    names_to_data_dic_train = dict(zip(train_variables.named_variables.keys(), trained_weights_data_dict.values()))
-    names_to_data_dic_test = dict(zip(test_variables.named_variables.keys(), weights_data_dict.values()))
+    weights_data_dict = test_session.get_tensors_data(test_variables.tensors)
+    names_to_data_dic_train = dict(zip(train_variables.named_tensors.keys(), trained_weights_data_dict.values()))
+    names_to_data_dic_test = dict(zip(test_variables.named_tensors.keys(), weights_data_dict.values()))
     for name, array in names_to_data_dic_test.items():
         assert (array == names_to_data_dic_train[name]).all()
 

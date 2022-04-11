@@ -107,7 +107,7 @@ ir.num_host_transfers = 1
 session = popxl.Session(ir,"ipu_hw")
 print("\n Before adam update")
 var_data = session.get_tensor_data(var)
-state = session.get_tensors_data(adam_state.variables)
+state = session.get_tensors_data(adam_state.tensors)
 print("Variable:\n", var)
 print("Adam state:")
 for name, data in state.items():
@@ -117,7 +117,7 @@ session.run()
 
 print("\n After adam update")
 var_data = session.get_tensor_data(var)
-state = session.get_tensors_data(adam_state.variables)
+state = session.get_tensors_data(adam_state.tensors)
 print("Variable:\n", var)
 print("Adam state:")
 for name, data in state.items():

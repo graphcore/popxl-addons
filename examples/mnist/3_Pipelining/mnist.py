@@ -178,8 +178,8 @@ class ModuleGraphs:
             g = ops.collectives.replicated_all_reduce_(g, op='mean')
 
     def optimizer_step(self, lr: Union[float, popxl.Tensor]):
-        var_dict = self.vars.fwd.named_variables
-        grad_dict = self.vars.bwd.named_variables
+        var_dict = self.vars.fwd.named_tensors
+        grad_dict = self.vars.bwd.named_tensors
         for name, var in var_dict.items():
             opt_facts, opt = self.optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
             state = opt_facts.init()

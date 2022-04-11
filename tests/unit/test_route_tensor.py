@@ -3,6 +3,7 @@ import pytest
 import popxl
 from popxl import ops
 from popxl_addons import is_subgraph, route_tensor_into_graph
+from popxl.tensor import Variable
 
 
 def test_is_subgraph():
@@ -112,7 +113,8 @@ def test_route_tensor_into_graph_many_paths():
     with sg2:
         b = route_tensor_into_graph(a) + 1
 
-    assert len(g.variables) == 1
+    g_variables = [t for t in g.tensors if isinstance(t, Variable)]
+    assert len(g_variables) == 1
     assert len(sg1.inputs) == 1
     assert len(sg2.inputs) == 1
     assert len(sg3.inputs) == 1

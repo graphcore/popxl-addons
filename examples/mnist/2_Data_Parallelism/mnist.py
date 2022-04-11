@@ -148,7 +148,7 @@ def optimizer_step(variables: NamedTensors,
                    optimizer: addons.Module,
                    accum_counter: popxl.Tensor,
                    lr: popxl.float32 = 1e-3):
-    for name, var in variables.named_variables.items():
+    for name, var in variables.named_tensors.items():
         #create optimizer and state factories for the variable
         opt_facts, opt_graph = optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
         state = opt_facts.init()

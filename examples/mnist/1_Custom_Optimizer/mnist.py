@@ -142,7 +142,7 @@ def optimizer_step(variables,
                    grads: Dict[popxl.Tensor, popxl.Tensor],
                    optimizer: addons.Module,
                    lr: popxl.float32 = 1e-3):
-    for name, var in variables.named_variables.items():
+    for name, var in variables.named_tensors.items():
         #create optimizer and state factories for the variable
         opt_facts, opt_graph = optimizer.create_graph(var, var.spec, lr=lr, weight_decay=0.0, bias_correction=True)
         state = opt_facts.init()
@@ -258,12 +258,12 @@ def main():
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.variables)
+    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
     train_session.device.detach()
 
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.variables, trained_weights_data_dict.values())))
+    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
 
     test(test_session, test_data, test_input_streams, out_stream)
     test_session.device.detach()

@@ -7,6 +7,7 @@ from popxl import ops
 
 import popxl_addons as addons
 from popxl_addons.testing_utils import ops_of_type
+from popxl.tensor import Variable
 
 
 class Scale(addons.Module):
@@ -40,7 +41,8 @@ def test_accumulator_ops_added():
         dgraph.bind(accum).call(grad, args=dgraph.grad_graph_info.inputs_dict(call_info))
 
     # One weight, one accumulator and one counter
-    assert len(main.variables) == 3
+    variables = [t for t in main.tensors if isinstance(t, Variable)]
+    assert len(variables) == 3
 
     d_ops = dgraph.graph._pb_graph.getOps()
     # Accumulator, Counter
