@@ -13,7 +13,7 @@ from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensor
 
 __all__ = [
     "all_gather_replica_sharded_graph", "reduce_replica_sharded_graph", "load_remote_graph", "store_remote_graph",
-    "named_buffers", "named_input_buffers"
+    "named_buffers", "named_variable_buffers"
 ]
 
 
@@ -57,12 +57,12 @@ def named_buffers(tensors: NamedTensors, entries: int = 1, sharded_threshold: in
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def named_input_buffers(inputs: NamedVariableFactories, entries: int = 1, sharded_threshold: int = 1024):
-    """Create a buffer for each VariableFactory in `inputs`. The buffers will have `entries` set.
+def named_variable_buffers(factories: NamedVariableFactories, entries: int = 1, sharded_threshold: int = 1024):
+    """Create a buffer for each VariableFactory in `factories`. The buffers will have `entries` set.
     Any factory with `nelms >= sharded_threshold` will have a replica sharded RemoteBuffer created instead.
 
     Args:
-        inputs (NamedVariableFactories): InputFactories to create buffers for.
+        factories (NamedVariableFactories): VariableFactories to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         sharded_threshold (int, optional): factories with nelms >= this will have replica sharded buffers. Defaults to 1024.
 
@@ -70,7 +70,7 @@ def named_input_buffers(inputs: NamedVariableFactories, entries: int = 1, sharde
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
-    for name, f in inputs.to_dict().items():
+    for name, f in factories.to_dict().items():
         nelms = np.prod(f.shape)
         rf = popxl.gcg().ir.replication_factor
         if f.replica_sharded:

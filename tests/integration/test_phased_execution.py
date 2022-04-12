@@ -6,7 +6,7 @@ import popxl
 from popxl import ops
 
 from popxl_addons import Module, host_load, NamedTensors
-from popxl_addons.transforms.phased import (all_gather_replica_sharded_graph, named_input_buffers, load_remote_graph,
+from popxl_addons.transforms.phased import (all_gather_replica_sharded_graph, named_variable_buffers, load_remote_graph,
                                             reduce_replica_sharded_graph, store_remote_graph)
 
 
@@ -29,7 +29,7 @@ def test_phased_load_store():
 
         args, graph = Add().create_graph(x)
 
-        buffers = named_input_buffers(args, 2)
+        buffers = named_variable_buffers(args, 2)
         load, load_names = load_remote_graph(buffers)
         store = store_remote_graph(buffers)
 
@@ -62,7 +62,7 @@ def test_phased_rts():
 
         args, graph = Add().create_graph(x)
 
-        buffers = named_input_buffers(args, 2, 0)
+        buffers = named_variable_buffers(args, 2, 0)
         load, names = load_remote_graph(buffers)
         gather_, _ = all_gather_replica_sharded_graph(NamedTensors.pack(names, load.graph.outputs))
         reduce_, _ = reduce_replica_sharded_graph(NamedTensors.pack(names, gather_.graph.outputs), 'local', 0)

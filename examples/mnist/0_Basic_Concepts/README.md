@@ -95,7 +95,7 @@ There are two kind of inputs, those provided as arguments of the ```build``` met
 Named inputs are the state variables of the module, its internal parameters. 
 Remember that in popxl variables can only live in the main graph. Hence, state tensor variables can't be instatiated directly in the graph. Their creation needs to take place in the main graph. The ```add_variable_input``` creates a named local placeholder which will be later bound to a variable in the main graph.
 
-The ```module.create_graph``` method creates the actual graph (a **GraphWithNamedArgs**) and **InputFactories** for the named inputs. It requires a ```TensorSpec``` or a ```Tensor``` for each of the unnamed inputs (```x```).
+The ```module.create_graph``` method creates the actual graph (a **GraphWithNamedArgs**) and **VariableFactories** for the named inputs. It requires a ```TensorSpec``` or a ```Tensor``` for each of the unnamed inputs (```x```).
 
 Once you have the factories you can instantiate actual variables for each of the named inputs by calling ```variables = factories.init()``` **in the main graph**.
 

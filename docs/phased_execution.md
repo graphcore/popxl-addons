@@ -22,7 +22,7 @@ When scaling to models with a large number of parameters this will become a bott
 
 The IPU systems come with associated external memory (popxl.RemoteBuffer) that can be used to store Tensors. This includes the variables in our graph.
 ```python
-buffers = named_input_buffers(args)
+buffers = named_variable_buffers(args)
 variables = args.init_remote(buffers, 0)
 ```
 then to use the variables we must load them:
@@ -34,9 +34,9 @@ vs = NamedTensors.pack(names, ts)
 
 ## Replica Sharding
 To improve the performance of loading from external memory we can shard our variables across replicas of our graph.
-This can be controlled by the argument `sharded_threshold` of `named_input_buffers`, or using `Module.add_replica_sharded_variable_input`.
+This can be controlled by the argument `sharded_threshold` of `named_variable_buffers`, or using `Module.add_replica_sharded_variable_input`.
 ```python
-buffers = named_input_buffers(args, sharded_threshold=16)
+buffers = named_variable_buffers(args, sharded_threshold=16)
 variables = args.init_remote(buffers, 0)
 ```
 To gain access to the full variable it must be all gathered. This is where the performance improvement occurs as the bandwidth between IPUs is greater than access to external memory. 
