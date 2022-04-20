@@ -6,6 +6,7 @@ import numpy as np
 import popart._internal.ir as _ir
 
 from popxl_addons.ops.custom.replicated_all_reduce_TP import replicated_all_reduce_identical_inputs, replicated_all_reduce_identical_grad_inputs
+from popxl_addons.patterns import apply_pre_alias_patterns
 
 
 def test_all_reduce_identical_inputs_op():
@@ -27,9 +28,7 @@ def test_all_reduce_identical_inputs_op():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir, level='default')
 
     session = popxl.Session(ir, device_desc='ipu_hw')
     y_host = session.run({x_h2d: inputs})
@@ -69,9 +68,7 @@ def test_all_reduce_identical_inputs_op_backwards():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir, level='default')
 
     session = popxl.Session(ir, device_desc='ipu_hw')
     y_host = session.run({x_h2d: inputs})
@@ -104,9 +101,7 @@ def test_all_reduce_identical_grad_inputs_op():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir, level='default')
 
     session = popxl.Session(ir, device_desc='ipu_hw')
     y_host = session.run({x_h2d: inputs})
@@ -147,9 +142,7 @@ def test_all_reduce_identical_grad_inputs_op_backwards():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir, level='default')
 
     session = popxl.Session(ir, device_desc='ipu_hw')
     y_host = session.run({x_h2d: inputs})

@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Any, Callable, Iterable, Optional, Tuple, Union, List
 import numpy as np
 import popxl
-from popxl import dtypes
+from popxl import dtypes, ReplicaGrouping
 from popxl_addons.graph_cache import GraphCache
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.variable_factory import NamedVariableFactories, add_variable_input, add_replica_sharded_variable_input, \
@@ -77,11 +77,14 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         self._named_inputs.insert(name, tensor)
         return tensor
 
-    def add_variable_input(self,
-                           name: str,
-                           data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                           dtype: Optional[dtypes.dtype] = None,
-                           by_ref: bool = False) -> popxl.Tensor:
+    def add_variable_input(
+            self,
+            name: str,
+            data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+            dtype: Optional[dtypes.dtype] = None,
+            by_ref: bool = False,
+            replica_grouping: Optional[ReplicaGrouping] = None,
+    ) -> popxl.Tensor:
         """Add an initialised input tensor.
 
         Args:
@@ -94,8 +97,10 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             dtype (Optional[dtypes.dtype], optional): dtype of input. Defaults to None.
             constant (bool, optional): Construct input as constant when initialised. Defaults to False.
             by_ref (bool, optional): Pass the input by reference. Defaults to False.
+            replica_grouping (Optional[ReplicaGrouping]): The replica group of the variable. Determines which replicas
+                of the variable will have identical data or not when written to
         """
-        tensor, variable_f = add_variable_input(name, data_iter, dtype, by_ref)
+        tensor, variable_f = add_variable_input(name, data_iter, dtype, by_ref, replica_grouping)
         self._variable_factories.insert(name, variable_f)
         self._named_inputs.insert(name, tensor)
         return tensor

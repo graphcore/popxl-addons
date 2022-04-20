@@ -4,9 +4,11 @@ import numpy as np
 
 from more_itertools import peekable
 import popxl
-from popxl import ops
+from popxl import ops, ReplicaGrouping
 from popxl import dtypes
 from popxl.tensor import HostTensor, host_tensor_types
+from popxl.utils import to_numpy
+
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.dot_tree import DotTree
 from popxl_addons.named_tensors import NamedTensors
@@ -21,7 +23,8 @@ class VariableFactory:
                  dtype: Optional[dtypes.dtype] = None,
                  name: Optional[str] = None,
                  by_ref: bool = False,
-                 replica_sharded: bool = False):
+                 replica_sharded: bool = False,
+                 replica_grouping: Optional[ReplicaGrouping] = None):
         """
         Generates variable tensors for a subgraph from a host tensor data iterator.
 
@@ -35,7 +38,13 @@ class VariableFactory:
                 The name of the variable tensor - by default 't'
             by_ref (bool = False):
                 If true the graph_input's created for this tensor will be flagged as pass by reference.
+            replica_grouping (Optional[ReplicaGrouping]):
+                The replica group of the variable. Determines which replicas of the variable will have identical data or
+                not when written to. On variable initialisation it will fill a tensor with the replica grouping shape
+                `(n_groups, *data_shape)`
         """
+
+        assert not (replica_sharded and replica_grouping), 'Not tested with replica group and replica sharded'
 
         if callable(data_iter):
             # Test callable
@@ -61,6 +70,7 @@ class VariableFactory:
         self.name = name
         self.by_ref = by_ref
         self.replica_sharded = replica_sharded
+        self.replica_grouping = replica_grouping
 
         data_peek = self.data_iter.peek()
         if not isinstance(data_peek, tuple(host_tensor_types)):
@@ -95,10 +105,17 @@ class VariableFactory:
         Returns:
         """
         name = name or self.name
-        data: HostTensor = next(self.data_iter)
         dtype = self.dtype or None
 
-        return popxl.variable(data, dtype, name)
+        if not self.replica_grouping:
+            data: HostTensor = next(self.data_iter)
+        else:
+            data: np.ndarray = np.concatenate([
+                to_numpy(next(self.data_iter), copy=False)[np.newaxis, ...]
+                for _ in range(self.replica_grouping.num_groups)
+            ])
+
+        return popxl.variable(data, dtype, name, replica_grouping=self.replica_grouping)
 
     def create_remote_tensor(self, buffer: popxl.RemoteBuffer, entry: int, name: Optional[str] = None):
         name = name or self.name
@@ -189,12 +206,15 @@ class NamedVariableFactories(DotTree[VariableFactory]):
         return NamedTensors.from_dict(ts)
 
 
-def add_variable_input(name: str,
-                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                       dtype: Optional[dtypes.dtype] = None,
-                       by_ref: bool = False) -> Tuple[popxl.Tensor, VariableFactory]:
+def add_variable_input(
+        name: str,
+        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+        dtype: Optional[dtypes.dtype] = None,
+        by_ref: bool = False,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+) -> Tuple[popxl.Tensor, VariableFactory]:
     """Create a VariableFactory and graph_input in the current graph."""
-    input_f = VariableFactory(data_iter, dtype, name, by_ref)
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, replica_grouping=replica_grouping)
     tensor = input_f.create_input()
     return tensor, input_f
 

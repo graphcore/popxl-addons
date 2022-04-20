@@ -12,6 +12,12 @@ def test_input_streams():
     assert isinstance(inputs.x, popxl.HostToDeviceStream)
     assert isinstance(inputs.y, popxl.HostToDeviceStream)
 
+    assert inputs[0] == inputs.x
+    assert inputs[1] == inputs.y
+
+    for stream in inputs:
+        assert isinstance(stream, popxl.HostToDeviceStream)
+
 
 def test_output_streams():
     ir = popxl.Ir()
@@ -20,3 +26,9 @@ def test_output_streams():
 
     assert isinstance(outputs.x, popxl.DeviceToHostStream)
     assert isinstance(outputs.y, popxl.DeviceToHostStream)
+
+    assert outputs[0] == outputs.x
+    assert outputs[1] == outputs.y
+
+    for stream in outputs:
+        assert isinstance(stream, popxl.DeviceToHostStream)

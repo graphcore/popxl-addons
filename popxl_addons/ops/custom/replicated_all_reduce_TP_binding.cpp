@@ -177,7 +177,7 @@ popx::OpxCreator<ReplicatedAllReduceTPOpx> ReplicatedAllReduceTPOpxCreator(Repli
 // `replicated_all_reduce_TP_binding` must equal filename
 PYBIND11_MODULE(replicated_all_reduce_TP_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::ReplicatedAllReduceTPOp> binding(m, "ReplicatedAllReduceTPOp");
+  py::class_<popart::ReplicatedAllReduceTPOp, popart::Op, std::shared_ptr<popart::ReplicatedAllReduceTPOp>> binding(m, "ReplicatedAllReduceTPOp");
   binding.def(py::init<const popart::OperatorIdentifier &,
                   const popart::CollectiveOperator &,
                   const popart::CommGroup &,

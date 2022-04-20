@@ -11,7 +11,7 @@ def set_available_memory_proportion_by_ipu(ir: popxl.Ir, proportions: Iterable[f
     """For all ops in the `ir`, if `availableMemoryProportion` can be set, set it as
         specified by `proportions`.
         
-        If the the available memory proportion has been set on a op site it will be overridden.
+        If the available memory proportion has been set on a op site it will be overridden.
 
     Args:
         ir (popxl.Ir)
