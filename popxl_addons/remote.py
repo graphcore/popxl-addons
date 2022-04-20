@@ -1,20 +1,16 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from contextlib import contextmanager
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import numpy as np
 
 import popxl
 from popxl import ops
-from popxl.ops.collectives.collectives import CollectiveOps
 
 from popxl_addons.dot_tree import DotTree
 from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensors
 
-__all__ = [
-    "all_gather_replica_sharded_graph", "reduce_replica_sharded_graph", "load_remote_graph", "store_remote_graph",
-    "named_buffers", "named_variable_buffers"
-]
+__all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_variable_buffers"]
 
 
 # Backported to python3.6
@@ -86,7 +82,8 @@ def named_variable_buffers(factories: NamedVariableFactories, entries: int = 1, 
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> Tuple[GraphWithNamedArgs, List[str]]:
+def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1,
+                      use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that loads `buffers`.
     The graph will take one input that is the offset into each buffer to load.
     `entries` argument can be provided to resize each buffer as needed.
@@ -107,8 +104,10 @@ def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> Tuple[Gr
     ir = popxl.gcg().ir
     graph = ir.create_empty_graph("load_remote")
 
+    tile_context = popxl.io_tiles() if use_io_tiles else null_context()
+
     names = []
-    with graph, popxl.transforms.merge_exchange(), popxl.in_sequence(False):
+    with graph, popxl.transforms.merge_exchange(), popxl.in_sequence(False), tile_context:
         index = popxl.graph_input([], popxl.int32, "load_index")
 
         for name, buffer in zip(*buffers.unpack()):
@@ -122,7 +121,22 @@ def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> Tuple[Gr
     return GraphWithNamedArgs(graph), names
 
 
-def store_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> GraphWithNamedArgs:
+def load_remote(buffers: NamedRemoteBuffers, entry: Union[int, popxl.Tensor] = 0,
+                use_io_tiles: bool = False) -> NamedTensors:
+    tile_context = popxl.io_tiles() if use_io_tiles else null_context()
+
+    loaded_ts = {}
+    with popxl.transforms.merge_exchange(), popxl.in_sequence(False), tile_context:
+
+        for name, buffer in buffers.to_dict().items():
+            loaded = ops.remote_load(buffer, entry, name)
+
+            loaded_ts[name] = loaded
+
+    return NamedTensors.from_dict(loaded_ts)
+
+
+def store_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1, use_io_tiles: bool = False) -> GraphWithNamedArgs:
     """Create a GraphWithNamedArgs that stores tensors into `buffers`.
     The graph's first argument will be the offset into each buffer to load.
     The graph will have a NamedArg for each buffer in `buffer`.
@@ -144,9 +158,11 @@ def store_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> GraphWi
     ir = popxl.gcg().ir
     graph = ir.create_empty_graph("store_remote")
 
+    tile_context = popxl.io_tiles() if use_io_tiles else null_context()
+
     buffer_map = buffers.to_dict()
     args = {}
-    with graph, popxl.transforms.merge_exchange(), popxl.in_sequence(False):
+    with graph, popxl.transforms.merge_exchange(), popxl.in_sequence(False), tile_context:
         index = popxl.graph_input([], popxl.int32, "store_index")
 
         for name, buffer in zip(*buffers.unpack()):
@@ -160,101 +176,12 @@ def store_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1) -> GraphWi
     return GraphWithNamedArgs(graph, NamedTensors.from_dict(args))
 
 
-def all_gather_replica_sharded_graph(tensors: NamedTensors,
-                                     use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
-    """Create a GraphWithNamedArgs that replicated_all_gathers each Tensor in `tensors`.
-    The Graph with have a NamedArg for each the tensors in `tensors`.
-
-    Usage:
-    ```
-        g, names = all_gather_replica_sharded_graph(tensors)
-        ...
-        gathered_ts = NamedTensors.pack(names, g.bind(ts).call())
-    ```
-
-    Args:
-        tensors (NamedTensors): Input Tensors to replicated_all_gather.
-        use_io_tiles (bool): If true, the result of replicated_all_gather is then copied from IO Tiles.
-
-    Returns:
-        Tuple[GraphWithNamedArgs, List[str]]: Created Graph, names of outputs from calling the graph.
-    """
-    ir = popxl.gcg().ir
-    graph = ir.create_empty_graph("all_gather")
-
-    names = []
-    args = {}
-
-    with graph, popxl.in_sequence(False):
-        for name, tensor in zip(*tensors.unpack()):
-            sg_t = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, meta_shape=tensor.meta_shape)
-
-            args[name] = sg_t
-            names.append(name)
-
-            tile_context = popxl.io_tiles() if use_io_tiles else null_context()
-
-            if sg_t.meta_shape:
-                with tile_context:
-                    sg_t = ops.collectives.replicated_all_gather(sg_t).reshape_(sg_t.meta_shape)
-
-            if use_io_tiles:
-                sg_t = ops.io_tile_copy(sg_t)
-
-            popxl.graph_output(sg_t)
-
-    return GraphWithNamedArgs(graph, NamedTensors.from_dict(args)), names
-
-
-def reduce_replica_sharded_graph(tensors: NamedTensors,
-                                 op: CollectiveOps = 'add',
-                                 threshold: int = 1024,
-                                 use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
-    """Create a GraphWithNamedArgs that mean reduces each Tensor in `tensors`.
-    The Graph with have a NamedArg for each the tensors in `tensors`.
-    Tensors with `nelms >= threshold` will be reduce scattered for replica sharding, otherwise all_reduced.
-
-    Usage:
-    ```
-        g, names = reduce_replica_sharded_graph(tensors)
-        ...
-        reduced_ts = NamedTensors.pack(names, g.bind(ts).call())
-    ```
-
-    Args:
-        tensors (NamedTensors): Input Tensors to replica reduced.
-        op (CollectiveOps): Operation to use for reduction.
-        threshold (int, optional): Tensors with nelms >= this will be reduce scattered for replica sharding. Defaults to 1024.
-        use_io_tiles (bool, optional): If True, tensors will be copied to IO tiles before reducing. Defaults to False.
-
-    Returns:
-        Tuple[GraphWithNamedArgs, List[str]]: Created Graph, names of outputs from calling the graph.
-    """
-    ir = popxl.gcg().ir
-    graph = ir.create_empty_graph("replica_reduce")
-
-    names = []
-    args = {}
-
+def store_remote(buffers: NamedRemoteBuffers,
+                 tensors: NamedTensors,
+                 entry: Union[int, popxl.Tensor] = 0,
+                 use_io_tiles: bool = False):
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()
 
-    with graph, popxl.in_sequence(False), tile_context:
-        for name, tensor in zip(*tensors.unpack()):
-            sg_t = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, meta_shape=tensor.meta_shape)
-
-            args[name] = sg_t
-            names.append(name)
-
-            if use_io_tiles:
-                sg_t = ops.io_tile_copy(sg_t)
-
-            if sg_t.nelms >= threshold and sg_t.nelms % graph.ir.replication_factor == 0:
-                sg_t = ops.collectives.replicated_reduce_scatter(sg_t,
-                                                                 op=op,
-                                                                 configure_output_for_replicated_tensor_sharding=True)
-            else:
-                sg_t = ops.collectives.replicated_all_reduce(sg_t, op=op)
-
-            popxl.graph_output(sg_t)
-
-    return GraphWithNamedArgs(graph, NamedTensors.from_dict(args)), names
+    with popxl.transforms.merge_exchange(), popxl.in_sequence(False), tile_context:
+        for buffer, tensor in buffers.to_mapping(tensors).items():
+            ops.remote_store(buffer, entry, tensor)

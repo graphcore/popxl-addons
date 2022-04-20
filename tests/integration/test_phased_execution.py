@@ -5,9 +5,8 @@ import numpy as np
 import popxl
 from popxl import ops
 
-from popxl_addons import Module, host_load, NamedTensors
-from popxl_addons.transforms.phased import (all_gather_replica_sharded_graph, named_variable_buffers, load_remote_graph,
-                                            reduce_replica_sharded_graph, store_remote_graph)
+from popxl_addons import (Module, host_load, NamedTensors, all_gather_replica_sharded_graph, named_variable_buffers,
+                          load_remote_graph, reduce_replica_sharded_graph, store_remote_graph)
 
 
 class Add(Module):

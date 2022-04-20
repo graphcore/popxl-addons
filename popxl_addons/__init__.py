@@ -1,7 +1,9 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from .module import *
 from .graph_cache import *
+from .remote import *
 from .route_tensor import *
+from .rts import *
 from .ops import *
 from .transforms import *
 from .streams import *

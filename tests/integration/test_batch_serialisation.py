@@ -1,4 +1,5 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
+import pytest
 from functools import partial
 import numpy as np
 import popxl
@@ -15,8 +16,11 @@ class Scale(addons.Module):
         return x * scale
 
 
-def test_batch_serialisation_fwd_single():
+@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+def test_batch_serialisation_fwd_single(io_mode):
     ir = popxl.Ir()
+    opts = ir._pb_ir.getSessionOptions()
+    opts.numIOTiles = 64
     main = ir.main_graph
 
     cb = 2
@@ -28,14 +32,13 @@ def test_batch_serialisation_fwd_single():
         args, graph = Scale().create_graph(in_h2d.spec)
 
         # Transform graphs
-        bs_result = batch_serialise(
-            graph,
-            bf,
-            load_handles={graph.graph.inputs[0]: in_h2d},
-            store_streams={},
-            store_buffers={t: batch_serial_buffer(t)
-                           for t in graph.graph.outputs},
-        )
+        bs_result = batch_serialise(graph,
+                                    bf,
+                                    load_handles={graph.graph.inputs[0]: in_h2d},
+                                    store_streams={},
+                                    store_buffers={t: batch_serial_buffer(t)
+                                                   for t in graph.graph.outputs},
+                                    io_mode=io_mode)
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
@@ -57,8 +60,11 @@ def test_batch_serialisation_fwd_single():
     np.testing.assert_equal(inputs * 2, outputs)
 
 
-def test_batch_serialisation_entries():
+@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+def test_batch_serialisation_entries(io_mode):
     ir = popxl.Ir()
+    opts = ir._pb_ir.getSessionOptions()
+    opts.numIOTiles = 64
     main = ir.main_graph
 
     cb = 2
@@ -76,7 +82,8 @@ def test_batch_serialisation_entries():
                                     store_streams={},
                                     store_buffers={t: batch_serial_buffer(t)
                                                    for t in graph.graph.outputs},
-                                    entries=2)
+                                    entries=2,
+                                    io_mode=io_mode)
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
@@ -88,7 +95,7 @@ def test_batch_serialisation_entries():
         out_buffer, _ = bs_result.stored_buffers[graph.graph.outputs[0]]
         out = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype)
         for i in range(bf):
-            y = ops.remote_load(out_buffer, i)
+            y = ops.remote_load(out_buffer, bf + i)
             ops.host_store(out, y)
 
     inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
@@ -98,8 +105,11 @@ def test_batch_serialisation_entries():
     np.testing.assert_equal(inputs * 2, outputs)
 
 
-def test_batch_serialisation_sequence():
+@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+def test_batch_serialisation_sequence(io_mode):
     ir = popxl.Ir()
+    opts = ir._pb_ir.getSessionOptions()
+    opts.numIOTiles = 64
     main = ir.main_graph
 
     cb = 2
@@ -117,20 +127,23 @@ def test_batch_serialisation_sequence():
                                   bf,
                                   load_handles={graph.graph.inputs[0]: in_h2d},
                                   store_streams={},
-                                  store_buffers={graph.graph.outputs[0]: (buffer, 0)})
+                                  store_buffers={graph.graph.outputs[0]: (buffer, 0)},
+                                  io_mode=io_mode)
 
         bs_remote = batch_serialise(graph,
                                     bf,
                                     load_handles={graph.graph.inputs[0]: (buffer, 0)},
                                     store_streams={},
                                     store_buffers={graph.graph.outputs[0]: (buffer, 1)},
-                                    entries=2)
+                                    entries=2,
+                                    io_mode=io_mode)
 
         bs_store = batch_serialise(graph,
                                    bf,
                                    load_handles={graph.graph.inputs[0]: (buffer, 2)},
                                    store_streams={graph.graph.outputs[0]: out_d2h},
-                                   store_buffers={})
+                                   store_buffers={},
+                                   io_mode=io_mode)
 
         # Create variables and bind
         var = args.init()
@@ -160,7 +173,8 @@ class Linear(addons.Module):
         return x @ w
 
 
-def test_batch_serialisation_grad():
+@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+def test_batch_serialisation_grad(io_mode):
     cb = 2
     bf = 4
 
@@ -206,6 +220,8 @@ def test_batch_serialisation_grad():
 
     def batch_serial():
         ir = popxl.Ir()
+        opts = ir._pb_ir.getSessionOptions()
+        opts.numIOTiles = 64
         main = ir.main_graph
 
         with main:
@@ -230,7 +246,8 @@ def test_batch_serialisation_grad():
                     input_grad: (grad_buffer, 0)
                 },
                 store_streams={dgraph.graph.outputs[0]: out_d2h},
-                store_buffers={})
+                store_buffers={},
+                io_mode=io_mode)
 
             # --- Create variables and bind
             weights = args.init()
@@ -260,7 +277,8 @@ def test_batch_serialisation_grad():
     np.testing.assert_almost_equal(norm.reshape(-1), bs.reshape(-1))
 
 
-def test_batch_serialisation_grad_remote_buffer():
+@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+def test_batch_serialisation_rb_only_grad(io_mode):
     cb = 2
     bf = 4
 
@@ -306,6 +324,8 @@ def test_batch_serialisation_grad_remote_buffer():
 
     def batch_serial():
         ir = popxl.Ir()
+        opts = ir._pb_ir.getSessionOptions()
+        opts.numIOTiles = 64
         main = ir.main_graph
 
         with main:
@@ -332,7 +352,8 @@ def test_batch_serialisation_grad_remote_buffer():
                     input_grad: (grad_buffer, 0)
                 },
                 store_streams={dgraph.graph.outputs[0]: out_d2h},
-                store_buffers={})
+                store_buffers={},
+                io_mode=io_mode)
 
             # --- Create variables and bind
             weights = args.init()
