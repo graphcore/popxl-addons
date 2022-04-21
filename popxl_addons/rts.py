@@ -1,6 +1,7 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from contextlib import contextmanager
 from typing import List, Tuple
+import numpy as np
 
 import popxl
 from popxl import ops
@@ -15,6 +16,14 @@ __all__ = ["all_gather_replica_sharded_graph", "reduce_replica_sharded_graph"]
 @contextmanager
 def null_context():
     yield
+
+
+def replica_sharded_spec(t: popxl.Tensor, threshold: int = 1024) -> popxl.TensorSpec:
+    rf = popxl.gcg().ir.replication_factor
+    if rf > 1 and t.nelms >= threshold and not t.meta_shape and t.nelms % rf == 0:
+        shape = (int(np.prod(t.shape)) // rf, )
+        return popxl.TensorSpec(shape, t.dtype, t.shape)
+    return t.spec
 
 
 def all_gather_replica_sharded_graph(tensors: NamedTensors,

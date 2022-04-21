@@ -16,7 +16,7 @@ from typing import Union, Dict
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.variable_factory import NamedVariableFactories
-from popxl_addons.transforms.phased import replica_sharded_spec
+from popxl_addons.rts import replica_sharded_spec
 
 np.random.seed(42)
 

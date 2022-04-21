@@ -9,6 +9,7 @@ from popxl import ops
 
 from popxl_addons.dot_tree import DotTree
 from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensors
+from popxl_addons.rts import replica_sharded_spec
 
 __all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_variable_buffers"]
 
@@ -17,14 +18,6 @@ __all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_va
 @contextmanager
 def null_context():
     yield
-
-
-def replica_sharded_spec(t: popxl.Tensor, threshold: int = 1024) -> popxl.TensorSpec:
-    rf = popxl.gcg().ir.replication_factor
-    if rf > 1 and t.nelms >= threshold and not t.meta_shape and t.nelms % rf == 0:
-        shape = (int(np.prod(t.shape)) // rf, )
-        return popxl.TensorSpec(shape, t.dtype, t.shape)
-    return t.spec
 
 
 class NamedRemoteBuffers(DotTree[popxl.RemoteBuffer]):

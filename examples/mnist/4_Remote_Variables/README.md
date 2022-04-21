@@ -52,7 +52,7 @@ An analogue function `add_replica_sharded_variable_input`  is available in `addo
 
 To shard a tensor either `remote_replica_sharded_variable` or `ops.collectives.replicated_reduce_scatter(..., configure_output_for_replicated_tensor_sharding=True)` can be used. We will see both examples in this tutorial.
 
-Another useful function when dealing with sharded tensors is ```addons.transforms.phased.replica_sharded_spec(t: popxl.Tensor, threshold: int)```. If the tensor has more elements than threshold, it returns the appropriate `TensorSpec` for the shard.
+Another useful function when dealing with sharded tensors is ```addons.rts.replica_sharded_spec(t: popxl.Tensor, threshold: int)```. If the tensor has more elements than threshold, it returns the appropriate `TensorSpec` for the shard.
 
 # Remote Variables
 When the IPU memory is insufficient the Streaming Memory can be used to store data remotely.
@@ -131,7 +131,7 @@ from typing import Union, Dict
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.variable_factory import NamedVariableFactories
-from popxl_addons.transforms.phased import replica_sharded_spec
+from popxl_addons.rts import replica_sharded_spec
 
 class Add(addons.Module): 
     def build(self, x: popxl.Tensor):
