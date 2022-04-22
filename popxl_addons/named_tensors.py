@@ -33,6 +33,10 @@ class NamedTensors(DotTree[popxl.Tensor]):
                 remapped.insert(attr, item.remap(mapping), True)
         return remapped
 
+    def update(self, other_named_tensors: 'NamedTensors'):
+        for name, t in other_named_tensors.named_tensors.items():
+            self.insert(name, t)
+
 
 @debug_context_frame_offset(1)
 def print_named_tensors(named_tensors: NamedTensors) -> NamedTensors:

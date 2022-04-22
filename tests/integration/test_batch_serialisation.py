@@ -6,6 +6,7 @@ import popxl
 from popxl import ops
 
 import popxl_addons as addons
+from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.transforms.batch_serialisation import (batch_serial_buffer, batch_serialise,
                                                          batch_serialise_fwd_and_grad)
 
@@ -82,7 +83,7 @@ def test_batch_serialisation_entries(io_mode):
                                     store_streams={},
                                     store_buffers={t: batch_serial_buffer(t)
                                                    for t in graph.graph.outputs},
-                                    entries=2,
+                                    rows=2,
                                     io_mode=io_mode)
 
         # Create variables and bind
@@ -135,7 +136,7 @@ def test_batch_serialisation_sequence(io_mode):
                                     load_handles={graph.graph.inputs[0]: (buffer, 0)},
                                     store_streams={},
                                     store_buffers={graph.graph.outputs[0]: (buffer, 1)},
-                                    entries=2,
+                                    rows=2,
                                     io_mode=io_mode)
 
         bs_store = batch_serialise(graph,
@@ -237,22 +238,25 @@ def test_batch_serialisation_grad(io_mode):
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
             grad_buffer, _ = batch_serial_buffer(input_grad)
-            bs_fwd, bs_grad, named_expected_inputs = batch_serialise_fwd_and_grad(
-                graph,
-                dgraph,
-                bf,
-                load_handles={
-                    graph.graph.inputs[0]: in_h2d,
-                    input_grad: (grad_buffer, 0)
-                },
-                store_streams={dgraph.graph.outputs[0]: out_d2h},
-                store_buffers={},
-                io_mode=io_mode)
+            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
+                                                           dgraph,
+                                                           graph.args,
+                                                           bf,
+                                                           load_handles={
+                                                               graph.graph.inputs[0]: in_h2d,
+                                                               input_grad: (grad_buffer, 0)
+                                                           },
+                                                           store_streams={dgraph.graph.outputs[0]: out_d2h},
+                                                           store_buffers={},
+                                                           io_mode=io_mode)
 
             # --- Create variables and bind
             weights = args.init()
             fwd = bs_fwd.graph.bind(weights)
-            grad = bs_grad.graph.bind(dargs.init())
+
+            grad_vars = dargs.init()
+            grad_vars.update(weights)
+            grad = bs_grad.graph.bind(grad_vars)
 
             # --- Create Program
             with popxl.in_sequence():
@@ -263,7 +267,7 @@ def test_batch_serialisation_grad(io_mode):
                 # Call forward
                 fwd.call(popxl.constant(0))
                 # Call gradient
-                grad.call(popxl.constant(0), args=named_expected_inputs.to_mapping(weights))
+                grad.call(popxl.constant(0))
 
         ir.num_host_transfers = bf
         sess = popxl.Session(ir, "ipu_hw")
@@ -343,23 +347,26 @@ def test_batch_serialisation_rb_only_grad(io_mode):
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
             grad_buffer, _ = batch_serial_buffer(input_grad)
-            bs_fwd, bs_grad, named_expected_inputs = batch_serialise_fwd_and_grad(
-                graph,
-                dgraph,
-                bf,
-                load_handles={
-                    graph.graph.inputs[0]: (input_rb, 0),
-                    input_grad: (grad_buffer, 0)
-                },
-                store_streams={dgraph.graph.outputs[0]: out_d2h},
-                store_buffers={},
-                io_mode=io_mode)
+            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
+                                                           dgraph,
+                                                           graph.args,
+                                                           bf,
+                                                           load_handles={
+                                                               graph.graph.inputs[0]: (input_rb, 0),
+                                                               input_grad: (grad_buffer, 0)
+                                                           },
+                                                           store_streams={dgraph.graph.outputs[0]: out_d2h},
+                                                           store_buffers={},
+                                                           io_mode=io_mode)
 
             # --- Create variables and bind
             weights = args.init()
             fwd = bs_fwd.graph.bind(weights)
-            grad = bs_grad.graph.bind(dargs.init())
 
+            grad_vars = dargs.init()
+            grad_vars.update(weights)
+            grad = bs_grad.graph.bind(grad_vars)
+            print(bs_grad.graph.print_schedule())
             # --- Create Program
             with popxl.in_sequence():
                 # Store input and upstream grad in buffers
@@ -370,7 +377,7 @@ def test_batch_serialisation_rb_only_grad(io_mode):
                 # Call forward
                 fwd.call(0)
                 # Call gradient
-                grad.call(0, args=named_expected_inputs.to_mapping(weights))
+                grad.call(0)
 
         ir.num_host_transfers = bf
         sess = popxl.Session(ir, "ipu_hw")
