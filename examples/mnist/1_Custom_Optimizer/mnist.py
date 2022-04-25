@@ -102,7 +102,7 @@ class Adam(addons.Module):
               beta1: Union[float, popxl.Tensor] = 0.9,
               beta2: Union[float, popxl.Tensor] = 0.999,
               eps: Union[float, popxl.Tensor] = 1e-5,
-              weight_decay: Union[float, popxl.Tensor] = 1e-2,
+              weight_decay: Union[float, popxl.Tensor] = 0.0,
               first_order_dtype: popxl.dtype = popxl.float16,
               bias_correction: bool = True):
 

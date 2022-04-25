@@ -567,7 +567,8 @@ def batch_serialise_fwd_and_grad(
     named_inputs = {}
     for idx, ec in activations:
         # add it to named inputs
-        if ec.fwd_tensor in named_inputs_for_grad_graph.tensors:
+        t = ec.fwd_tensor
+        if t in named_inputs_for_grad_graph.tensors:
             name = list(named_inputs_for_grad_graph.named_tensors.keys())[list(
                 named_inputs_for_grad_graph.named_tensors.values()).index(ec.fwd_tensor)]
             named_inputs[name] = grad_inputs[idx]
