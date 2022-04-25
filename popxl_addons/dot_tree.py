@@ -99,6 +99,11 @@ class DotTree(Generic[L]):
         self._validate_key(key, overwrite)
         self._map[key] = value
 
+    def update(self: CLS, values: CLS, overwrite: bool = False):
+        """Update map with another map"""
+        for k, v in values.copy()._map.items():
+            self.insert(k, v, overwrite)
+
     def pop(self, key):
         """Pop key."""
         return self._map.pop(key)

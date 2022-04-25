@@ -61,7 +61,7 @@ def model(with_accumulation):
     outputs = session.run()
 
     if with_accumulation:
-        accums = [accum1.scale, accum2.scale]
+        accums = [accum1.accum.scale, accum2.accum.scale]
         results = session.get_tensors_data(accums)
         return tuple(results[t] for t in accums)
 

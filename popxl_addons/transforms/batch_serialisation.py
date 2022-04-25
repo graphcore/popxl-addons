@@ -549,7 +549,7 @@ def batch_serialise_fwd_and_grad(
 
     for grad_idx, ec in activations:
         t = ec.fwd_tensor
-        if t in store_buffers.keys():
+        if t in store_buffers.keys() or t in named_inputs_for_grad_graph.tensors:
             # store buffer already specified.
             pass
         elif t in load_handles.keys() and not isinstance(load_handles[t], popxl.HostToDeviceStream):

@@ -118,7 +118,7 @@ def test_pipeline_training():
         for n in range(steps):
             result: np.ndarray = session.run({x_stream: data[n]})
 
-        weights = session.get_tensor_data(dlinear.weight)
+        weights = session.get_tensor_data(dlinear.accum.weight)
         session.device.detach()
 
         return weights.copy()
@@ -163,7 +163,7 @@ def test_pipeline_training():
         session = popxl.Session(ir, "ipu_hw")
         session.run({x_stream: data})  # type: ignore
 
-        weights = session.get_tensor_data(dlinear.weight)
+        weights = session.get_tensor_data(dlinear.accum.weight)
         session.device.detach()
 
         return weights.copy()
