@@ -85,7 +85,7 @@ public:
    * Check \a RTS mode (see collectives.hpp)
    * \return True if this operation is configured for replicated tensor sharding
    */
-  bool isconfigureOutputForReplicatedTensorSharding() const override {
+  bool isConfigureOutputForReplicatedTensorSharding() const override {
     return configureOutputForReplicatedTensorSharding ||
            hasInput(
                ReplicatedReduceScatterStridedOp::getCollectiveLinkedIndex()) ||
@@ -108,7 +108,7 @@ public:
     uint32_t outElms = std::ceil(float(nelms) / float(groupSize));
 
     Shape metaShape;
-    if (isconfigureOutputForReplicatedTensorSharding()) {
+    if (isConfigureOutputForReplicatedTensorSharding()) {
       metaShape = inInfo_.shape();
     }
 
@@ -183,7 +183,7 @@ public:
     const auto inIndex = ReplicatedReduceScatterStridedOp::getInIndex();
     auto toReduceScatter = getInTensor(inIndex);
 
-    if (rrsOp.isconfigureOutputForReplicatedTensorSharding()) {
+    if (rrsOp.isConfigureOutputForReplicatedTensorSharding()) {
       auto group = getCollectiveLinkedGroup(
           CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
 
