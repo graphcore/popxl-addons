@@ -192,7 +192,7 @@ class BatchSerialResult:
         return ts.remap(self._remap_dict)
 
 
-def batch_serial_buffer(t: popxl.Tensor, entries: int = 1) -> RemoteBufferAndOffset:
+def batch_serial_buffer(t: popxl.Tensor, steps: int, rows: int = 1) -> popxl.remote_buffer:
     """Create a RemoteBuffer and row_offset tuple from that matches a Tensor `t`
 
     Args:
@@ -200,10 +200,9 @@ def batch_serial_buffer(t: popxl.Tensor, entries: int = 1) -> RemoteBufferAndOff
         entries (int, optional): the size of the buffer. Defaults to 1
 
     Returns:
-        RemoteBufferAndOffset: (buffer, row_offset)
+        popxl.remote_buffer : a remote buffer with entries = steps * rows
     """
-    row_offset = 0
-    return (popxl.remote_buffer(t.shape, t.dtype, entries), row_offset)
+    return popxl.remote_buffer(t.shape, t.dtype, entries=steps * rows)
 
 
 def batch_serialise_non_overlapped(
@@ -557,7 +556,7 @@ def batch_serialise_fwd_and_grad(
             store_buffers[t] = load_handles[t]
         else:
             # create a buffer for the activation
-            store_buffers[t] = batch_serial_buffer(t)
+            store_buffers[t] = (batch_serial_buffer(t, steps=steps, rows=rows), 0)
 
     forward_result = batch_serialise(forward_graph, steps, load_handles, store_streams, store_buffers, seed_input, rows,
                                      io_mode)

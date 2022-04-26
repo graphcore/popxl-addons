@@ -37,7 +37,7 @@ def test_batch_serialisation_fwd_single(io_mode):
                                     bf,
                                     load_handles={graph.graph.inputs[0]: in_h2d},
                                     store_streams={},
-                                    store_buffers={t: batch_serial_buffer(t)
+                                    store_buffers={t: batch_serial_buffer(t, steps=bf)
                                                    for t in graph.graph.outputs},
                                     io_mode=io_mode)
 
@@ -81,7 +81,7 @@ def test_batch_serialisation_entries(io_mode):
                                     bf,
                                     load_handles={graph.graph.inputs[0]: in_h2d},
                                     store_streams={},
-                                    store_buffers={t: batch_serial_buffer(t)
+                                    store_buffers={t: batch_serial_buffer(t, steps=bf)
                                                    for t in graph.graph.outputs},
                                     rows=2,
                                     io_mode=io_mode)
@@ -123,7 +123,7 @@ def test_batch_serialisation_sequence(io_mode):
         args, graph = Scale().create_graph(in_h2d.spec)
 
         # Transform graphs
-        buffer, _ = batch_serial_buffer(graph.graph.outputs[0])
+        buffer = batch_serial_buffer(graph.graph.outputs[0], steps=bf)
         bs_load = batch_serialise(graph,
                                   bf,
                                   load_handles={graph.graph.inputs[0]: in_h2d},
@@ -237,7 +237,7 @@ def test_batch_serialisation_grad(io_mode):
 
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
-            grad_buffer, _ = batch_serial_buffer(input_grad)
+            grad_buffer = batch_serial_buffer(input_grad, steps=bf)
             bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
                                                            dgraph,
                                                            graph.args,
@@ -346,7 +346,7 @@ def test_batch_serialisation_rb_only_grad(io_mode):
 
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
-            grad_buffer, _ = batch_serial_buffer(input_grad)
+            grad_buffer = batch_serial_buffer(input_grad, steps=bf)
             bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
                                                            dgraph,
                                                            graph.args,
