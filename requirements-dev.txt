@@ -8,3 +8,4 @@ codecov
 recommonmark
 sphinx-rtd-theme
 yapf==0.27.0
+clang-format==14.0.1

@@ -3,9 +3,8 @@ import popxl
 import popxl.ops as ops
 import numpy as np
 
-import popart._internal.ir as _ir
-
-from popxl_addons.ops.custom.replicated_all_reduce_TP import replicated_all_reduce_identical_inputs, replicated_all_reduce_identical_grad_inputs
+from popxl_addons.ops.replicated_all_reduce_TP.replicated_all_reduce_TP import (
+    replicated_all_reduce_identical_inputs, replicated_all_reduce_identical_grad_inputs)
 from popxl_addons.patterns import apply_pre_alias_patterns
 
 

@@ -5,7 +5,7 @@ import numpy as np
 
 import popart._internal.ir as _ir
 
-from popxl_addons.ops.custom.grad_reduce import grad_reduce_square_add
+from popxl_addons.ops.grad_reduce_square_add import grad_reduce_square_add
 
 
 def test_grad_norm_reduce_op():

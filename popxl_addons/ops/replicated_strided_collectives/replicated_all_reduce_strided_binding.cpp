@@ -12,6 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
+#include <snap/Tensor.hpp>
+#include <vector>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -27,8 +29,6 @@ sudo apt install libpython3.6-dev
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
-#include <snap/Tensor.hpp>
-#include <vector>
 
 #include <popart/op/collectives/collectives.hpp>
 #include <popart/op/collectives/replicatedallreduce.hpp>
@@ -48,9 +48,9 @@ sudo apt install libpython3.6-dev
 
 namespace py = pybind11;
 
-using InMapType = std::map<popart::InIndex, popart::TensorId>;
+using InMapType  = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex = int;
+using OutIndex   = int;
 
 namespace popart {
 
@@ -67,7 +67,8 @@ public:
                                const bool identicalGradInputs_,
                                const Op::Settings &settings_)
       : ReplicatedAllReduceOp(
-            _opid, op_,
+            _opid,
+            op_,
             stride_ == 1 ? CommGroup(CommGroupType::Consecutive, groupSize_)
                          : CommGroup(CommGroupType::None, 0),
             settings_),
@@ -95,9 +96,14 @@ public:
   std::vector<std::unique_ptr<Op>> getGradOps() override {
     std::vector<std::unique_ptr<Op>> result;
     // Reverse identicalInputs <-> identicalGradInputs
-    result.push_back(std::make_unique<ReplicatedAllReduceStridedOp>(
-        opid, op, stride, groupSize, identicalGradInputs, identicalInputs,
-        settings));
+    result.push_back(
+        std::make_unique<ReplicatedAllReduceStridedOp>(opid,
+                                                       op,
+                                                       stride,
+                                                       groupSize,
+                                                       identicalGradInputs,
+                                                       identicalInputs,
+                                                       settings));
     return result;
   }
 
@@ -135,15 +141,25 @@ public:
   }
 
   static ReplicatedAllReduceStridedOp *
-  createOpInGraph(popart::Graph &graph, const InMapType &in,
-                  const OutMapType &out, const CollectiveOperator &op,
-                  const int32_t stride, const int32_t groupSize,
-                  const bool identicalInputs, const bool identicalGradInputs,
+  createOpInGraph(popart::Graph &graph,
+                  const InMapType &in,
+                  const OutMapType &out,
+                  const CollectiveOperator &op,
+                  const int32_t stride,
+                  const int32_t groupSize,
+                  const bool identicalInputs,
+                  const bool identicalGradInputs,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<ReplicatedAllReduceStridedOp>(
-        in, out, ReplicatedAllReduceStridedOp::defaultOperatorId(), op,
-        uint32_t(stride), uint32_t(groupSize), identicalInputs,
-        identicalGradInputs, settings);
+        in,
+        out,
+        ReplicatedAllReduceStridedOp::defaultOperatorId(),
+        op,
+        uint32_t(stride),
+        uint32_t(groupSize),
+        identicalInputs,
+        identicalGradInputs,
+        settings);
   }
 
   uint32_t getStride() const { return stride; }
@@ -152,7 +168,7 @@ public:
 protected:
   uint32_t stride;
   uint32_t groupSize;
-  bool identicalInputs = false;
+  bool identicalInputs     = false;
   bool identicalGradInputs = false;
 };
 
@@ -173,42 +189,54 @@ public:
   void grow(snap::program::Sequence &prog) const {
     const auto &rarOp = getOp<ReplicatedAllReduceStridedOp>();
 
-    const auto inIndex = ReplicatedAllReduceOp::getInIndex();
+    const auto inIndex      = ReplicatedAllReduceOp::getInIndex();
     poplar::Tensor toReduce = getInTensor(inIndex).getPoplarTensor();
     const poplar::OptionFlags &allReduceOptions = dv_p->lowering().gclOptions;
     poplar::Tensor output;
     uint32_t stride = rarOp.getStride(), groupSize = rarOp.getGroupSize();
     if (stride == 1) {
       output = gcl::allReduceCrossReplica(
-          graph().getPoplarGraph(), toReduce,
+          graph().getPoplarGraph(),
+          toReduce,
           getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
           prog.getPoplarSequence(),
           toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Consecutive,
                                            rarOp.getGroupSize())),
-          debugContext("replicatedAllReduceStrided"), allReduceOptions);
+          debugContext("replicatedAllReduceStrided"),
+          allReduceOptions);
     } else {
       if (stride == 64) {
         output = gcl::allReduceCrossReplica(
-            graph().getPoplarGraph(), toReduce,
+            graph().getPoplarGraph(),
+            toReduce,
             getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
             prog.getPoplarSequence(),
             toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
                                              rarOp.getGroupSize())),
-            debugContext("replicatedAllReduceStrided"), allReduceOptions);
+            debugContext("replicatedAllReduceStrided"),
+            allReduceOptions);
       } else {
         if (stride * groupSize == 64) {
-          output = ringAllReduce(graph().getPoplarGraph(), toReduce,
-                                 prog.getPoplarSequence(), stride, groupSize);
+          output = ringAllReduce(graph().getPoplarGraph(),
+                                 toReduce,
+                                 prog.getPoplarSequence(),
+                                 stride,
+                                 groupSize);
         } else {
-          output = maskedAllReduce(graph().getPoplarGraph(), toReduce,
-                                   prog.getPoplarSequence(), stride, groupSize);
+          output = maskedAllReduce(graph().getPoplarGraph(),
+                                   toReduce,
+                                   prog.getPoplarSequence(),
+                                   stride,
+                                   groupSize);
         }
       }
     }
     logging::transform::trace(
         "[ReplicatedAllReduceStridedOpx::grow] stride: {}, groupSize {},"
         "input shape: {}, output shape: {}",
-        rarOp.getStride(), rarOp.getGroupSize(), toReduce.shape(),
+        rarOp.getStride(),
+        rarOp.getGroupSize(),
+        toReduce.shape(),
         output.shape());
 
     if (hasInViewChangers(ReplicatedAllReduceOp::getInIndex())) {
@@ -232,26 +260,45 @@ popx::OpxCreator<ReplicatedAllReduceStridedOpx>
 // `replicated_all_reduce_strided_binding` must equal filename
 PYBIND11_MODULE(replicated_all_reduce_strided_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::ReplicatedAllReduceStridedOp, popart::Op,
+  py::class_<popart::ReplicatedAllReduceStridedOp,
+             popart::Op,
              std::shared_ptr<popart::ReplicatedAllReduceStridedOp>>
       binding(m, "ReplicatedAllReduceStridedOp");
   binding.def(py::init<const popart::OperatorIdentifier &,
-                       const popart::CollectiveOperator &, const uint32_t,
-                       const uint32_t, const bool, const bool,
+                       const popart::CollectiveOperator &,
+                       const uint32_t,
+                       const uint32_t,
+                       const bool,
+                       const bool,
                        const popart::Op::Settings &>(),
-              py::arg("opid"), py::arg("op"), py::arg("stride"),
-              py::arg("groupSize"), py::arg("identicalInputs"),
-              py::arg("identicalGradInputs"), py::arg("settings"));
+              py::arg("opid"),
+              py::arg("op"),
+              py::arg("stride"),
+              py::arg("groupSize"),
+              py::arg("identicalInputs"),
+              py::arg("identicalGradInputs"),
+              py::arg("settings"));
   binding.def_static(
       "createOpInGraph",
-      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
-                        const popart::CollectiveOperator &, const int32_t,
-                        const int32_t, const bool, const bool,
+      py::overload_cast<popart::Graph &,
+                        const InMapType &,
+                        const OutMapType &,
+                        const popart::CollectiveOperator &,
+                        const int32_t,
+                        const int32_t,
+                        const bool,
+                        const bool,
                         const popart::Op::Settings &>(
           &popart::ReplicatedAllReduceStridedOp::createOpInGraph),
-      py::arg("graph"), py::arg("inputs"), py::arg("outputs"), py::arg("op"),
-      py::arg("stride"), py::arg("groupSize"), py::arg("identicalInputs"),
-      py::arg("identicalGradInputs"), py::arg("settings"),
+      py::arg("graph"),
+      py::arg("inputs"),
+      py::arg("outputs"),
+      py::arg("op"),
+      py::arg("stride"),
+      py::arg("groupSize"),
+      py::arg("identicalInputs"),
+      py::arg("identicalGradInputs"),
+      py::arg("settings"),
       py::return_value_policy::reference);
   binding.def("outTensor",
               py::overload_cast<OutIndex>(

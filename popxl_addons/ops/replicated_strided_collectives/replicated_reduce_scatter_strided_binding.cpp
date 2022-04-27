@@ -12,6 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
+#include <snap/Tensor.hpp>
+#include <vector>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -27,8 +29,6 @@ sudo apt install libpython3.6-dev
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
-#include <snap/Tensor.hpp>
-#include <vector>
 
 #include <popart/op/collectives/collectives.hpp>
 #include <popart/popx/op/collectives/collectivesx.hpp>
@@ -47,9 +47,9 @@ sudo apt install libpython3.6-dev
 
 namespace py = pybind11;
 
-using InMapType = std::map<popart::InIndex, popart::TensorId>;
+using InMapType  = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex = int;
+using OutIndex   = int;
 
 namespace popart {
 
@@ -59,8 +59,10 @@ namespace popart {
 class ReplicatedReduceScatterStridedOp : public CollectivesBaseOp {
 public:
   ReplicatedReduceScatterStridedOp(
-      const OperatorIdentifier &_opid, const CollectiveOperator &op_,
-      const uint32_t stride_, const uint32_t groupSize_,
+      const OperatorIdentifier &_opid,
+      const CollectiveOperator &op_,
+      const uint32_t stride_,
+      const uint32_t groupSize_,
       bool configureOutputForReplicatedTensorSharding_,
       const Op::Settings &settings_)
       : CollectivesBaseOp(
@@ -104,8 +106,8 @@ public:
     auto globalReplicationFactor =
         getIr().getSessionOptions().getGlobalReplicationFactor();
     auto replicationFactor = globalReplicationFactor;
-    int64_t nelms = inInfo_.nelms();
-    uint32_t outElms = std::ceil(float(nelms) / float(groupSize));
+    int64_t nelms          = inInfo_.nelms();
+    uint32_t outElms       = std::ceil(float(nelms) / float(groupSize));
 
     Shape metaShape;
     if (isConfigureOutputForReplicatedTensorSharding()) {
@@ -117,7 +119,8 @@ public:
 
     logging::op::trace("[ReplicatedReduceScatterOp] Global replication factor: "
                        "{}, sharding factor: {}",
-                       globalReplicationFactor, replicationFactor);
+                       globalReplicationFactor,
+                       replicationFactor);
   }
 
   float getSubgraphValue() const final { return getHighSubgraphValue(); }
@@ -139,15 +142,23 @@ public:
   }
 
   static ReplicatedReduceScatterStridedOp *
-  createOpInGraph(popart::Graph &graph, const InMapType &in,
-                  const OutMapType &out, const CollectiveOperator &op,
-                  const int32_t stride, const int32_t groupSize,
+  createOpInGraph(popart::Graph &graph,
+                  const InMapType &in,
+                  const OutMapType &out,
+                  const CollectiveOperator &op,
+                  const int32_t stride,
+                  const int32_t groupSize,
                   bool configureOutputForReplicatedTensorSharding,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<ReplicatedReduceScatterStridedOp>(
-        in, out, ReplicatedReduceScatterStridedOp::defaultOperatorId(), op,
-        uint32_t(stride), uint32_t(groupSize),
-        configureOutputForReplicatedTensorSharding, settings);
+        in,
+        out,
+        ReplicatedReduceScatterStridedOp::defaultOperatorId(),
+        op,
+        uint32_t(stride),
+        uint32_t(groupSize),
+        configureOutputForReplicatedTensorSharding,
+        settings);
   }
 
   uint32_t getStride() const { return stride; }
@@ -180,7 +191,7 @@ public:
   void grow(snap::program::Sequence &prog) const {
     const auto &rrsOp = getOp<ReplicatedReduceScatterStridedOp>();
 
-    const auto inIndex = ReplicatedReduceScatterStridedOp::getInIndex();
+    const auto inIndex   = ReplicatedReduceScatterStridedOp::getInIndex();
     auto toReduceScatter = getInTensor(inIndex);
 
     if (rrsOp.isConfigureOutputForReplicatedTensorSharding()) {
@@ -210,8 +221,10 @@ public:
                 toReduceScatter.elementType(),
                 inId(ReplicatedReduceScatterStridedOp::getInIndex())),
             graph()};
-        initializeTensor(graph().getPoplarGraph(), prog.getPoplarSequence(),
-                         c.getPoplarTensor(), 0.0);
+        initializeTensor(graph().getPoplarGraph(),
+                         prog.getPoplarSequence(),
+                         c.getPoplarTensor(),
+                         0.0);
         auto ref = snap::Tensor{
             cbr->undoRearrangeForCollective(c.getPoplarTensor()), graph()};
         if (hasInViewChangers(ReplicatedReduceScatterStridedOp::getInIndex())) {
@@ -219,10 +232,12 @@ public:
               getInViewChangers(ReplicatedReduceScatterStridedOp::getInIndex())
                   .apply(toReduceScatter)
                   .flatten(),
-              ref.flatten(), false, debugContext()));
+              ref.flatten(),
+              false,
+              debugContext()));
         } else {
-          prog.add(snap::program::Copy(toReduceScatter.flatten(), ref.flatten(),
-                                       false, debugContext()));
+          prog.add(snap::program::Copy(
+              toReduceScatter.flatten(), ref.flatten(), false, debugContext()));
         }
         toReduceScatter = c;
       }
@@ -234,12 +249,14 @@ public:
     uint32_t stride = rrsOp.getStride(), groupSize = rrsOp.getGroupSize();
     if (stride == 1) {
       reducedScattered = gcl::reduceScatterCrossReplica(
-          graph().getPoplarGraph(), toReduceScatter.flatten().getPoplarTensor(),
+          graph().getPoplarGraph(),
+          toReduceScatter.flatten().getPoplarTensor(),
           getPoplarCollectiveOperator(rrsOp.getCollectiveOp()),
           prog.getPoplarSequence(),
           toGCLCommGroup(
               popart::CommGroup(popart::CommGroupType::Consecutive, groupSize)),
-          debugContext("replicatedReduceScatter"), reduceScatterOptions);
+          debugContext("replicatedReduceScatter"),
+          reduceScatterOptions);
     } else {
       if (stride == 64) {
         reducedScattered = gcl::reduceScatterCrossReplica(
@@ -249,20 +266,25 @@ public:
             prog.getPoplarSequence(),
             toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
                                              groupSize)),
-            debugContext("replicatedReduceScatter"), reduceScatterOptions);
+            debugContext("replicatedReduceScatter"),
+            reduceScatterOptions);
       } else {
         if (stride * groupSize == 64) {
           reducedScattered = ringReduceScatter(
               graph().getPoplarGraph(),
               getInTensor(ReplicatedReduceScatterStridedOp::getInIndex())
                   .getPoplarTensor(),
-              prog.getPoplarSequence(), stride, groupSize);
+              prog.getPoplarSequence(),
+              stride,
+              groupSize);
         } else {
           reducedScattered = maskedReduceScatter(
               graph().getPoplarGraph(),
               getInTensor(ReplicatedReduceScatterStridedOp::getInIndex())
                   .getPoplarTensor(),
-              prog.getPoplarSequence(), stride, groupSize);
+              prog.getPoplarSequence(),
+              stride,
+              groupSize);
         }
       }
     }
@@ -282,26 +304,42 @@ popx::OpxCreator<ReplicatedReduceScatterStridedOpx>
 // `replicated_reduce_scatter_strided_binding` must equal filename
 PYBIND11_MODULE(replicated_reduce_scatter_strided_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::ReplicatedReduceScatterStridedOp, popart::Op,
+  py::class_<popart::ReplicatedReduceScatterStridedOp,
+             popart::Op,
              std::shared_ptr<popart::ReplicatedReduceScatterStridedOp>>
       binding(m, "ReplicatedReduceScatterStridedOp");
-  binding.def(
-      py::init<const popart::OperatorIdentifier &,
-               const popart::CollectiveOperator &, const uint32_t,
-               const uint32_t, const bool, const popart::Op::Settings &>(),
-      py::arg("opid"), py::arg("op"), py::arg("stride"), py::arg("groupSize"),
-      py::arg("configureOutputForReplicatedTensorSharding"),
-      py::arg("settings"));
+  binding.def(py::init<const popart::OperatorIdentifier &,
+                       const popart::CollectiveOperator &,
+                       const uint32_t,
+                       const uint32_t,
+                       const bool,
+                       const popart::Op::Settings &>(),
+              py::arg("opid"),
+              py::arg("op"),
+              py::arg("stride"),
+              py::arg("groupSize"),
+              py::arg("configureOutputForReplicatedTensorSharding"),
+              py::arg("settings"));
   binding.def_static(
       "createOpInGraph",
-      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
-                        const popart::CollectiveOperator &, const int32_t,
-                        const int32_t, bool, const popart::Op::Settings &>(
+      py::overload_cast<popart::Graph &,
+                        const InMapType &,
+                        const OutMapType &,
+                        const popart::CollectiveOperator &,
+                        const int32_t,
+                        const int32_t,
+                        bool,
+                        const popart::Op::Settings &>(
           &popart::ReplicatedReduceScatterStridedOp::createOpInGraph),
-      py::arg("graph"), py::arg("inputs"), py::arg("outputs"), py::arg("op"),
-      py::arg("stride"), py::arg("groupSize"),
+      py::arg("graph"),
+      py::arg("inputs"),
+      py::arg("outputs"),
+      py::arg("op"),
+      py::arg("stride"),
+      py::arg("groupSize"),
       py::arg("configureOutputForReplicatedTensorSharding"),
-      py::arg("settings"), py::return_value_policy::reference);
+      py::arg("settings"),
+      py::return_value_policy::reference);
   binding.def("outTensor",
               py::overload_cast<OutIndex>(
                   &popart::ReplicatedReduceScatterStridedOp::outTensor),

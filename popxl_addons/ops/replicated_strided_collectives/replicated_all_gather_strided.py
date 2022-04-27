@@ -2,15 +2,11 @@
 
 # Auto compile cpp files
 import cppimport.import_hook
-
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_all_gather_strided_binding
 
-from typing import Optional
-
 from popxl import Tensor, ReplicaGrouping
 from popxl.context import op_debug_context, get_current_context
-from popxl.ops.collectives.collectives import CollectiveOps, to_collective_op
 from popxl.ops.utils import check_in_graph
 
 __all__ = [

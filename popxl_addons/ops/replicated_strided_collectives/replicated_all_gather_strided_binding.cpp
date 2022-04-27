@@ -12,6 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
+#include <snap/Tensor.hpp>
+#include <vector>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -27,8 +29,6 @@ sudo apt install libpython3.6-dev
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
-#include <snap/Tensor.hpp>
-#include <vector>
 
 #include <popart/op/collectives/collectives.hpp>
 #include <popart/op/collectives/replicatedallgather.hpp>
@@ -49,9 +49,9 @@ sudo apt install libpython3.6-dev
 
 namespace py = pybind11;
 
-using InMapType = std::map<popart::InIndex, popart::TensorId>;
+using InMapType  = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex = int;
+using OutIndex   = int;
 
 namespace popart {
 
@@ -96,7 +96,9 @@ public:
 
     logging::op::trace("[ReplicatedAllGatherOp] Global replication factor: {}, "
                        "sharding factor: {}, stride {}, group size {}",
-                       globalReplicationFactor, replicationFactor, stride,
+                       globalReplicationFactor,
+                       replicationFactor,
+                       stride,
                        groupSize);
   }
 
@@ -119,13 +121,19 @@ public:
   }
 
   static ReplicatedAllGatherStridedOp *
-  createOpInGraph(popart::Graph &graph, const InMapType &in,
-                  const OutMapType &out, const int32_t stride,
+  createOpInGraph(popart::Graph &graph,
+                  const InMapType &in,
+                  const OutMapType &out,
+                  const int32_t stride,
                   const int32_t groupSize,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<ReplicatedAllGatherStridedOp>(
-        in, out, ReplicatedAllGatherStridedOp::defaultOperatorId(),
-        uint32_t(stride), uint32_t(groupSize), settings);
+        in,
+        out,
+        ReplicatedAllGatherStridedOp::defaultOperatorId(),
+        uint32_t(stride),
+        uint32_t(groupSize),
+        settings);
   }
 
   uint32_t getStride() const { return stride; }
@@ -164,7 +172,8 @@ public:
           prog.getPoplarSequence(),
           toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Consecutive,
                                            op.getGroupSize())),
-          debugContext("replicatedAllGatherStrided"), allGatherOptions);
+          debugContext("replicatedAllGatherStrided"),
+          allGatherOptions);
     } else {
       if (stride == 64) {
         gathered = gcl::allGatherCrossReplica(
@@ -173,7 +182,8 @@ public:
             prog.getPoplarSequence(),
             toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
                                              op.getGroupSize())),
-            debugContext("replicatedAllGatherStrided"), allGatherOptions);
+            debugContext("replicatedAllGatherStrided"),
+            allGatherOptions);
       } else {
         if (stride * groupSize == 64) {
           gathered =
@@ -181,13 +191,17 @@ public:
                             getInTensor(ReplicatedAllGatherOp::getInIndex())
                                 .getPoplarTensor(),
 
-                            prog.getPoplarSequence(), stride, groupSize);
+                            prog.getPoplarSequence(),
+                            stride,
+                            groupSize);
         } else {
           gathered =
               maskedAllGather(graph().getPoplarGraph(),
                               getInTensor(ReplicatedAllGatherOp::getInIndex())
                                   .getPoplarTensor(),
-                              prog.getPoplarSequence(), stride, groupSize);
+                              prog.getPoplarSequence(),
+                              stride,
+                              groupSize);
         }
       }
     }
@@ -224,21 +238,33 @@ popx::OpxCreator<ReplicatedAllGatherStridedOpx>
 // `replicated_all_gather_strided_binding` must equal filename
 PYBIND11_MODULE(replicated_all_gather_strided_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::ReplicatedAllGatherStridedOp, popart::Op,
+  py::class_<popart::ReplicatedAllGatherStridedOp,
+             popart::Op,
              std::shared_ptr<popart::ReplicatedAllGatherStridedOp>>
       binding(m, "ReplicatedAllGatherStridedOp");
-  binding.def(py::init<const popart::OperatorIdentifier &, const uint32_t,
-                       const uint32_t, const popart::Op::Settings &>(),
-              py::arg("opid"), py::arg("stride"), py::arg("groupSize"),
+  binding.def(py::init<const popart::OperatorIdentifier &,
+                       const uint32_t,
+                       const uint32_t,
+                       const popart::Op::Settings &>(),
+              py::arg("opid"),
+              py::arg("stride"),
+              py::arg("groupSize"),
               py::arg("settings"));
   binding.def_static(
       "createOpInGraph",
-      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
-                        const int32_t, const int32_t,
+      py::overload_cast<popart::Graph &,
+                        const InMapType &,
+                        const OutMapType &,
+                        const int32_t,
+                        const int32_t,
                         const popart::Op::Settings &>(
           &popart::ReplicatedAllGatherStridedOp::createOpInGraph),
-      py::arg("graph"), py::arg("inputs"), py::arg("outputs"),
-      py::arg("stride"), py::arg("groupSize"), py::arg("settings"),
+      py::arg("graph"),
+      py::arg("inputs"),
+      py::arg("outputs"),
+      py::arg("stride"),
+      py::arg("groupSize"),
+      py::arg("settings"),
       py::return_value_policy::reference);
   binding.def("outTensor",
               py::overload_cast<OutIndex>(

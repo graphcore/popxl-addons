@@ -5,7 +5,7 @@ import numpy as np
 import math
 import popart._internal.ir as _ir
 
-from popxl_addons.ops.custom.replicated_reduce_scatter_strided import *
+from popxl_addons.ops.replicated_strided_collectives import *
 
 
 def test_reduce_scatter_strided_op():

@@ -1,0 +1,16 @@
+name: clang-format linter check
+on:
+  pull_request:
+  push:
+    branches: [master]
+jobs:
+  Explore-GitHub-Actions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v1
+      - name: Install clang-format
+        run: pip install clang-format==14.0.1
+      - name: Run clang-format check
+        # yapf gives a non-zero exit code if not formatted correctly
+        run: find -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror && echo "clang-format passed." || { echo "clang-format requires changes. Run 'make lint'."; exit 2; }
