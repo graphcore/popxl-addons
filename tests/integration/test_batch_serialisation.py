@@ -33,13 +33,14 @@ def test_batch_serialisation_fwd_single(io_mode):
         args, graph = Scale().create_graph(in_h2d.spec)
 
         # Transform graphs
-        bs_result = batch_serialise(graph,
-                                    bf,
-                                    load_handles={graph.graph.inputs[0]: in_h2d},
-                                    store_streams={},
-                                    store_buffers={t: batch_serial_buffer(t, steps=bf)
-                                                   for t in graph.graph.outputs},
-                                    io_mode=io_mode)
+        bs_result = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: in_h2d},
+            store_streams={},
+            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0)
+                           for t in graph.graph.outputs},
+            io_mode=io_mode)
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
@@ -77,14 +78,15 @@ def test_batch_serialisation_entries(io_mode):
         args, graph = Scale().create_graph(in_h2d.spec)
 
         # Transform graphs
-        bs_result = batch_serialise(graph,
-                                    bf,
-                                    load_handles={graph.graph.inputs[0]: in_h2d},
-                                    store_streams={},
-                                    store_buffers={t: batch_serial_buffer(t, steps=bf)
-                                                   for t in graph.graph.outputs},
-                                    rows=2,
-                                    io_mode=io_mode)
+        bs_result = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: in_h2d},
+            store_streams={},
+            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0)
+                           for t in graph.graph.outputs},
+            rows=2,
+            io_mode=io_mode)
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
