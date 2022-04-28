@@ -19,7 +19,8 @@ def test_basic(repeat_count):
     repeat_graph(ir.main_graph, repeat_count)
 
     ir.num_host_transfers = repeat_count
-    output = popxl.Session(ir, 'ipu_hw').run()
+    with popxl.Session(ir, 'ipu_hw') as session:
+        output = session.run()
     assert np.sum(list(output.values())) == repeat_count
 
 
@@ -34,7 +35,8 @@ def test_variables():
     repeat_graph(ir.main_graph, repeat_count)
 
     ir.num_host_transfers = repeat_count
-    output = popxl.Session(ir, 'ipu_hw').run()
+    with popxl.Session(ir, 'ipu_hw') as sess:
+        output = sess.run()
     assert np.sum(list(output.values())) == repeat_count
 
 

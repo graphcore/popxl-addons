@@ -29,10 +29,9 @@ def test_all_reduce_identical_inputs_op():
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
     apply_pre_alias_patterns(ir, level='default')
 
-    session = popxl.Session(ir, device_desc='ipu_hw')
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be identical to inputs
     assert len(y_host) == n_ipus
@@ -69,10 +68,9 @@ def test_all_reduce_identical_inputs_op_backwards():
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
     apply_pre_alias_patterns(ir, level='default')
 
-    session = popxl.Session(ir, device_desc='ipu_hw')
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     target = inputs.sum(axis=0)
@@ -102,10 +100,9 @@ def test_all_reduce_identical_grad_inputs_op():
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
     apply_pre_alias_patterns(ir, level='default')
 
-    session = popxl.Session(ir, device_desc='ipu_hw')
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     target = inputs.sum(axis=0)
@@ -143,10 +140,9 @@ def test_all_reduce_identical_grad_inputs_op_backwards():
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
     apply_pre_alias_patterns(ir, level='default')
 
-    session = popxl.Session(ir, device_desc='ipu_hw')
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be identical to inputs
     assert len(y_host) == n_ipus

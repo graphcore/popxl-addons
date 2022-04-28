@@ -167,25 +167,26 @@ def optimizer_step(variables: NamedTensors,
 
 def train(train_session, training_data, opts, input_streams, loss_stream):
     nr_batches = len(training_data)
-    for epoch in range(1, opts.epochs + 1):
-        print("Epoch {0}/{1}".format(epoch, opts.epochs))
-        bar = tqdm(training_data, total=nr_batches)
-        for data, labels in bar:
-            #reshape data accounting for replication and num hosts transfers
-            data = data.reshape(train_session.ir.num_host_transfers, train_session.ir.replication_factor,
-                                opts.train_micro_batch_size, 28, 28).squeeze()
-            labels = labels.reshape(
-                train_session.ir.num_host_transfers,
-                train_session.ir.replication_factor,
-                opts.train_micro_batch_size,
-            ).squeeze()
+    with train_session:
+        for epoch in range(1, opts.epochs + 1):
+            print("Epoch {0}/{1}".format(epoch, opts.epochs))
+            bar = tqdm(training_data, total=nr_batches)
+            for data, labels in bar:
+                #reshape data accounting for replication and num hosts transfers
+                data = data.reshape(train_session.ir.num_host_transfers, train_session.ir.replication_factor,
+                                    opts.train_micro_batch_size, 28, 28).squeeze()
+                labels = labels.reshape(
+                    train_session.ir.num_host_transfers,
+                    train_session.ir.replication_factor,
+                    opts.train_micro_batch_size,
+                ).squeeze()
 
-            inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams, [data.squeeze().float(), labels.int()]))
-            loss = train_session.run(inputs)
-            losses_np = loss[loss_stream]  # shape(ir.num_host_transfers, ir.replication_factor, )
-            avg_loss = np.mean(losses_np)
-            bar.set_description("Loss:{:0.4f}".format(avg_loss))
+                inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
+                    zip(input_streams, [data.squeeze().float(), labels.int()]))
+                loss = train_session.run(inputs)
+                losses_np = loss[loss_stream]  # shape(ir.num_host_transfers, ir.replication_factor, )
+                avg_loss = np.mean(losses_np)
+                bar.set_description("Loss:{:0.4f}".format(avg_loss))
 
 
 def evaluate_throughput(session, samples_per_step, epochs: int = 5):
@@ -195,11 +196,12 @@ def evaluate_throughput(session, samples_per_step, epochs: int = 5):
     }
 
     durations = []
-    for i in range(epochs):
-        start = time()
-        session.run(inputs)
-        dur = time() - start
-        durations.append(dur)
+    with session:
+        for i in range(epochs):
+            start = time()
+            session.run(inputs)
+            dur = time() - start
+            durations.append(dur)
 
     duration = np.mean(durations)
 
@@ -212,7 +214,7 @@ def evaluate_throughput(session, samples_per_step, epochs: int = 5):
 def test(test_session, test_data, input_streams, out_stream):
     nr_batches = len(test_data)
     sum_acc = 0.0
-    with torch.no_grad():
+    with torch.no_grad(), test_session:
         for data, labels in tqdm(test_data, total=nr_batches):
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
                 zip(input_streams, [data.squeeze().float(), labels.int()]))
@@ -349,8 +351,6 @@ def main():
     samples_per_step = opts.train_micro_batch_size * opts.gradient_accumulation * opts.data_parallel
     evaluate_throughput(train_session, samples_per_step)
 
-    train_session.device.detach()
-
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
     test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
@@ -358,8 +358,6 @@ def main():
     samples_per_step = opts.test_batch_size  # no replication for inference in this program
     test(test_session, test_data, test_input_streams, out_stream)
     evaluate_throughput(test_session, samples_per_step)
-
-    test_session.device.detach()
 
 
 if __name__ == '__main__':

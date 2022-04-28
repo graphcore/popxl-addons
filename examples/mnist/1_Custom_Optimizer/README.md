@@ -113,7 +113,8 @@ print("Adam state:")
 for name, data in state.items():
     print(name,'\n', state[name])
 
-session.run()
+with session:
+  session.run()
 
 print("\n After adam update")
 var_data = session.get_tensor_data(var)
@@ -123,7 +124,6 @@ print("Adam state:")
 for name, data in state.items():
     print(name,'\n', state[name])
 
-session.device.detach()
 ```
 
 **Adam with float learning rate**

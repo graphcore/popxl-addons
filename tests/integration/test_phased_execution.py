@@ -44,7 +44,8 @@ def test_phased_load_store():
 
     sess = popxl.Session(ir, "ipu_hw")
     before = {t: np_t.copy() for t, np_t in sess.get_tensors_data(variables.tensors).items()}
-    sess.run({x_stream: data})
+    with sess:
+        sess.run({x_stream: data})
     after = sess.get_tensors_data(variables.tensors)
     for t in before.keys():
         np.testing.assert_almost_equal(before[t] + data, after[t])
@@ -85,7 +86,8 @@ def test_phased_rts():
 
     sess = popxl.Session(ir, "ipu_hw")
     before = {t: np_t.copy() for t, np_t in sess.get_tensors_data(variables.tensors).items()}
-    sess.run({x_stream: replicated_data})
+    with sess:
+        sess.run({x_stream: replicated_data})
     after = sess.get_tensors_data(variables.tensors)
     for t in before.keys():
         np.testing.assert_almost_equal(before[t] + data, after[t])

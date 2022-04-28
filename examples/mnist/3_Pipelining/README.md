@@ -153,9 +153,8 @@ print("The current graph only has a call to the pipeline subgraph \n")
 print(graph.print_schedule())    
 ir.num_host_transfers = N            
 inputs = np.ones((N, 32,), dtype = np.float32)
-session = popxl.Session(ir, 'ipu_hw')
-session.run({input_stream : inputs})
-session.device.detach()
+with popxl.Session(ir, 'ipu_hw') as session:
+    session.run({input_stream : inputs})
 ```
 
 If you run this code, you can see that the main graph contains a call to the pipeline subgraph

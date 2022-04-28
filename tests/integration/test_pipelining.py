@@ -30,8 +30,8 @@ def test_pipeline_2_stage():
                 ops.host_store(out_stream, x)
 
     ir.num_host_transfers = device_iterations
-    session = popxl.Session(ir, "ipu_hw")
-    result: np.ndarray = session.run({in_stream: inputs})[out_stream]
+    with popxl.Session(ir, "ipu_hw") as session:
+        result: np.ndarray = session.run({in_stream: inputs})[out_stream]
     np.testing.assert_equal(result.reshape(-1), np.arange(10) + 2)
 
 
@@ -64,8 +64,8 @@ def test_pipeline_4_stage():
                 ops.host_store(out_stream, x)
 
     ir.num_host_transfers = device_iterations
-    session = popxl.Session(ir, "ipu_hw")
-    result: np.ndarray = session.run({in_stream: inputs})[out_stream]
+    with popxl.Session(ir, "ipu_hw") as session:
+        result: np.ndarray = session.run({in_stream: inputs})[out_stream]
     np.testing.assert_equal(result.reshape(-1), np.arange(device_iterations) + 4)
 
 
@@ -114,12 +114,11 @@ def test_pipeline_training():
 
         device_iterations = 1
         ir.num_host_transfers = device_iterations
-        session = popxl.Session(ir, "ipu_hw")
-        for n in range(steps):
-            result: np.ndarray = session.run({x_stream: data[n]})
+        with popxl.Session(ir, "ipu_hw") as session:
+            for n in range(steps):
+                result: np.ndarray = session.run({x_stream: data[n]})
 
         weights = session.get_tensor_data(dlinear.accum.weight)
-        session.device.detach()
 
         return weights.copy()
 
@@ -160,11 +159,10 @@ def test_pipeline_training():
 
         device_iterations = steps
         ir.num_host_transfers = device_iterations
-        session = popxl.Session(ir, "ipu_hw")
-        session.run({x_stream: data})  # type: ignore
+        with popxl.Session(ir, "ipu_hw") as session:
+            session.run({x_stream: data})  # type: ignore
 
         weights = session.get_tensor_data(dlinear.accum.weight)
-        session.device.detach()
 
         return weights.copy()
 

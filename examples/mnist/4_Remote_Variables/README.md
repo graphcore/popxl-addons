@@ -211,8 +211,8 @@ with ir.main_graph, popxl.in_sequence(True):
     w1_after_d2h = addons.host_store(w_loaded_1) # expected output (all elements equal): 3
     x1_new_d2h = addons.host_store(x1_new) # expected output (all elements equal): 1+3 = 4
 
-session = popxl.Session(ir,'ipu_hw')
-outputs = session.run()
+with popxl.Session(ir,'ipu_hw') as session:
+  outputs = session.run()
 
 print("initial values")
 print("\t w_0: ", outputs[w0_initial_d2h])
@@ -225,8 +225,6 @@ print("\t w_0: ", outputs[w0_after_d2h])
 print("\t output0: ", outputs[x0_new_d2h])
 print("\t w_1: ", outputs[w1_after_d2h])
 print("\t output1: ", outputs[x1_new_d2h])
-
-session.device.detach()
 ```
 
 ```

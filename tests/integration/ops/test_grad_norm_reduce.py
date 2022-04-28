@@ -29,8 +29,7 @@ def test_grad_norm_reduce_op():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc='ipu_hw')
-    y_host = session.run({x_h2d: inputs})[y_d2h]
-    session.device.detach()
+    with popxl.Session(ir, device_desc='ipu_hw') as session:
+        y_host = session.run({x_h2d: inputs})[y_d2h]
 
     np.testing.assert_equal(np.sum(np.square(inputs / 64)), y_host)

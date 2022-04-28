@@ -44,9 +44,8 @@ def get_model_outputs(recompute: bool) -> Tuple[popxl.Tensor, ...]:
         out_streams = tuple(map(addons.host_store, outputs_t))
 
     ir.num_device_transfers = 1
-    session = popxl.Session(ir, "ipu_hw")
-    outputs = session.run({x_h2d: x_data})
-    session.device.detach()
+    with popxl.Session(ir, "ipu_hw") as session:
+        outputs = session.run({x_h2d: x_data})
     return tuple(outputs[o_d2h] for o_d2h in out_streams)  # type: ignore
 
 

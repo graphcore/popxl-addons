@@ -31,9 +31,8 @@ def test_cross_entropy_with_grad():
             dlogits_d2h = addons.host_store(dlogits)
 
         ir.num_host_transfers = 1
-        session = popxl.Session(ir, "ipu_hw")
-        outputs = session.run()
-        session.device.detach()
+        with popxl.Session(ir, "ipu_hw") as session:
+            outputs = session.run()
         return (outputs[loss_d2h], outputs[dlogits_d2h])
 
     for _t, _p in zip(pytorch(), popxl_()):

@@ -36,10 +36,9 @@ def test_all_gather_strided_op():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     assert len(y_host) == n_ipus
     target = np.reshape(target, (n_ipus, group_size * 2 * 3))

@@ -34,10 +34,9 @@ def test_all_reduce_strided_op():
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     assert len(y_host) == n_ipus
@@ -83,10 +82,9 @@ def test_all_reduce_strided_op_backwards():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     assert len(y_host) == n_ipus
@@ -120,10 +118,9 @@ def test_all_reduce_strided_identical_inputs_op():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be identical to inputs
     assert len(y_host) == n_ipus
@@ -170,10 +167,9 @@ def test_all_reduce_strided_identical_inputs_op_backwards():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     assert len(y_host) == n_ipus
@@ -212,10 +208,9 @@ def test_all_reduce_strided_identical_grad_inputs_op():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     assert len(y_host) == n_ipus
@@ -262,10 +257,9 @@ def test_all_reduce_strided_identical_grad_inputs_op_backwards():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    session = popxl.Session(ir, device_desc="ipu_hw")
-    y_host = session.run({x_h2d: inputs})
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
+        y_host = session.run({x_h2d: inputs})
     y_host = y_host[y_d2h]
-    session.device.detach()
 
     # Outputs should be sum of inputs
     assert len(y_host) == n_ipus

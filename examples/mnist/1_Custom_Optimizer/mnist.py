@@ -157,20 +157,21 @@ def optimizer_step(variables,
 
 def train(train_session, training_data, opts, input_streams, loss_stream):
     nr_batches = len(training_data)
-    for epoch in range(1, opts.epochs + 1):
-        print("Epoch {0}/{1}".format(epoch, opts.epochs))
-        bar = tqdm(training_data, total=nr_batches)
-        for data, labels in bar:
-            inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
-                zip(input_streams, [data.squeeze().float(), labels.int()]))
-            loss = train_session.run(inputs)
-            bar.set_description("Loss:{:0.4f}".format(loss[loss_stream]))
+    with train_session:
+        for epoch in range(1, opts.epochs + 1):
+            print("Epoch {0}/{1}".format(epoch, opts.epochs))
+            bar = tqdm(training_data, total=nr_batches)
+            for data, labels in bar:
+                inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
+                    zip(input_streams, [data.squeeze().float(), labels.int()]))
+                loss = train_session.run(inputs)
+                bar.set_description("Loss:{:0.4f}".format(loss[loss_stream]))
 
 
 def test(test_session, test_data, input_streams, out_stream):
     nr_batches = len(test_data)
     sum_acc = 0.0
-    with torch.no_grad():
+    with torch.no_grad(), test_session:
         for data, labels in tqdm(test_data, total=nr_batches):
             inputs: Mapping[popxl.HostToDeviceStream, np.ndarray] = dict(
                 zip(input_streams, [data.squeeze().float(), labels.int()]))
@@ -262,14 +263,12 @@ def main():
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
     trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
-    train_session.device.detach()
 
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
     # Copy trained weights to the program, with a single host to device transfer at the end
     test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
 
     test(test_session, test_data, test_input_streams, out_stream)
-    test_session.device.detach()
 
 
 if __name__ == '__main__':

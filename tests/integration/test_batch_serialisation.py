@@ -58,7 +58,8 @@ def test_batch_serialisation_fwd_single(io_mode):
     inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
 
     ir.num_host_transfers = bf
-    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out]
+    with popxl.Session(ir, "ipu_hw") as session:
+        outputs = session.run({in_h2d: inputs})[out]
     np.testing.assert_equal(inputs * 2, outputs)
 
 
@@ -104,7 +105,8 @@ def test_batch_serialisation_entries(io_mode):
     inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
 
     ir.num_host_transfers = bf
-    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out]
+    with popxl.Session(ir, "ipu_hw") as session:
+        outputs = session.run({in_h2d: inputs})[out]
     np.testing.assert_equal(inputs * 2, outputs)
 
 
@@ -165,7 +167,8 @@ def test_batch_serialisation_sequence(io_mode):
     inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
 
     ir.num_host_transfers = bf
-    outputs = popxl.Session(ir, "ipu_hw").run({in_h2d: inputs})[out_d2h]
+    with popxl.Session(ir, "ipu_hw") as session:
+        outputs = session.run({in_h2d: inputs})[out_d2h]
 
     np.testing.assert_equal(inputs * (2**4), outputs)
 
@@ -217,8 +220,8 @@ def test_batch_serialisation_grad(io_mode):
 
         sess = popxl.Session(ir, "ipu_hw")
         sess.write_variable_data(weights.w, w)
-        out = sess.run({in_h2d: inputs.reshape(-1, 2)})[out_d2h]
-        sess.device.detach()
+        with sess:
+            out = sess.run({in_h2d: inputs.reshape(-1, 2)})[out_d2h]
         return out
 
     def batch_serial():
@@ -274,8 +277,8 @@ def test_batch_serialisation_grad(io_mode):
         ir.num_host_transfers = bf
         sess = popxl.Session(ir, "ipu_hw")
         sess.write_variable_data(weights.w, w)
-        out = sess.run({in_h2d: inputs})[out_d2h]
-        sess.device.detach()
+        with sess:
+            out = sess.run({in_h2d: inputs})[out_d2h]
         return out
 
     norm = normal()
@@ -324,8 +327,8 @@ def test_batch_serialisation_rb_only_grad(io_mode):
 
         sess = popxl.Session(ir, "ipu_hw")
         sess.write_variable_data(weights.w, w)
-        out = sess.run({in_h2d: inputs.reshape(-1, 2)})[out_d2h]
-        sess.device.detach()
+        with sess:
+            out = sess.run({in_h2d: inputs.reshape(-1, 2)})[out_d2h]
         return out
 
     def batch_serial():
@@ -384,8 +387,8 @@ def test_batch_serialisation_rb_only_grad(io_mode):
         ir.num_host_transfers = bf
         sess = popxl.Session(ir, "ipu_hw")
         sess.write_variable_data(weights.w, w)
-        out = sess.run()[out_d2h]
-        sess.device.detach()
+        with sess:
+            out = sess.run()[out_d2h]
         return out
 
     norm = normal()

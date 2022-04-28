@@ -58,7 +58,8 @@ ir.num_host_transfers = 1
 # Create a session to run your ir
 session = popxl.Session(ir,'ipu_hw')
 # Run the program
-session.run(inputs)
+with session:
+    session.run(inputs)
 ```
 
 ![Workflow in popxl.addons](images/workflow.jpg)
