@@ -173,7 +173,7 @@ def null_context():
 class BatchSerialResult:
     """Result of executing the a BatchSerialisation transform.
     `graph` is the transformed graph.
-    `stored_buffers` is a map from tensors in the original graph to Buffers and offsets of values stored as a result of the transform
+    `stored_buffers` is a map from tensors in the original graph to RemoteBufferAndOffset of values stored as a result of the transform
     """
     graph: GraphWithNamedArgs
     stored_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset]
@@ -525,7 +525,7 @@ def batch_serialise_fwd_and_grad(
         load_handles (Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]]): Handles to load inputs before computation.
         store_streams (Dict[popxl.Tensor, popxl.DeviceToHostStream]): Streams to store outputs after computation.
         store_buffers (Dict[popxl.Tensor, RemoteBufferAndOffset]): Buffers to store outputs (or inputs) after computation.
-        seed_input (Optional[popxl.Tensor], optional): Input tensor of a random seed. Defaults to None. Defaults to None.
+        seed_input (Optional[popxl.Tensor], optional): Input tensor of a random seed. Defaults to None.
         rows (int, optional): Increases the size of the remote buffers to allow for the returned Graph to be used with multiple input values. Defaults to 1.
         io_mode (Literal['compute', 'io', 'io_overlapped']): How to load/store the Tensors during the loop.
                                                              `compute` uses the Compute tiles.
