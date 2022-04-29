@@ -156,14 +156,21 @@ Groups together the forward and backward graphs of a layer for easy access and h
 '''
 
 
-@dataclass
-class ModuleGraphs:
-    layer_name: str
-    fwd: GraphWithNamedArgs
-    bwd: GraphWithNamedArgs
-    facts: NamedVariableFactories
-    optimizer: addons.Module
-    vars: NamedTensors = field(default_factory=NamedTensors)
+class Graphs:
+    def __init__(
+            self,
+            layer_name: str,
+            fwd: GraphWithNamedArgs,
+            bwd: GraphWithNamedArgs,
+            facts: NamedVariableFactories,
+            optimizer: addons.Module,
+    ):
+        self.layer_name = layer_name
+        self.fwd = fwd
+        self.bwd = bwd
+        self.facts = facts
+        self.optimizer = optimizer
+        self.vars = NamedTensors()
 
     def init_and_bind_fwd(self):
         self.vars.insert("fwd", self.facts.fwd.init(self.layer_name))
@@ -208,7 +215,7 @@ def create_graphs(layer_name: str, layer: addons.Module, optimizer: addons.modul
     factories.insert("fwd", facts)
     factories.insert("bwd", bwd_facts)
 
-    return ModuleGraphs(layer_name, graph, bwd_graph, factories, optimizer)
+    return Graphs(layer_name, graph, bwd_graph, factories, optimizer)
 
 
 def train(train_session, training_data, opts, input_streams, loss_stream):
