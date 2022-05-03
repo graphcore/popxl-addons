@@ -262,11 +262,19 @@ def main():
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
-
+    # get weights data : dictionary { train_session variables : tensor data (numpy) }
+    train_vars_to_data = train_session.get_tensors_data(train_variables.tensors)
+    # create test session
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
+    # dictionary { train_session variables : test_session variables }
+    train_vars_to_test_vars = train_variables.to_mapping(test_variables)
+    # Create a dictionary { test_session variables : tensor data (numpy) }
+    test_vars_to_data = {
+        test_var: train_vars_to_data[train_var].copy()
+        for train_var, test_var in train_vars_to_test_vars.items()
+    }
     # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
+    test_session.write_variables_data(test_vars_to_data)
 
     test(test_session, test_data, test_input_streams, out_stream)
 

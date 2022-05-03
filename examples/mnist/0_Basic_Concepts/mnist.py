@@ -191,18 +191,24 @@ def main():
 
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
-
+    # get weights data : dictionary { train_session variables : tensor data (numpy) }
+    train_vars_to_data = train_session.get_tensors_data(train_variables.tensors)
+    # create test session
     test_session, test_input_streams, test_variables, out_stream = test_program(opts)
+    # dictionary { train_session variables : test_session variables }
+    train_vars_to_test_vars = train_variables.to_mapping(test_variables)
+    # Create a dictionary { test_session variables : tensor data (numpy) }
+    test_vars_to_data = {
+        test_var: train_vars_to_data[train_var].copy()
+        for train_var, test_var in train_vars_to_test_vars.items()
+    }
     # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
+    test_session.write_variables_data(test_vars_to_data)
 
     #check that weights have been copied correctly
-    weights_data_dict = test_session.get_tensors_data(test_variables.tensors)
-    names_to_data_dic_train = dict(zip(train_variables.named_tensors.keys(), trained_weights_data_dict.values()))
-    names_to_data_dic_test = dict(zip(test_variables.named_tensors.keys(), weights_data_dict.values()))
-    for name, array in names_to_data_dic_test.items():
-        assert (array == names_to_data_dic_train[name]).all()
+    test_vars_to_data_after_write = test_session.get_tensors_data(test_variables.tensors)
+    for test_var, array in test_vars_to_data_after_write.items():
+        assert (array == test_vars_to_data[test_var]).all()
 
     test(test_session, test_data, test_input_streams, out_stream)
 

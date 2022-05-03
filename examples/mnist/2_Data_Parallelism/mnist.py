@@ -337,26 +337,34 @@ def main():
     training_data, test_data = get_mnist_data(opts.test_batch_size, train_global_batch_size)
 
     train_session, train_input_streams, train_variables, loss_stream = train_program(opts)
-
+    print("train session")
     train(train_session, training_data, opts, train_input_streams, loss_stream)
 
-    # since get tensors data returns a view, we want to copy the values before evaluating throughput on
-    # syntetic data, otherwise weights are changed
-    trained_weights_data_dict = train_session.get_tensors_data(train_variables.tensors)
-    trained_weights_data_dict = {
-        t: trained_weights_data_dict[t].copy()
-        for t in sorted(trained_weights_data_dict.keys(), key=lambda t: t.name)
-    }
+    # get weights data : dictionary { train_session variables : tensor data (numpy) }
+    train_vars_to_data = train_session.get_tensors_data(train_variables.tensors)
 
+    # create test session
+    test_session, test_input_streams, test_variables, out_stream = test_program(opts)
+
+    # dictionary { train_session variables : test_session variables }
+    train_vars_to_test_vars = train_variables.to_mapping(test_variables)
+    # Create a dictionary { test_session variables : tensor data (numpy) }
+    test_vars_to_data = {
+        test_var: train_vars_to_data[train_var].copy()
+        for train_var, test_var in train_vars_to_test_vars.items()
+    }
+    # Copy trained weights to the program, with a single host to device transfer at the end
+    test_session.write_variables_data(test_vars_to_data)
+
+    # throughput for training
     samples_per_step = opts.train_micro_batch_size * opts.gradient_accumulation * opts.data_parallel
     evaluate_throughput(train_session, samples_per_step)
 
-    test_session, test_input_streams, test_variables, out_stream = test_program(opts)
-    # Copy trained weights to the program, with a single host to device transfer at the end
-    test_session.write_variables_data(dict(zip(test_variables.tensors, trained_weights_data_dict.values())))
-
+    print("test session")
+    # run inference on validation dataset
     samples_per_step = opts.test_batch_size  # no replication for inference in this program
     test(test_session, test_data, test_input_streams, out_stream)
+    # throughput for inference
     evaluate_throughput(test_session, samples_per_step)
 
 
