@@ -295,3 +295,8 @@ cython_debug/
 
 # pybind
 .rendered.*.cpp
+
+# popvision
+*.pop
+*.pop_cache
+*.cbor
