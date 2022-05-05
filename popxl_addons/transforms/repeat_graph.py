@@ -74,7 +74,8 @@ def repeat_graph(graph: popxl.Graph, repeat_count: int) -> Graph:
         op.disconnectAllOutputs()
         graph._pb_graph.eraseOp(op.id)
 
+    # TODO: prevent it from removing IO tensors
     # Remove tensors that are now dangling with no connected ops in the old graph
-    graph._pb_graph.removeIsolatedTensors(True, True, True, True)
+    #graph._pb_graph.removeIsolatedTensors(True, True, True, True)
 
     return repeat_graph
