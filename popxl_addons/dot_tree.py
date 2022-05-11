@@ -168,10 +168,11 @@ class DotTree(Generic[L]):
 
     def _clear(self):
         """Empty all entries including all nested DotTrees"""
-        for v in self._map.values():
+        for k, v in list(self._map.items()):
             if isinstance(v, DotTree):
                 v._clear()
-        self._map.clear()
+            else:
+                self._map.pop(k)
 
     def _validate_key(self, key: str, allow_mutable: bool = False):
         if not allow_mutable and key in self._map:

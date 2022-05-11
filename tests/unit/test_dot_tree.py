@@ -66,3 +66,11 @@ def test_invalid_keys():
 
     with pytest.raises(ValueError):
         tree.insert('.a', 'a')
+
+
+def test_nested_clear():
+    tree = DotTree(foo=DotTree(bar="baz"))
+    assert tree.foo.bar == "baz"
+    tree._clear()
+    assert tree.foo
+    assert not hasattr(tree.foo, "bar")
