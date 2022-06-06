@@ -8,6 +8,7 @@ from .ops import *
 from .transforms import *
 from .streams import *
 from .utils import *
+from .task_session import *
 
 import git
 try:
