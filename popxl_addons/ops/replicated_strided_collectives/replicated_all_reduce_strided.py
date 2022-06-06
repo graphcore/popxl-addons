@@ -5,15 +5,18 @@ import cppimport.import_hook
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_all_reduce_strided_binding
 
-from popxl import Tensor, ReplicaGrouping
+from typing import Tuple, List
+import popxl
+from popxl import Tensor, ReplicaGrouping, ops
 from popxl.context import op_debug_context, get_current_context
 from popxl.ops.collectives.collectives import CollectiveOps, to_collective_op
 from popxl.ops.utils import check_in_graph
+from popxl_addons import NamedTensors, GraphWithNamedArgs
+from popxl_addons.utils import null_context
 
 __all__ = [
-    "replicated_all_reduce_strided",
-    "replicated_all_reduce_strided_identical_inputs",
-    "replicated_all_reduce_strided_identical_grad_inputs",
+    "replicated_all_reduce_strided", "replicated_all_reduce_strided_identical_inputs",
+    "replicated_all_reduce_strided_identical_grad_inputs", "replicated_all_reduce_strided_graph"
 ]
 
 
@@ -96,11 +99,15 @@ def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor, rg: ReplicaGr
 def _replicated_all_reduce_strided(
         t: Tensor,
         stride: int,
-        groupSize: int,
+        group_size: int,
         op: CollectiveOps,
         identical_inputs: bool,
         identical_grad_inputs: bool,
 ) -> Tensor:
+
+    is_mean = op == "mean"
+    if is_mean:
+        op = "add"
 
     op_ = to_collective_op(op)  # Only add is currently supported
 
@@ -121,11 +128,64 @@ def _replicated_all_reduce_strided(
         },
         op_,
         stride,
-        groupSize,
+        group_size,
         identical_inputs,
         identical_grad_inputs,
         settings,
     )
     ctx._op_created(op)
 
-    return Tensor._from_pb_tensor(op.outTensor(0))
+    out = Tensor._from_pb_tensor(op.outTensor(0))
+    if is_mean:
+        out = out / group_size
+
+    return out
+
+
+def replicated_all_reduce_strided_graph(tensors: NamedTensors,
+                                        group: ReplicaGrouping,
+                                        op: CollectiveOps,
+                                        use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
+    """Create a GraphWithNamedArgs that reduces each Tensor in `tensors` using op.
+    The Graph with have a NamedArg for each the tensors in `tensors`.
+    Tensors with `nelms >= threshold` will be reduce scattered for replica sharding, otherwise all_reduced.
+
+    Usage:
+    ```
+        g, names = reduce_replica_sharded_graph(tensors)
+        ...
+        reduced_ts = NamedTensors.pack(names, g.bind(ts).call())
+    ```
+
+    Args:
+        tensors (NamedTensors): Input Tensors to replica reduced.
+        op (CollectiveOps): Operation to use for reduction.
+        threshold (int, optional): Tensors with nelms >= this will be reduce scattered for replica sharding. Defaults to 1024.
+        use_io_tiles (bool, optional): If True, tensors will be copied to IO tiles before reducing. Defaults to False.
+
+    Returns:
+        Tuple[GraphWithNamedArgs, List[str]]: Created Graph, names of outputs from calling the graph.
+    """
+    ir = popxl.gcg().ir
+    graph = ir.create_empty_graph("replica_reduce")
+
+    names = []
+    args = {}
+
+    tile_context = popxl.io_tiles() if use_io_tiles else null_context()
+
+    with graph, popxl.in_sequence(False), tile_context:
+        for name, tensor in zip(*tensors.unpack()):
+            sg_t = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, meta_shape=tensor.meta_shape)
+
+            args[name] = sg_t
+            names.append(name)
+
+            if use_io_tiles:
+                sg_t = ops.io_tile_copy(sg_t)
+
+            sg_t = replicated_all_reduce_strided(sg_t, group, op)
+
+            popxl.graph_output(sg_t)
+
+    return GraphWithNamedArgs(graph, NamedTensors.from_dict(args)), names

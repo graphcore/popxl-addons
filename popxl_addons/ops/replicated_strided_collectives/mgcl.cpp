@@ -13,39 +13,6 @@
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
 
-Tensor maskedAllGatherCopy(Graph &graph,
-                           const Tensor &data,
-                           program::Sequence &prog,
-                           uint32_t stride,
-                           uint32_t group) {
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor res = graph.addVariable(data.elementType(), shape, {"gather"});
-  poputil::mapTensorLinearly(graph, res, 1, 1); // TODO: better mapping ?
-
-  Tensor groupID = graph.addVariable(poplar::UNSIGNED_INT, {}, {"groupID"});
-  graph.setTileMapping(groupID, 1); // TODO: find better tile ?
-  Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
-  graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     popops::expr::_2 % stride,
-                     {groupID, replicaIndex},
-                     prog,
-                     {"computeGroupID"});
-  std::vector<std::pair<std::int32_t, program::Program>> switchBody;
-  for (int32_t i = 0; i < int32_t(stride); ++i) {
-    program::Sequence copies;
-    for (uint32_t j = 0; j < group; ++j) {
-      copies.add(program::Copy(temp[i + j * stride], res[j]));
-    }
-    switchBody.push_back({i, copies});
-  }
-  prog.add(program::Switch(groupID, switchBody, {"switchCopies"}));
-  return res;
-}
-
 Tensor maskedAllGather(Graph &graph,
                        const Tensor &data,
                        program::Sequence &prog,
@@ -87,117 +54,54 @@ Tensor maskedAllGather(Graph &graph,
   return res.reshape(shape);
 }
 
-Tensor maskedAllGatherConcat(Graph &graph,
-                             const Tensor &data,
-                             program::Sequence &prog,
-                             uint32_t stride,
-                             uint32_t group) {
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor res = graph.addVariable(data.elementType(), shape, {"gather"});
-  poputil::mapTensorLinearly(graph, res, 1, 1); // TODO: better mapping ?
-
-  Tensor groupID = graph.addVariable(poplar::UNSIGNED_INT, {}, {"groupID"});
-  graph.setTileMapping(groupID, 1); // TODO: find better tile ?
-  Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
-  graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     popops::expr::_2 % stride,
-                     {groupID, replicaIndex},
-                     prog,
-                     {"computeGroupID"});
-  std::vector<std::pair<std::int32_t, program::Program>> switchBody;
-  for (int32_t i = 0; i < int32_t(stride); ++i) {
-    std::vector<Tensor> regions;
-    for (uint32_t j = 0; j < group; ++j) {
-      regions.push_back(temp[i + j * stride]);
-    }
-    switchBody.push_back(
-        {i, program::Copy(poplar::concat(regions).reshape(res.shape()), res)});
-  }
-  prog.add(program::Switch(groupID, switchBody, {"switchCopies"}));
-  return res;
-}
-
 Tensor maskedAllReduce(Graph &graph,
                        const Tensor &data,
                        program::Sequence &prog,
                        uint32_t stride,
-                       uint32_t group) {
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor res = graph.addVariable(data.elementType(), shape, {"gather"});
-  poputil::mapTensorLinearly(graph, res, 1, 1); // TODO: better mapping ?
+                       uint32_t size) {
+  if (stride == 1) {
+    throw std::runtime_error(
+        "maskedAllReduce stride == 1 is not implemented. "
+        "Use GCL with {gcl::CommGroupType::CONSECUTIVE, 1} instead.");
+  }
 
-  Tensor groupID = graph.addVariable(poplar::UNSIGNED_INT, {}, {"groupID"});
-  graph.setTileMapping(groupID, 1); // TODO: find better tile ?
+  // Gather All Replica's data
+  Tensor temp = gcl::allGatherCrossReplica(
+      graph, data, prog, {gcl::CommGroupType::CONSECUTIVE, size * stride});
+
+  // Compute GroupId
   Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
   graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     popops::expr::_2 % stride,
-                     {groupID, replicaIndex},
-                     prog,
-                     {"computeGroupID"});
-  // prog.add(program::PrintTensor("index", replicaIndex));
-  // prog.add(program::PrintTensor("id", groupID));
+  Tensor groupId = popops::map(graph,
+                               popops::expr::_1 % stride,
+                               {replicaIndex},
+                               prog,
+                               {"computeGroupId"});
+
+  // Create buffer for group's data
+  Tensor group_data = graph.cloneN(data, size);
+
+  // Copy Group's data to buffer
   std::vector<std::pair<std::int32_t, program::Program>> switchBody;
   for (int32_t i = 0; i < int32_t(stride); ++i) {
     program::Sequence copies;
-    for (uint32_t j = 0; j < group; ++j) {
-      copies.add(program::Copy(temp[i + j * stride], res[j]));
+    for (uint32_t j = 0; j < size; ++j) {
+      copies.add(program::Copy(temp[i + j * stride], group_data[j]));
     }
     switchBody.push_back({i, copies});
   }
-  prog.add(program::Switch(groupID, switchBody, {"switchCopies"}));
-  popops::ReduceParams params(popops::Operation::ADD);
-  poplar::Tensor sum = popops::reduce(graph,
-                                      res.reshape({group, data.numElements()}),
-                                      data.elementType(),
-                                      {0},
-                                      params,
-                                      prog,
-                                      {"sum"});
-  return sum.reshape(data.shape());
-}
+  prog.add(program::Switch(groupId, switchBody, {"switchCopies"}));
 
-Tensor maskedAllReduceConcat(Graph &graph,
-                             const Tensor &data,
-                             program::Sequence &prog,
-                             uint32_t stride,
-                             uint32_t group) {
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor sum = graph.addVariable(data.elementType(), data.shape(), {"sum"});
-  poputil::mapTensorLinearly(graph, sum, 1, 1); // TODO: better mapping ?
-  Tensor groupID = graph.addVariable(poplar::UNSIGNED_INT, {}, {"groupID"});
-  graph.setTileMapping(groupID, 1); // TODO: find better tile ?
-  Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
-  graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     popops::expr::_2 % stride,
-                     {groupID, replicaIndex},
-                     prog,
-                     {"computeGroupID"});
-  popops::ReduceParams params(popops::Operation::ADD);
-  std::vector<std::pair<std::int32_t, program::Program>> switchBody;
-  for (int32_t i = 0; i < int32_t(stride); ++i) {
-    std::vector<Tensor> regions;
-    program::Sequence reduction;
-    for (uint32_t j = 0; j < group; ++j) {
-      regions.push_back(temp[i + j * stride]);
-    }
-    Tensor full = poplar::concat(regions).reshape({group, data.numElements()});
-    popops::reduceWithOutput(graph, full, sum, {0}, params, reduction, {"sum"});
-    switchBody.push_back({i, reduction});
-  }
-  prog.add(program::Switch(groupID, switchBody, {"switchCopies"}));
-  return sum;
+  // Reduce group_data for final result
+  Tensor out = graph.clone(data.flatten());
+  popops::reduceWithOutput(graph,
+                           group_data.reshape({size, data.numElements()}),
+                           out,
+                           {0},
+                           {popops::Operation::ADD},
+                           prog,
+                           {"sum"});
+  return out.reshape(data.shape());
 }
 
 Tensor maskedReduceScatter(Graph &graph,
@@ -291,9 +195,9 @@ Tensor maskedReduceScatter(Graph &graph,
 }
 
 std::map<unsigned int, unsigned int>
-createRing(const Graph &graph, uint32_t stride, uint32_t group) {
+createRing(const Graph &graph, uint32_t stride, uint32_t size) {
   unsigned int pod = graph.getTarget().getIpuLinkDomainSize();
-  assert(stride * group == pod);
+  assert(stride * size == pod);
   std::map<unsigned int, unsigned int> ring;
   for (uint32_t i = 0; i < 2; ++i) {
     for (uint32_t j = 0; j < pod; j += 2) {
@@ -367,8 +271,8 @@ Tensor ringAllReduce(Graph &graph,
                      const Tensor &data,
                      program::Sequence &prog,
                      uint32_t stride,
-                     uint32_t group) {
-  std::map<unsigned int, unsigned int> ring = createRing(graph, stride, group),
+                     uint32_t size) {
+  std::map<unsigned int, unsigned int> ring = createRing(graph, stride, size),
                                        revRing = reverseMap(ring);
 
   std::vector<size_t> shape = data.shape();
@@ -614,3 +518,43 @@ Tensor ringAllGather(Graph &graph,
   prog.add(endLoop);
   return res;
 }
+
+// -------- All Reduce --------
+
+Tensor allReduceStrided(Graph &graph,
+                        const Tensor &data,
+                        program::Sequence &prog,
+                        uint32_t stride,
+                        uint32_t size,
+                        const DebugContext &debugContext,
+                        const OptionFlags &options) {
+  if (stride == 1) {
+    return gcl::allReduceCrossReplica(
+        graph,
+        data,
+        gcl::CollectiveOperator::ADD,
+        prog,
+        gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, size),
+        debugContext,
+        options);
+  } else {
+    if (stride == 64) {
+      return gcl::allReduceCrossReplica(
+          graph,
+          data,
+          gcl::CollectiveOperator::ADD,
+          prog,
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          debugContext,
+          options);
+    } else {
+      if (stride * size == 64) {
+        return ringAllReduce(graph, data, prog, stride, size);
+      } else {
+        return maskedAllReduce(graph, data, prog, stride, size);
+      }
+    }
+  }
+}
+
+// -------- All Reduce --------

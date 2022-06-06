@@ -275,8 +275,7 @@ optimizer.create_graph(
     for name, v in variables.named_tensors.items():
         ir = popxl.gcg().ir
         if v.nelms >= opts.sharded_threshold and v.nelms % ir.replication_factor == 0:
-            shard = ops.collectives.replicated_reduce_scatter(
-                v, op='local', configure_output_for_replicated_tensor_sharding=True)
+            shard = ops.collectives.replica_sharded_slice(v)
      ```
 - The optimizer is called with the shards as inputs: `opt.call(sharded_var, sharded_grad)`. After the call, `sharded_var` is updated with the new value since is a `TensorByRef` input. However, we need to collect all the updated shards with `ops.collectives.replicated_all_gather` and copy the new value in the original full tensor with `ops.var_updates.copy_var_update_`.
 ```python

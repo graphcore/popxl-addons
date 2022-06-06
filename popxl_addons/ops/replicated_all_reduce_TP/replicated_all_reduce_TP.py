@@ -7,7 +7,7 @@ from . import replicated_all_reduce_TP_binding
 
 from typing import Optional
 
-from popxl import Tensor
+from popxl import Tensor, ReplicaGrouping
 from popxl.context import op_debug_context, get_current_context
 from popxl.ops.collectives.collectives import CollectiveOps, CommGroup, to_collective_op
 from popxl.ops.utils import check_in_graph
@@ -16,8 +16,9 @@ __all__ = ['replicated_all_reduce_identical_inputs', 'replicated_all_reduce_iden
 
 
 @op_debug_context
-def replicated_all_reduce_identical_inputs(t: Tensor, op: CollectiveOps = 'add',
-                                           group: Optional[CommGroup] = None) -> Tensor:
+def replicated_all_reduce_identical_inputs(t: Tensor,
+                                           op: CollectiveOps = 'add',
+                                           group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce but where the input tensors are identical.
 
@@ -30,7 +31,7 @@ def replicated_all_reduce_identical_inputs(t: Tensor, op: CollectiveOps = 'add',
     Args:
         t (Tensor): Tensor to be reduced
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
-        group (Optional[CommGroup]): Replicas to reduce across. Defaults to All replicas.
+        group (Optional[ReplicaGrouping]): Replicas to reduce across. Defaults to All replicas.
 
     Returns:
 
@@ -39,8 +40,9 @@ def replicated_all_reduce_identical_inputs(t: Tensor, op: CollectiveOps = 'add',
 
 
 @op_debug_context
-def replicated_all_reduce_identical_grad_inputs(t: Tensor, op: CollectiveOps = 'add',
-                                                group: Optional[CommGroup] = None) -> Tensor:
+def replicated_all_reduce_identical_grad_inputs(t: Tensor,
+                                                op: CollectiveOps = 'add',
+                                                group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce but where the grad tensors of the corresponding grad op are identical.
 
@@ -53,7 +55,7 @@ def replicated_all_reduce_identical_grad_inputs(t: Tensor, op: CollectiveOps = '
     Args:
         t (Tensor): Tensor to be reduced
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
-        group (Optional[CommGroup]): Replicas to reduce across. Defaults to All replicas.
+        group (Optional[ReplicaGrouping]): Replicas to reduce across. Defaults to All replicas.
 
     Returns:
 
@@ -64,7 +66,7 @@ def replicated_all_reduce_identical_grad_inputs(t: Tensor, op: CollectiveOps = '
 def _replicated_all_reduce_TP(
         t: Tensor,
         op: CollectiveOps = 'add',
-        group: Optional[CommGroup] = None,
+        group: Optional[ReplicaGrouping] = None,
         identical_inputs: bool = False,
         identical_grad_inputs: bool = False,
 ) -> Tensor:
@@ -72,7 +74,9 @@ def _replicated_all_reduce_TP(
     op_ = to_collective_op(op)  # Only add is currently supported
 
     if group is None:
-        group = CommGroup()
+        comm_group = CommGroup()
+    else:
+        comm_group = group._to_comm_group()
 
     ctx = get_current_context()
     g = ctx.graph
@@ -90,7 +94,7 @@ def _replicated_all_reduce_TP(
             0: g._create_tensor_id("replicated_all_reduce_TP_out"),
         },
         op_,
-        group,
+        comm_group,
         identical_inputs,
         identical_grad_inputs,
         settings,

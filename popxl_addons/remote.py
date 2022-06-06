@@ -10,14 +10,9 @@ from popxl import ops
 from popxl_addons.dot_tree import DotTree
 from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensors
 from popxl_addons.rts import replica_sharded_spec
+from popxl_addons.utils import null_context
 
 __all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_variable_buffers"]
-
-
-# Backported to python3.6
-@contextmanager
-def null_context():
-    yield
 
 
 class NamedRemoteBuffers(DotTree[popxl.RemoteBuffer]):

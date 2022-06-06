@@ -8,12 +8,15 @@
 
 using namespace poplar;
 
+Tensor allReduceStrided(Graph &graph,
+                        const Tensor &data,
+                        program::Sequence &prog,
+                        uint32_t stride,
+                        uint32_t size,
+                        const DebugContext &debugContext = {},
+                        const OptionFlags &options       = {});
+
 Tensor maskedAllGather(Graph &graph,
-                       const Tensor &data,
-                       program::Sequence &prog,
-                       uint32_t stride,
-                       uint32_t group);
-Tensor maskedAllReduce(Graph &graph,
                        const Tensor &data,
                        program::Sequence &prog,
                        uint32_t stride,
@@ -24,11 +27,6 @@ Tensor maskedReduceScatter(Graph &graph,
                            uint32_t stride,
                            uint32_t group);
 Tensor ringAllGather(Graph &graph,
-                     const Tensor &data,
-                     program::Sequence &prog,
-                     uint32_t stride,
-                     uint32_t group);
-Tensor ringAllReduce(Graph &graph,
                      const Tensor &data,
                      program::Sequence &prog,
                      uint32_t stride,

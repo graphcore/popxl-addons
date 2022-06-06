@@ -15,13 +15,13 @@ __all__ = [
 
 
 @op_debug_context
-def replicated_all_gather_strided(t: Tensor, rg: ReplicaGrouping) -> Tensor:
+def replicated_all_gather_strided(t: Tensor, group: ReplicaGrouping) -> Tensor:
     """
     Replicated all gather.
 
     Args:
         t (Tensor): Tensor to be gathered.
-        rg (ReplicaGrouping): Stride and group size used in the partition of the replicas.
+        group (ReplicaGrouping): Stride and group size used in the partition of the replicas.
 
     Returns:
 
@@ -41,10 +41,15 @@ def replicated_all_gather_strided(t: Tensor, rg: ReplicaGrouping) -> Tensor:
         {
             0: g._create_tensor_id("replicated_all_gather_strided_out"),
         },
-        rg.stride,
-        rg.group_size,
+        group.stride,
+        group.group_size,
         settings,
     )
     ctx._op_created(op)
 
-    return Tensor._from_pb_tensor(op.outTensor(0))
+    out = Tensor._from_pb_tensor(op.outTensor(0))
+
+    if t.meta_shape:
+        out = out.reshape_(t.meta_shape)
+
+    return out

@@ -94,12 +94,13 @@ public:
     gatheredOutInfo.set(type, shape);
     outInfo(getOutIndex()) = gatheredOutInfo;
 
-    logging::op::trace("[ReplicatedAllGatherOp] Global replication factor: {}, "
-                       "sharding factor: {}, stride {}, group size {}",
-                       globalReplicationFactor,
-                       replicationFactor,
-                       stride,
-                       groupSize);
+    logging::op::trace(
+        "[ReplicatedAllGatherStridedOp] Global replication factor: {}, "
+        "sharding factor: {}, stride {}, group size {}",
+        globalReplicationFactor,
+        replicationFactor,
+        stride,
+        groupSize);
   }
 
   float getSubgraphValue() const final { return getHighSubgraphValue(); }
@@ -108,6 +109,15 @@ public:
     Op::appendOutlineAttributes(os);
     os.appendAttribute("stride", stride);
     os.appendAttribute("groupSize", groupSize);
+  }
+
+  ReplicatedTensorShardingIndices getReplicatedTensorShardingIndices() const {
+    return {{{ReplicatedAllGatherOp::getInIndex()}, {}}};
+  }
+
+  bool isConfigureOutputForReplicatedTensorSharding() const {
+    return hasInput(ReplicatedAllGatherOp::getCollectiveLinkedIndex()) ||
+           !inInfo(ReplicatedAllGatherOp::getInIndex()).metaShape().empty();
   }
 
   static OperatorIdentifier defaultOperatorId() {
@@ -157,6 +167,7 @@ public:
       : CollectivesBaseOpx(op, devicex) {
     verifyOp<ReplicatedAllGatherStridedOp>(
         op, {ReplicatedAllGatherStridedOp::defaultOperatorId()});
+    inputCreatorPriority = -1.0;
   }
 
   void grow(snap::program::Sequence &prog) const {
@@ -168,7 +179,8 @@ public:
     if (stride == 1) {
       gathered = gcl::allGatherCrossReplica(
           graph().getPoplarGraph(),
-          getInTensor(ReplicatedAllGatherOp::getInIndex()).getPoplarTensor(),
+          getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
+              .getPoplarTensor(),
           prog.getPoplarSequence(),
           toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Consecutive,
                                            op.getGroupSize())),
@@ -178,41 +190,43 @@ public:
       if (stride == 64) {
         gathered = gcl::allGatherCrossReplica(
             graph().getPoplarGraph(),
-            getInTensor(ReplicatedAllGatherOp::getInIndex()).getPoplarTensor(),
+            getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
+                .getPoplarTensor(),
             prog.getPoplarSequence(),
-            toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
-                                             op.getGroupSize())),
+            toGCLCommGroup(
+                popart::CommGroup(popart::CommGroupType::Orthogonal, stride)),
             debugContext("replicatedAllGatherStrided"),
             allGatherOptions);
       } else {
         if (stride * groupSize == 64) {
-          gathered =
-              ringAllGather(graph().getPoplarGraph(),
-                            getInTensor(ReplicatedAllGatherOp::getInIndex())
-                                .getPoplarTensor(),
+          gathered = ringAllGather(
+              graph().getPoplarGraph(),
+              getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
+                  .getPoplarTensor(),
 
-                            prog.getPoplarSequence(),
-                            stride,
-                            groupSize);
+              prog.getPoplarSequence(),
+              stride,
+              groupSize);
         } else {
-          gathered =
-              maskedAllGather(graph().getPoplarGraph(),
-                              getInTensor(ReplicatedAllGatherOp::getInIndex())
-                                  .getPoplarTensor(),
-                              prog.getPoplarSequence(),
-                              stride,
-                              groupSize);
+          gathered = maskedAllGather(
+              graph().getPoplarGraph(),
+              getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
+                  .getPoplarTensor(),
+              prog.getPoplarSequence(),
+              stride,
+              groupSize);
         }
       }
     }
 
-    if (hasInput(ReplicatedAllGatherStridedOp::getCollectiveLinkedIndex())) {
+    if (getOp<ReplicatedAllGatherStridedOp>()
+            .isConfigureOutputForReplicatedTensorSharding()) {
       auto cbr = getCollectiveBalancedReorder(
           CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
       if (cbr) {
         gathered = cbr->undoRearrangeForCollective(gathered);
       } else {
-        throw error("ReplicatedAllGatherStridedOpx::grow, "
+        throw error("ReplicatedAllGatherOpx::grow, "
                     "CollectiveBalancedReorder not found for Op {}",
                     op_p->debugName());
       }
@@ -224,6 +238,66 @@ public:
                          op.outInfo(ReplicatedAllGatherStridedOp::getOutIndex())
                              .shape_szt()),
                      graph()});
+  }
+
+  InputCreatorType getInputCreatorType(InIndex index) const {
+    return index == ReplicatedAllGatherStridedOp::getInIndex() &&
+                   getOp<ReplicatedAllGatherStridedOp>()
+                       .isConfigureOutputForReplicatedTensorSharding()
+               ? InputCreatorType::CanCreateOrUnwind
+               : PopOpx::getInputCreatorType(index);
+  }
+
+  snap::Tensor
+  unwindTensorLayout(snap::Tensor tensor, InIndex, OutIndex) const {
+    auto cbr = createCollectiveBalancedReorder(
+        tensor, CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
+    return snap::Tensor{cbr->createReplicaSlice(tensor.elementType()), graph()};
+  }
+
+  view::RegMap unwindRegion(InIndex, OutIndex) const {
+    auto info = inInfo(ReplicatedAllGatherStridedOp::getInIndex());
+    return [info](const view::Region &) {
+      return view::Regions(1, view::Region::getFull(info.shape()));
+    };
+  }
+
+  std::set<TensorId> mustExistBeforeCreate(InIndex) const { return {}; }
+
+  snap::Tensor createInputTensor(InIndex index,
+                                 const poplar::DebugNameAndId &dnai) const {
+    auto &op = getOp<ReplicatedAllGatherStridedOp>();
+
+    if (index == ReplicatedAllGatherStridedOp::getInIndex()) {
+      auto outInfo = op.outInfo(ReplicatedAllGatherStridedOp::getOutIndex());
+      auto outTensor =
+          graph().addVariable(popType(outInfo), outInfo.shape_szt(), dnai);
+      dv_p->lowering().getLinearMapper().mapTensor(graph(), outTensor);
+      auto cbr = createCollectiveBalancedReorder(
+          outTensor, CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
+      return snap::Tensor{cbr->createReplicaSlice(popType(outInfo)), graph()};
+    }
+
+    throw error("createInput: Invalid index = " + std::to_string(index));
+  }
+
+  bool hasCreatorViewChangers(InIndex index) const {
+    return (index == ReplicatedAllGatherStridedOp::getInIndex());
+  }
+
+  ViewChangers getCreatorViewChangers(InIndex index) const {
+    if (index == ReplicatedAllGatherStridedOp::getInIndex()) {
+      auto group = getCollectiveLinkedGroup(
+          CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
+
+      ViewChangers viewChangers(
+          {std::make_shared<ReplicatedGatherInScatterOutViewChanger>(
+              inInfo(ReplicatedAllGatherStridedOp::getInIndex()).nelms(),
+              group.id)});
+      return viewChangers;
+    }
+    throw error("getCreatorViewChangers: Invalid index = " +
+                std::to_string(index));
   }
 };
 

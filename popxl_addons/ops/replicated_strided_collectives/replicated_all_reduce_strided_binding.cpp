@@ -192,45 +192,16 @@ public:
     const auto inIndex      = ReplicatedAllReduceOp::getInIndex();
     poplar::Tensor toReduce = getInTensor(inIndex).getPoplarTensor();
     const poplar::OptionFlags &allReduceOptions = dv_p->lowering().gclOptions;
-    poplar::Tensor output;
-    uint32_t stride = rarOp.getStride(), groupSize = rarOp.getGroupSize();
-    if (stride == 1) {
-      output = gcl::allReduceCrossReplica(
-          graph().getPoplarGraph(),
-          toReduce,
-          getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
-          prog.getPoplarSequence(),
-          toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Consecutive,
-                                           rarOp.getGroupSize())),
-          debugContext("replicatedAllReduceStrided"),
-          allReduceOptions);
-    } else {
-      if (stride == 64) {
-        output = gcl::allReduceCrossReplica(
-            graph().getPoplarGraph(),
-            toReduce,
-            getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
-            prog.getPoplarSequence(),
-            toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
-                                             rarOp.getGroupSize())),
-            debugContext("replicatedAllReduceStrided"),
-            allReduceOptions);
-      } else {
-        if (stride * groupSize == 64) {
-          output = ringAllReduce(graph().getPoplarGraph(),
-                                 toReduce,
-                                 prog.getPoplarSequence(),
-                                 stride,
-                                 groupSize);
-        } else {
-          output = maskedAllReduce(graph().getPoplarGraph(),
-                                   toReduce,
-                                   prog.getPoplarSequence(),
-                                   stride,
-                                   groupSize);
-        }
-      }
-    }
+
+    poplar::Tensor output =
+        allReduceStrided(graph().getPoplarGraph(),
+                         toReduce,
+                         prog.getPoplarSequence(),
+                         rarOp.getStride(),
+                         rarOp.getGroupSize(),
+                         debugContext("replicatedAllReduceStrided"),
+                         allReduceOptions);
+
     logging::transform::trace(
         "[ReplicatedAllReduceStridedOpx::grow] stride: {}, groupSize {},"
         "input shape: {}, output shape: {}",

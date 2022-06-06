@@ -213,7 +213,7 @@ def train(train_session, training_data, opts, input_streams, loss_stream):
             print("Epoch {0}/{1}".format(epoch, opts.epochs))
             bar = tqdm(training_data, total=nr_batches)
             for data, labels in bar:
-                #reshape data accounting for replication and num hosts transfers
+                # reshape data accounting for replication and num hosts transfers
                 data = data.reshape(train_session.ir.num_host_transfers, train_session.ir.replication_factor,
                                     opts.train_micro_batch_size, 28, 28).squeeze()
                 labels = labels.reshape(
@@ -237,9 +237,9 @@ def evaluate_throughput(session, samples_per_step, epochs: int = 5):
     }
 
     durations = []
-    assert not session.device.isAttached
+    assert not session.is_attached
     with session:
-        assert session.device.isAttached
+        assert session.is_attached
         print(session.device)
         for i in range(epochs):
             start = time()
@@ -343,8 +343,7 @@ def train_program(opts):
                 for name, v in variables.named_tensors.items():
                     ir = popxl.gcg().ir
                     if v.nelms >= opts.sharded_threshold and v.nelms % ir.replication_factor == 0:
-                        shard = ops.collectives.replicated_reduce_scatter(
-                            v, op='local', configure_output_for_replicated_tensor_sharding=True)
+                        shard = ops.collectives.replica_sharded_slice(v)
                     else:
                         shard = v
 
