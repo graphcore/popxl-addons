@@ -52,8 +52,7 @@ using OutIndex   = int;
 
 namespace popart {
 
-#define CUSTOM_OP_DOMAIN "popxl.addons.ops.custom"
-
+#define CUSTOM_OP_DOMAIN "popxl.addons.ops"
 // -------------- Op --------------
 class ReplicatedAllReduceTPOp : public ReplicatedAllReduceOp {
 public:
