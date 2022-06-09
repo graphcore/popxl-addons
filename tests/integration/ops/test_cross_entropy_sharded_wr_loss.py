@@ -70,7 +70,8 @@ def test_cross_entropy_loss_fwd_and_grad():
                 y_streams += [addons.host_store(logits_grads[i])]
 
     ir.num_host_transfers = 1
-    output = popxl.Session(ir, "ipu_hw").run()
+    with popxl.Session(ir, "ipu_hw") as sess:
+        output = sess.run()
     outputs = [output[d2h] for d2h in y_streams]
     loss_popxl = outputs[0]
     logits_grad_popxl = np.concatenate(outputs[1:], axis=1)

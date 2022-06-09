@@ -16,7 +16,7 @@ def test_cross_entropy():
     def pytorch():
         logits, target = inputs()
         loss = F.cross_entropy(logits, target)
-        return loss.detach().numpy()
+        return (loss.detach().numpy(), )
 
     def popxl_():
         logits, target = inputs()
@@ -24,13 +24,13 @@ def test_cross_entropy():
         with ir.main_graph:
             logits = popxl.variable(logits.detach().numpy().astype(np.float32))
             target = popxl.variable(target.detach().numpy().astype(np.uint32))
-            loss, = addons.ops.cross_entropy(logits, target, 64)
+            loss = addons.ops.cross_entropy(logits, target, 64)
             loss_d2h = addons.host_store(loss)
 
         ir.num_host_transfers = 1
         with popxl.Session(ir, "ipu_hw") as session:
             outputs = session.run()
-        return outputs[loss_d2h]
+        return (outputs[loss_d2h], )
 
     for _t, _p in zip(pytorch(), popxl_()):
         np.testing.assert_almost_equal(_t, _p, 5)
