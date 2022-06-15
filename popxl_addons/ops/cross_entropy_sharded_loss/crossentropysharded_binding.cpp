@@ -46,12 +46,14 @@ PYBIND11_MODULE(crossentropysharded_binding, m) {
                      py::overload_cast<popart::Graph &,
                                        const InMapType &,
                                        const OutMapType &,
+                                       uint32_t,
                                        float,
                                        const popart::Op::Settings &>(
                          &popart::CrossEntropyShardedOp::createOpInGraph),
                      py::arg("graph"),
                      py::arg("inputs"),
                      py::arg("outputs"),
+                     py::arg("groupSize"),
                      py::arg("availableMemoryProportion"),
                      py::arg("settings"),
                      py::return_value_policy::reference);
@@ -62,6 +64,9 @@ PYBIND11_MODULE(crossentropysharded_binding, m) {
   binding.def("setAvailableMemoryProportion",
               py::overload_cast<nonstd::optional<float>>(
                   &popart::CrossEntropyShardedOp::setAvailableMemoryProportion),
+              py::return_value_policy::reference);
+  binding.def("getGroupSize",
+              &popart::CrossEntropyShardedOp::getGroupSize,
               py::return_value_policy::reference);
 };
 

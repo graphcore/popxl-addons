@@ -80,6 +80,7 @@ Tensor maskedAllReduce(Graph &graph,
 
   // Create buffer for group's data
   Tensor group_data = graph.cloneN(data, size);
+  prog.add(poplar::program::WriteUndef(group_data));
 
   // Copy Group's data to buffer
   std::vector<std::pair<std::int32_t, program::Program>> switchBody;
@@ -94,6 +95,7 @@ Tensor maskedAllReduce(Graph &graph,
 
   // Reduce group_data for final result
   Tensor out = graph.clone(data.flatten());
+
   popops::reduceWithOutput(graph,
                            group_data.reshape({size, data.numElements()}),
                            out,

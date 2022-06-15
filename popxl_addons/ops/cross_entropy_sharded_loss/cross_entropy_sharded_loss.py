@@ -1,10 +1,11 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
+from modulefinder import ReplacePackage
 from typing import Iterable, Optional, List
 
 import popxl
 from typing_extensions import Literal
-from popxl import ops
+from popxl import ops, ReplicaGrouping
 from popxl.context import get_current_context, op_debug_context
 from popxl.tensor import Tensor
 from popxl.errors import UndefinedValue
@@ -24,6 +25,7 @@ REDUCTION_TYPE = Literal['mean', 'sum', 'none']
 def cross_entropy_sharded_loss(logits: Tensor,
                                indices: Tensor,
                                ignore_index: Optional[Tensor] = None,
+                               replica_grouping: Optional[ReplicaGrouping] = None,
                                reduction: REDUCTION_TYPE = 'mean',
                                available_memory_proportion: float = 0.4) -> Tensor:
     """
@@ -43,6 +45,7 @@ def cross_entropy_sharded_loss(logits: Tensor,
         ignore_index (Optional[Tensor]): Specify label values that should not contribute to `l` or `dE/dx`.
             Defaults to None. The index should be adjusted to align with the indices.
         reduction (REDUCTION_TYPE): Specify how to reduce the loss. Defaults to `mean`. Options `mean`, `sum` and `none`
+        replica_grouping (ReplicaGrouping): Tensor parallel replica group: ReplicaGrouping(stride=1, group_size=n_shards). Only stride 1 supported.
         available_memory_proportion: applied to the grouped multi-slice op used in the forwards and grad op
 
     Returns:
@@ -57,7 +60,10 @@ def cross_entropy_sharded_loss(logits: Tensor,
     check_tensor_ipu_and_tile_set(logits=logits, indices=indices)
 
     settings = ctx._get_op_settings('cross_entropy_sharded')
-
+    group = replica_grouping if replica_grouping is not None else g.ir.replica_grouping()
+    if group.stride != 1:
+        raise ValueError(
+            "Cross entropy sharded loss only supported for consecutive ipus. Expected replica grouping stride = 1.")
     op = crossentropysharded_binding.CrossEntropyShardedOp.createOpInGraph(
         pb_g, {
             0: logits.id,
@@ -66,6 +72,7 @@ def cross_entropy_sharded_loss(logits: Tensor,
             0: g._create_tensor_id(f"cross_entropy_sharded_out"),
             1: g._create_tensor_id(f"cross_entropy_sharded_soft_max_out"),
         },
+        groupSize=group.group_size,
         availableMemoryProportion=available_memory_proportion,
         settings=settings)
 

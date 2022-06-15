@@ -72,6 +72,7 @@ CrossEntropyShardedOpx::CrossEntropyShardedOpx(Op *op, Devicex *devicex)
 
   availableMemoryProportion =
       getOp<CrossEntropyShardedOp>().getAvailableMemoryProportion();
+  groupSize = getOp<CrossEntropyShardedOp>().getGroupSize();
 }
 
 /**
@@ -101,11 +102,13 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
 
   // TODO: replace allreduces with inplace varients
   // Obtain max from partial results
-  auto max = gcl::allReduceCrossReplica(graph,
-                                        maxPartial,
-                                        gcl::CollectiveOperator::MAX,
-                                        prog,
-                                        debugContext("all_reduce_max"));
+  auto max = gcl::allReduceCrossReplica(
+      graph,
+      maxPartial,
+      gcl::CollectiveOperator::MAX,
+      prog,
+      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      debugContext("all_reduce_max"));
 
   auto maxBroadcasted = max.expand({1}).broadcast(logits.dim(1), 1);
 
@@ -125,12 +128,13 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
                                            debugContext("reduce_numerators"));
 
   // All reduce the partial denominators to get global denominator on every IPU:
-  auto denominator =
-      gcl::allReduceCrossReplica(graph,
-                                 denominatorPartial,
-                                 gcl::CollectiveOperator::ADD,
-                                 prog,
-                                 debugContext("all_reduce_denominator"));
+  auto denominator = gcl::allReduceCrossReplica(
+      graph,
+      denominatorPartial,
+      gcl::CollectiveOperator::ADD,
+      prog,
+      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      debugContext("all_reduce_denominator"));
 
   // Final calculation of log softmax on each shard
   auto logDenominator =
@@ -212,13 +216,15 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
   popops::mapInPlace(
       graph, outputExpr, operands, prog, debugContext("zero_OOR_indices"));
 
-  // Allreduce result
-  auto loss =
-      gcl::allReduceCrossReplica(graph,
-                                 lossPartial,
-                                 gcl::CollectiveOperator::ADD,
-                                 prog,
-                                 debugContext("allreduce_partial_losses"));
+  // AllReduce result along the TP axis.
+  // Assumes TP in the innermost dimension (stride 1)
+  auto loss = gcl::allReduceCrossReplica(
+      graph,
+      lossPartial,
+      gcl::CollectiveOperator::ADD,
+      prog,
+      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      debugContext("allreduce_partial_losses"));
 
   return loss;
 }

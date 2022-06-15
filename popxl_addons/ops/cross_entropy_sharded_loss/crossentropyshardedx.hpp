@@ -25,6 +25,7 @@ public:
                           poplar::Tensor &indicesConcat) const;
 
 protected:
+  int32_t groupSize;
   float availableMemoryProportion;
 };
 

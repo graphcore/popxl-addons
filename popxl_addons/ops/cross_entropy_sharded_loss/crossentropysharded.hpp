@@ -13,7 +13,8 @@ namespace popart {
 class CrossEntropyShardedOp : public Op {
 public:
   CrossEntropyShardedOp(const OperatorIdentifier &_opid,
-                        float availableMemoryProportion,
+                        uint32_t groupSize_,
+                        float availableMemoryProportion_,
                         const Op::Settings &settings_);
 
   std::unique_ptr<Op> clone() const override;
@@ -26,10 +27,16 @@ public:
   createOpInGraph(popart::Graph &graph,
                   const InMapType &in,
                   const OutMapType &out,
+                  uint32_t groupSize,
                   float availableMemoryProportion,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<CrossEntropyShardedOp>(
-        in, out, CrossEntropySharded, availableMemoryProportion, settings);
+        in,
+        out,
+        CrossEntropySharded,
+        groupSize,
+        availableMemoryProportion,
+        settings);
   }
 
   void appendOutlineAttributes(OpSerialiserBase &) const override;
@@ -39,8 +46,10 @@ public:
     availableMemoryProportion = availableMemoryProportion_.value();
   }
   float getAvailableMemoryProportion() { return availableMemoryProportion; }
+  uint32_t getGroupSize() { return groupSize; }
 
 protected:
+  uint32_t groupSize;
   float availableMemoryProportion;
 };
 

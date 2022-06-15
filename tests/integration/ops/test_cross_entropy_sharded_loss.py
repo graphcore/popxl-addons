@@ -28,7 +28,6 @@ def test_cross_entropy_loss_fwd_and_grad(dtype_size):
     ir = popxl.Ir()
     ir.replication_factor = n_shards
     replica_grouping = ir.replica_grouping(stride=1, group_size=1)
-
     assert vocab % n_shards == 0
 
     logits_data = [np.random.rand(batch * sequence, vocab // n_shards).astype('float32') for i in range(n_shards)]
@@ -48,7 +47,11 @@ def test_cross_entropy_loss_fwd_and_grad(dtype_size):
 
     class CrossEntropyLoss(addons.Module):
         def build(self, logits, labels, ignore_index):
-            return cross_entropy_sharded_loss(logits, labels, reduction='mean', ignore_index=ignore_index)
+            return cross_entropy_sharded_loss(logits,
+                                              labels,
+                                              reduction='mean',
+                                              replica_grouping=replica_grouping.transpose(),
+                                              ignore_index=ignore_index)
 
     with ir.main_graph:
         _, inputs_host_steam, inputs_tensors = zip(*[
