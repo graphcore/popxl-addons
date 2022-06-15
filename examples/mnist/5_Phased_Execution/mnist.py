@@ -23,10 +23,10 @@ from popxl.transforms import GradGraphInfo
 import logging
 from popxl_addons import batch_serialise, batch_serialise_fwd_and_grad, batch_serial_buffer
 from popxl_addons.rts import (
-    reduce_replica_sharded_graph,
     all_gather_replica_sharded_graph,
     replica_sharded_spec,
 )
+from popxl_addons.reduce_remote_variables import reduce_replica_sharded_graph
 
 from popxl_addons.remote import (
     named_variable_buffers,

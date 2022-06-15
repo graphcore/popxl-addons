@@ -161,6 +161,10 @@ public:
       : ReplicatedAllReduceOpx(op, devicex) {
     verifyOp<ReplicatedAllReduceTPOp>(
         op, {ReplicatedAllReduceTPOp::defaultOperatorId()});
+    if (op_p->canBeReplacedByIdentity()) {
+      throw error("You need to run the `OpToIdentityPattern` pattern before "
+                  "running the IR.");
+    }
   }
 };
 

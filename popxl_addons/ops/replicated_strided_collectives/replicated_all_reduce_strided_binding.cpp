@@ -184,6 +184,10 @@ public:
       : ReplicatedAllReduceOpx(op, devicex) {
     verifyOp<ReplicatedAllReduceStridedOp>(
         op, {ReplicatedAllReduceStridedOp::defaultOperatorId()});
+    if (op_p->canBeReplacedByIdentity()) {
+      throw error("You need to run the `OpToIdentityPattern` pattern before "
+                  "running the IR.");
+    }
   }
 
   void grow(snap::program::Sequence &prog) const {

@@ -13,6 +13,8 @@ import popxl
 import popxl_addons as addons
 import popxl.ops as ops
 from typing import Union, Dict
+
+import popxl_addons.reduce_remote_variables
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.variable_factory import NamedVariableFactories
@@ -332,9 +334,8 @@ def train_program(opts):
                 keys = [n for n, g in accumulated_grads.named_tensors.items() if n != "mean_accum_counter"]
                 grads = NamedTensors.pack(keys, grads)
                 # tensors whose elements exceed threshold will be reduce_scattered -> sharded
-                grad_reduce, names = addons.reduce_replica_sharded_graph(grads,
-                                                                         'mean',
-                                                                         threshold=opts.sharded_threshold)
+                grad_reduce, names = popxl_addons.reduce_remote_variables.reduce_replica_sharded_graph(
+                    grads, 'mean', threshold=opts.sharded_threshold)
                 grads = grad_reduce.bind(grads).call()
 
                 # ----- Shard forward variables  -----
