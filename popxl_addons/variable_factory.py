@@ -38,6 +38,8 @@ class VariableFactory:
                 The name of the variable tensor - by default 't'
             by_ref (bool = False):
                 If true the graph_input's created for this tensor will be flagged as pass by reference.
+            replica_sharded (bool = False):
+                If true the variable is Replica Tensor Sharded (RTS)
             replica_grouping (Optional[ReplicaGrouping]):
                 The replica group of the variable. Determines which replicas of the variable will have identical data or
                 not when written to. On variable initialisation it will fill a tensor with the replica grouping shape
@@ -106,26 +108,33 @@ class VariableFactory:
         """
         name = name or self.name
         dtype = self.dtype or None
-
-        if not self.replica_grouping:
-            data: HostTensor = next(self.data_iter)
-        else:
-            data: np.ndarray = np.concatenate([
-                to_numpy(next(self.data_iter), copy=False)[np.newaxis, ...]
-                for _ in range(self.replica_grouping.num_groups)
-            ])
+        data: HostTensor = self.next_data()
 
         return popxl.variable(data, dtype, name, replica_grouping=self.replica_grouping)
 
     def create_remote_tensor(self, buffer: popxl.RemoteBuffer, entry: int, name: Optional[str] = None):
         name = name or self.name
-        data: HostTensor = next(self.data_iter)
+        data: HostTensor = self.next_data()
         dtype = self.dtype or None
 
         if buffer.meta_shape:
-            return popxl.remote_replica_sharded_variable(data, buffer, entry, dtype, name)
+            return popxl.remote_replica_sharded_variable(data,
+                                                         buffer,
+                                                         entry,
+                                                         dtype,
+                                                         name,
+                                                         replica_grouping=self.replica_grouping)
         else:
-            return popxl.remote_variable(data, buffer, entry, dtype, name)
+            return popxl.remote_variable(data, buffer, entry, dtype, name, replica_grouping=self.replica_grouping)
+
+    def next_data(self) -> HostTensor:
+        if not self.replica_grouping:
+            return next(self.data_iter)
+        else:
+            return np.concatenate([
+                to_numpy(next(self.data_iter), copy=False)[np.newaxis, ...]
+                for _ in range(self.replica_grouping.num_groups)
+            ])
 
 
 class NamedVariableFactories(DotTree[VariableFactory]):

@@ -129,3 +129,10 @@ class TaskSession(popxl.Session):
                     raise ValueError(message)
                 else:
                     logging.warning(message)
+
+    def wandb_variable_histograms(self, step: int = 0):
+        """Track all variables as a histogram in Weights & Biases"""
+        import wandb
+        for t, np_t in self.get_tensors_data(self.ir.main_graph.variables).items():
+            np_t = np_t.flatten().astype(np.float32)
+            wandb.log({t.name: wandb.Histogram(np_t)}, step=step)
