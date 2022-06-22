@@ -1,8 +1,8 @@
-**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPXLADDONS)**
+**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons-internal) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL)**
 
 # popxl-addons
 
-`popxl.addons`.
+`popxl-addons` provides additionally functionality to supplement the PopXL framework.
 
 Obligatory package alias:
 
