@@ -10,7 +10,7 @@ Obligatory package alias:
 import popxl_addons as addons
 ```
 
-For examples please see the user guide or tests.
+For examples please see the [user guide](#user-guide), [MNIST examples](examples/mnist) or [tests](tests).
 
 ## Installation
 
