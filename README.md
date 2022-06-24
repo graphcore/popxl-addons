@@ -1,8 +1,8 @@
 **THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons-internal) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL)**
 
-# popxl-addons
+# popxl.addons
 
-`popxl-addons` provides additionally functionality to supplement the PopXL framework.
+`popxl.addons` provides additionally functionality to supplement the PopXL framework.
 
 Obligatory package alias:
 
@@ -11,6 +11,14 @@ import popxl_addons as addons
 ```
 
 For examples please see the user guide or tests.
+
+## Installation
+
+- Install the Poplar SDK >2.6 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
+- Create a Python virtual environment: `python3 -m venv <virtual_env>`
+- Activate the virtual environment: `. <virtual_env>/bin/activate`
+- Update `pip`: `pip3 install --upgrade pip`
+- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@phabricator.sourcevertex.net/diffusion/POPXLADDONS/popxladdons.git`.
 
 ## Development
 
