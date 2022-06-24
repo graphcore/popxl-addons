@@ -12,7 +12,7 @@ import popxl_addons as addons
 
 For examples please see the [user guide](#user-guide), [MNIST examples](examples/mnist) or [tests](tests).
 
-We will not be accepting external contributions.
+Please note we are not currently accepting pull requests or issues on this repository. If you are actively using this repository and want to report any issues, please raise a ticket through the Graphcore support portal: https://www.graphcore.ai/support.
 
 ## Installation
 
