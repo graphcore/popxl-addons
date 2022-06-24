@@ -1,6 +1,6 @@
 # Requirements:
 
-1. Follow the instaltion instructions in the [root README](../../#installation)
+1. Follow the instaltion instructions in the [root README](../..)
 2. Install the requirements in `examples/mnist`: `pip3 install -r requirements.txt`
 
 In additon, to run the Jupyter notebook version of this tutorial:
