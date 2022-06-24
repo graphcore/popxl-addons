@@ -12,6 +12,8 @@ import popxl_addons as addons
 
 For examples please see the [user guide](#user-guide), [MNIST examples](examples/mnist) or [tests](tests).
 
+We will not be accepting external contributions.
+
 ## Installation
 
 - Install the Poplar SDK >2.6 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
