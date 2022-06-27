@@ -166,6 +166,15 @@ class DotTree(Generic[L]):
         """
         return cls.from_dict(dict(zip(keys, values)))
 
+    def map(self: CLS, fn: Callable[[L], L]) -> CLS:
+        """
+        Apply fn to each element of the collection and returns a new DotTree with the transformed values.
+        """
+        mapped = {}
+        for k, v in self.to_dict().items():
+            mapped[k] = fn(v)
+        return self.from_dict(mapped)
+
     def _clear(self):
         """Empty all entries including all nested DotTrees"""
         for k, v in list(self._map.items()):

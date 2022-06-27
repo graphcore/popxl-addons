@@ -81,10 +81,12 @@ public:
   }
 
   void setup() override {
-    if (op != CollectiveOperator::Add) {
-      throw error("Cannot create ReplicatedAllReduceTPOp op. "
-                  "CollectiveOperator::Add is the only collective operator "
-                  "that is currently implemented.");
+    if (!(op == CollectiveOperator::Add || op == CollectiveOperator::Mean)) {
+      throw error(
+          "Cannot create ReplicatedAllReduceStridedOp op. "
+          "CollectiveOperator::Add and CollectiveOperator::Mean are the "
+          "only collective operators "
+          "that are currently implemented.");
     }
     if (stride == 0 || groupSize == 0) {
       throw error("Cannot create ReplicatedAllGatherStrided op "
@@ -163,7 +165,7 @@ public:
   }
 
   uint32_t getStride() const { return stride; }
-  uint32_t getGroupSize() const { return groupSize; }
+  int64_t getCommSize() const override { return groupSize; }
 
 protected:
   uint32_t stride;
@@ -193,16 +195,17 @@ public:
   void grow(snap::program::Sequence &prog) const {
     const auto &rarOp = getOp<ReplicatedAllReduceStridedOp>();
 
-    const auto inIndex      = ReplicatedAllReduceOp::getInIndex();
-    poplar::Tensor toReduce = getInTensor(inIndex).getPoplarTensor();
+    poplar::Tensor toReduce =
+        getInTensor(ReplicatedAllReduceOp::getInIndex()).getPoplarTensor();
     const poplar::OptionFlags &allReduceOptions = dv_p->lowering().gclOptions;
 
     poplar::Tensor output =
         allReduceStrided(graph().getPoplarGraph(),
                          toReduce,
                          prog.getPoplarSequence(),
+                         getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
                          rarOp.getStride(),
-                         rarOp.getGroupSize(),
+                         rarOp.getCommSize(),
                          debugContext("replicatedAllReduceStrided"),
                          allReduceOptions);
 
@@ -210,7 +213,7 @@ public:
         "[ReplicatedAllReduceStridedOpx::grow] stride: {}, groupSize {},"
         "input shape: {}, output shape: {}",
         rarOp.getStride(),
-        rarOp.getGroupSize(),
+        rarOp.getCommSize(),
         toReduce.shape(),
         output.shape());
 
@@ -292,7 +295,7 @@ PYBIND11_MODULE(replicated_all_reduce_strided_binding, m) {
 <%
 cfg['extra_compile_args'] = ['-std=c++14', '-fPIC', '-O2', '-DONNX_NAMESPACE=onnx', '-Wall', '-Wno-sign-compare']
 cfg['sources'] = ['mgcl.cpp']
-cfg['libraries'] = ['popart']
+cfg['libraries'] = ['popart', 'poplar', 'popops']
 setup_pybind11(cfg)
 %>
 */

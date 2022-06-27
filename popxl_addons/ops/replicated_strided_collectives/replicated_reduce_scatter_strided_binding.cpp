@@ -34,6 +34,7 @@ sudo apt install libpython3.6-dev
 #include <popart/popx/op/collectives/collectivesx.hpp>
 
 #include <poplar/Graph.hpp>
+#include <popops/Zero.hpp>
 #include <poputil/exceptions.hpp>
 
 #include <gcl/Collectives.hpp>
@@ -65,11 +66,7 @@ public:
       const uint32_t groupSize_,
       bool configureOutputForReplicatedTensorSharding_,
       const Op::Settings &settings_)
-      : CollectivesBaseOp(
-            _opid,
-            stride_ == 1 ? CommGroup(CommGroupType::Consecutive, groupSize_)
-                         : CommGroup(CommGroupType::None, 0),
-            settings_),
+      : CollectivesBaseOp(_opid, CommGroup(CommGroupType::None, 0), settings_),
         op{op_}, stride(stride_), groupSize(groupSize_),
         configureOutputForReplicatedTensorSharding{
             configureOutputForReplicatedTensorSharding_} {}
@@ -97,6 +94,13 @@ public:
   }
 
   void setup() {
+    if (!(op == CollectiveOperator::Add || op == CollectiveOperator::Mean)) {
+      throw error(
+          "Cannot create ReplicatedReduceScatterStridedOp op. "
+          "CollectiveOperator::Add and CollectiveOperator::Mean are the "
+          "only collective operators "
+          "that are currently implemented.");
+    }
     if (stride == 0 || groupSize == 0) {
       throw error("Cannot create ReplicatedAllGatherStrided op "
                   "stride and group size must be > 0.");
@@ -162,7 +166,7 @@ public:
   }
 
   uint32_t getStride() const { return stride; }
-  uint32_t getGroupSize() const { return groupSize; }
+  int64_t getCommSize() const override { return groupSize; }
 
 protected:
   CollectiveOperator op;
@@ -221,10 +225,10 @@ public:
                 toReduceScatter.elementType(),
                 inId(ReplicatedReduceScatterStridedOp::getInIndex())),
             graph()};
-        initializeTensor(graph().getPoplarGraph(),
-                         prog.getPoplarSequence(),
-                         c.getPoplarTensor(),
-                         0.0);
+        popops::zero(graph().getPoplarGraph(),
+                     c.getPoplarTensor(),
+                     prog.getPoplarSequence(),
+                     {"zeroScatter"});
         auto ref = snap::Tensor{
             cbr->undoRearrangeForCollective(c.getPoplarTensor()), graph()};
         if (hasInViewChangers(ReplicatedReduceScatterStridedOp::getInIndex())) {
@@ -245,49 +249,16 @@ public:
     const poplar::OptionFlags &reduceScatterOptions =
         dv_p->lowering().gclOptions;
 
-    poplar::Tensor reducedScattered;
-    uint32_t stride = rrsOp.getStride(), groupSize = rrsOp.getGroupSize();
-    if (stride == 1) {
-      reducedScattered = gcl::reduceScatterCrossReplica(
-          graph().getPoplarGraph(),
-          toReduceScatter.flatten().getPoplarTensor(),
-          getPoplarCollectiveOperator(rrsOp.getCollectiveOp()),
-          prog.getPoplarSequence(),
-          toGCLCommGroup(
-              popart::CommGroup(popart::CommGroupType::Consecutive, groupSize)),
-          debugContext("replicatedReduceScatter"),
-          reduceScatterOptions);
-    } else {
-      if (stride == 64) {
-        reducedScattered = gcl::reduceScatterCrossReplica(
-            graph().getPoplarGraph(),
-            toReduceScatter.flatten().getPoplarTensor(),
-            getPoplarCollectiveOperator(rrsOp.getCollectiveOp()),
-            prog.getPoplarSequence(),
-            toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Orthogonal,
-                                             groupSize)),
-            debugContext("replicatedReduceScatter"),
-            reduceScatterOptions);
-      } else {
-        if (stride * groupSize == 64) {
-          reducedScattered = ringReduceScatter(
-              graph().getPoplarGraph(),
-              getInTensor(ReplicatedReduceScatterStridedOp::getInIndex())
-                  .getPoplarTensor(),
-              prog.getPoplarSequence(),
-              stride,
-              groupSize);
-        } else {
-          reducedScattered = maskedReduceScatter(
-              graph().getPoplarGraph(),
-              getInTensor(ReplicatedReduceScatterStridedOp::getInIndex())
-                  .getPoplarTensor(),
-              prog.getPoplarSequence(),
-              stride,
-              groupSize);
-        }
-      }
-    }
+    poplar::Tensor reducedScattered = reduceScatterStrided(
+        graph().getPoplarGraph(),
+        toReduceScatter.flatten().getPoplarTensor(),
+        prog.getPoplarSequence(),
+        getPoplarCollectiveOperator(rrsOp.getCollectiveOp()),
+        rrsOp.getStride(),
+        rrsOp.getCommSize(),
+        debugContext("replicatedReduceScatterStrided"),
+        reduceScatterOptions);
+
     setOutTensor(ReplicatedReduceScatterStridedOp::getOutIndex(),
                  snap::Tensor{reducedScattered, graph()});
   }

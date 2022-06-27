@@ -1,6 +1,7 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
 # Auto compile cpp files
+from typing import Optional
 import cppimport.import_hook
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_reduce_scatter_strided_binding
@@ -18,8 +19,8 @@ __all__ = [
 @op_debug_context
 def replicated_reduce_scatter_strided(
         t: Tensor,
-        rg: ReplicaGrouping,
         op: CollectiveOps = "add",
+        group: Optional[ReplicaGrouping] = None,
         configure_output_for_replicated_tensor_sharding: bool = False,
 ) -> Tensor:
     """
@@ -27,12 +28,13 @@ def replicated_reduce_scatter_strided(
 
     Args:
         t (Tensor): Tensor to be gathered.
-        rg (ReplicaGrouping): Stride and group size used in the partition of the replicas.
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
+        group (ReplicaGrouping, optional): Stride and group size used in the partition of the replicas. Default all replicas.
         configure_output_for_replicated_tensor_sharding (bool): Configures the Op for replicated tensor sharding if True.
     Returns:
 
     """
+
     op_ = to_collective_op(op)  # Only add is currently supported
 
     ctx = get_current_context()
@@ -40,6 +42,13 @@ def replicated_reduce_scatter_strided(
     pb_g = g._pb_graph
 
     check_in_graph(g, t=t)
+
+    if group is not None:
+        stride = group.stride
+        size = group.group_size
+    else:
+        stride = 1
+        size = g.ir.replication_factor
 
     settings = ctx._get_op_settings("ReplicatedReduceScatterStrided")
     op = replicated_reduce_scatter_strided_binding.ReplicatedReduceScatterStridedOp.createOpInGraph(
@@ -51,8 +60,8 @@ def replicated_reduce_scatter_strided(
             0: g._create_tensor_id("replicated_reduce_scatter_strided_out"),
         },
         op_,
-        rg.stride,
-        rg.group_size,
+        stride,
+        size,
         configure_output_for_replicated_tensor_sharding,
         settings,
     )

@@ -12,10 +12,14 @@ __all__ = ["AdamOptimizerStep"]
 
 
 class AdamOptimizerStep(addons.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     @popxl.in_sequence()
     def build(self,
               var: popxl.TensorByRef,
               grad: popxl.Tensor,
+              replica_grouping: Optional[popxl.ReplicaGrouping] = None,
               *,
               lr: Union[float, popxl.Tensor],
               beta1: Union[float, popxl.Tensor] = 0.9,
@@ -41,15 +45,19 @@ class AdamOptimizerStep(addons.Module):
         if scale != 1:
             grad = ops.cast(grad, popxl.float32) * scale
 
+        replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
+
         if var.meta_shape:
             first_order = self.add_replica_sharded_variable_input("first_order",
                                                                   partial(np.zeros, var.meta_shape),
                                                                   first_order_dtype,
+                                                                  replica_grouping=replica_grouping,
                                                                   by_ref=True)
         else:
             first_order = self.add_variable_input("first_order",
                                                   partial(np.zeros, var.shape),
                                                   first_order_dtype,
+                                                  replica_grouping=replica_grouping,
                                                   by_ref=True)
         ops.var_updates.accumulate_moving_average_(first_order, grad, f=beta1)
 
@@ -57,11 +65,13 @@ class AdamOptimizerStep(addons.Module):
             second_order = self.add_replica_sharded_variable_input("second_order",
                                                                    partial(np.zeros, var.meta_shape),
                                                                    popxl.float32,
+                                                                   replica_grouping=replica_grouping,
                                                                    by_ref=True)
         else:
             second_order = self.add_variable_input("second_order",
                                                    partial(np.zeros, var.shape),
                                                    popxl.float32,
+                                                   replica_grouping=replica_grouping,
                                                    by_ref=True)
         ops.var_updates.accumulate_moving_average_square_(second_order, grad, f=beta2)
 

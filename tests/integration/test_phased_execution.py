@@ -5,8 +5,9 @@ import numpy as np
 import popxl
 from popxl import ops
 
-from popxl_addons import (Module, host_load, NamedTensors, all_gather_replica_sharded_graph, named_variable_buffers,
-                          load_remote_graph, replica_sharded_slice_graph, store_remote_graph)
+from popxl_addons import (Module, host_load, NamedTensors, named_variable_buffers, load_remote_graph,
+                          store_remote_graph)
+from popxl_addons.rts import (all_gather_replica_sharded_graph, replica_sharded_slice_graph)
 
 
 class Add(Module):
@@ -52,8 +53,7 @@ def test_phased_load_store():
 
 
 def test_phased_rts():
-    ir = popxl.Ir()
-    ir.replication_factor = 4
+    ir = popxl.Ir(replication=4)
 
     data = np.random.normal(0, 1, (1, 4)).astype(np.float32)
 
@@ -91,3 +91,7 @@ def test_phased_rts():
     after = sess.get_tensors_data(variables.tensors)
     for t in before.keys():
         np.testing.assert_almost_equal(before[t] + data, after[t])
+
+
+if __name__ == "__main__":
+    test_phased_rts()

@@ -10,47 +10,63 @@
 #include <popops/ElementWise.hpp>
 #include <popops/Gather.hpp>
 #include <popops/Reduce.hpp>
+#include <popops/Zero.hpp>
 #include <poputil/TileMapping.hpp>
 #include <poputil/Util.hpp>
+
+namespace {
+
+gcl::CommGroup consecutiveGroup(Graph &graph, uint32_t size) {
+  // Handle GCL's preference of ALL
+  if (graph.getReplicationFactor() == size)
+    return {gcl::CommGroupType::ALL, 0};
+  return {gcl::CommGroupType::CONSECUTIVE, size};
+}
 
 Tensor maskedAllGather(Graph &graph,
                        const Tensor &data,
                        program::Sequence &prog,
                        uint32_t stride,
-                       uint32_t group) {
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
+                       uint32_t size) {
+  // Gather all Replica's data
+  Tensor temp = gcl::allGatherCrossReplica(
+      graph, data, prog, consecutiveGroup(graph, size * stride));
+
   Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
   graph.setTileMapping(replicaIndex, 1);
-  std::vector<uint32_t> strides, zeroes(group, 0);
-  for (uint32_t i = 0; i < group; ++i) {
+
+  // Calculate multislice offsets
+  std::vector<uint32_t> strides, zeroes(size, 0);
+  for (uint32_t i = 0; i < size; ++i) {
     strides.push_back(i * stride);
   }
   ArrayRef<uint32_t> ref{strides};
   Tensor stridesT =
-      graph.addConstant(poplar::UNSIGNED_INT, {group, 1}, ref, {"strides"});
+      graph.addConstant(poplar::UNSIGNED_INT, {size, 1}, ref, {"strides"});
   graph.setTileMapping(stridesT, 1);
   Tensor offsets_1 = graph.addConstant(
-      poplar::UNSIGNED_INT, {group, 1}, ArrayRef<uint32_t>{zeroes}, {"zeroes"});
+      poplar::UNSIGNED_INT, {size, 1}, ArrayRef<uint32_t>{zeroes}, {"zeroes"});
   graph.setTileMapping(offsets_1, 1);
-  Tensor offsets_0 = popops::map(graph,
-                                 popops::expr::_1 + (popops::expr::_2 % stride),
-                                 {stridesT, replicaIndex},
-                                 prog,
-                                 {"offsets"});
-  Tensor offsets   = poplar::concat({offsets_0, offsets_1}, 1);
+  Tensor offsets = popops::map(graph,
+                               popops::expr::_1 + (popops::expr::_2 % stride),
+                               {stridesT, replicaIndex},
+                               prog,
+                               {"offsets"});
+
+  // TODO: Check tile mapping
   Tensor res =
       popops::multiSlice(graph,
-                         temp.reshape({group * stride, data.numElements()}),
+                         temp.reshape({size * stride, data.numElements()}),
                          offsets,
-                         {0, 1},
-                         {1, data.numElements()},
+                         {0},
+                         {1},
                          prog,
                          {},
                          {},
                          {"multiCopy"});
+
+  std::vector<size_t> shape = data.shape();
+  shape.insert(shape.begin(), size);
   return res.reshape(shape);
 }
 
@@ -62,12 +78,12 @@ Tensor maskedAllReduce(Graph &graph,
   if (stride == 1) {
     throw std::runtime_error(
         "maskedAllReduce stride == 1 is not implemented. "
-        "Use GCL with {gcl::CommGroupType::CONSECUTIVE, 1} instead.");
+        "Use GCL with {gcl::CommGroupType::CONSECUTIVE, size} instead.");
   }
 
-  // Gather All Replica's data
+  // Gather all Replica's data
   Tensor temp = gcl::allGatherCrossReplica(
-      graph, data, prog, {gcl::CommGroupType::CONSECUTIVE, size * stride});
+      graph, data, prog, consecutiveGroup(graph, size * stride));
 
   // Compute GroupId
   Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
@@ -80,7 +96,7 @@ Tensor maskedAllReduce(Graph &graph,
 
   // Create buffer for group's data
   Tensor group_data = graph.cloneN(data, size);
-  prog.add(poplar::program::WriteUndef(group_data));
+  prog.add(program::WriteUndef(group_data));
 
   // Copy Group's data to buffer
   std::vector<std::pair<std::int32_t, program::Program>> switchBody;
@@ -103,78 +119,52 @@ Tensor maskedAllReduce(Graph &graph,
                            {popops::Operation::ADD},
                            prog,
                            {"sum"});
+  prog.add(program::WriteUndef(group_data));
   return out.reshape(data.shape());
 }
 
-Tensor maskedReduceScatter(Graph &graph,
-                           const Tensor &data,
-                           program::Sequence &prog,
-                           uint32_t stride,
-                           uint32_t group) {
-  assert(data.rank() == 1);
-  gcl::CommGroup cgroup{gcl::CommGroupType::CONSECUTIVE, group * stride};
-  Tensor temp = gcl::allGatherCrossReplica(graph, data, prog, cgroup);
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor res = graph.addVariable(data.elementType(), shape, {"gather"});
-  poputil::mapTensorLinearly(graph, res, 1, 1); // TODO: better mapping ?
-
-  Tensor groupID = graph.addVariable(poplar::UNSIGNED_INT, {}, {"groupID"});
-  graph.setTileMapping(groupID, 1); // TODO: find better tile ?
+Tensor reduceScatterSliceWithoutPadding(Graph &graph,
+                                        const Tensor &reduced_data,
+                                        program::Sequence &prog,
+                                        uint32_t stride,
+                                        uint32_t size) {
   Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
   graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     popops::expr::_2 % stride,
-                     {groupID, replicaIndex},
-                     prog,
-                     {"computeGroupID"});
-  std::vector<std::pair<std::int32_t, program::Program>> switchBody;
-  for (int32_t i = 0; i < int32_t(stride); ++i) {
-    program::Sequence copies;
-    for (uint32_t j = 0; j < group; ++j) {
-      copies.add(program::Copy(temp[i + j * stride], res[j]));
-    }
-    switchBody.push_back({i, copies});
-  }
-  prog.add(program::Switch(groupID, switchBody, {"switchCopies"}));
-  popops::ReduceParams params(popops::Operation::ADD);
-  poplar::Tensor sum = popops::reduce(graph,
-                                      res.reshape({group, data.numElements()}),
-                                      data.elementType(),
-                                      {0},
-                                      params,
-                                      prog,
-                                      {"sum"});
+  uint32_t dataSize      = reduced_data.numElements();
+  uint32_t scatteredSize = std::ceil(float(dataSize) / float(size));
 
-  uint32_t replicaSize = std::ceil(float(data.numElements()) / float(group));
-  uint32_t dataSize    = data.numElements();
   Tensor scatter =
-      graph.addVariable(data.elementType(), {replicaSize}, {"scatter"});
-  poputil::mapTensorLinearly(graph, scatter, 1, 1); // TODO: better mapping ?
-  initializeTensor(graph, prog, scatter, 0.0);
-  Tensor start =
-      popops::map(graph,
-                  popops::expr::Min(replicaSize * (popops::expr::_1 / stride),
-                                    popops::expr::Const(dataSize)),
-                  {replicaIndex},
-                  prog,
-                  {"startIndex"});
+      graph.clone(reduced_data.slice(0, scatteredSize), {"scatter"});
+  popops::zero(graph, scatter, prog, {"zeroScatter"});
+
+  uint32_t outer_stride = stride * size;
+
+  Tensor start = popops::map(
+      graph,
+      popops::expr::Min(scatteredSize *
+                            ((popops::expr::_1 % outer_stride) / stride),
+                        popops::expr::Const(dataSize)),
+      {replicaIndex},
+      prog,
+      {"startIndex"});
   Tensor end = popops::map(
       graph,
-      popops::expr::Min(replicaSize * ((popops::expr::_1 / stride) + 1),
+      popops::expr::Min(scatteredSize *
+                            (((popops::expr::_1 % outer_stride) / stride) + 1),
                         popops::expr::Const(dataSize)),
       {replicaIndex},
       prog,
       {"endIndex"});
-  Tensor size = popops::map(
+
+  Tensor copy_size = popops::map(
       graph, popops::expr::_1 - popops::expr::_2, {end, start}, prog, {"size"});
   std::vector<uint32_t> sizes;
-  sizes.push_back(replicaSize);
-  if (dataSize < group) {
+  sizes.push_back(scatteredSize);
+  if (dataSize < size) {
     sizes.push_back(0);
   } else {
-    if ((dataSize % replicaSize) != 0)
-      sizes.push_back(dataSize % replicaSize);
+    if ((dataSize % scatteredSize) != 0)
+      sizes.push_back(dataSize % scatteredSize);
   }
   std::vector<std::pair<std::int32_t, program::Program>> switchUpdates;
   for (uint32_t s : sizes) {
@@ -182,7 +172,7 @@ Tensor maskedReduceScatter(Graph &graph,
     if (s != 0) {
       popops::dynamicSliceWithOutput(graph,
                                      scatter.slice(0, s),
-                                     sum,
+                                     reduced_data,
                                      start.expand({0}),
                                      {0},
                                      {s},
@@ -191,9 +181,64 @@ Tensor maskedReduceScatter(Graph &graph,
     }
     switchUpdates.push_back({s, update});
   }
-  prog.add(program::Switch(size, switchUpdates, {"switchUpdate"}));
+  prog.add(program::Switch(copy_size, switchUpdates, {"switchUpdate"}));
 
   return scatter;
+}
+
+Tensor reduceScatterSlice(Graph &graph,
+                          const Tensor &reduced_data,
+                          program::Sequence &prog,
+                          uint32_t stride,
+                          uint32_t size) {
+  if ((reduced_data.numElements() % size) != 0) {
+    // Do inefficient dynamicSlice
+    return reduceScatterSliceWithoutPadding(
+        graph, reduced_data, prog, stride, size);
+  }
+  // More efficient implementation that assumes `reduced_data` can be reshaped
+  // to be divisible by size for Tensors that have been reordered/padded for RTS
+  // this will always be the case.
+  auto scatteredSize   = reduced_data.numElements() / size;
+  uint32_t outerStride = stride * size;
+
+  Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
+  graph.setTileMapping(replicaIndex, 1);
+  Tensor rank = popops::map(graph,
+                            (popops::expr::_1 % outerStride) / stride,
+                            {replicaIndex},
+                            prog,
+                            {"startIndex"});
+
+  Tensor dataByRank = reduced_data.reshape({size, scatteredSize});
+  Tensor data       = popops::multiSlice(graph,
+                                   dataByRank,
+                                   rank.reshape({1, 1}),
+                                   {0},
+                                   {1},
+                                   prog,
+                                   {},
+                                   {},
+                                   {"reduceScatterSlice"});
+
+  Tensor scatter = graph.clone(reduced_data.slice(0, scatteredSize));
+  prog.add(program::Copy(data, scatter));
+
+  return scatter;
+}
+
+Tensor maskedReduceScatter(Graph &graph,
+                           const Tensor &data,
+                           program::Sequence &prog,
+                           uint32_t stride,
+                           uint32_t size) {
+  assert(data.rank() == 1);
+
+  Tensor reduced_data = maskedAllReduce(graph, data, prog, stride, size);
+  Tensor scattered =
+      reduceScatterSlice(graph, reduced_data, prog, stride, size);
+
+  return scattered;
 }
 
 std::map<unsigned int, unsigned int>
@@ -217,16 +262,6 @@ reverseMap(const std::map<unsigned int, unsigned int> &ring) {
     res[p.second] = p.first;
   }
   return res;
-}
-
-void allReduceInit(const Tensor &data,
-                   program::Sequence &prog,
-                   const Tensor &accum,
-                   const Tensor &src,
-                   const Tensor &src2) {
-  prog.add(program::Copy(data, src));
-  prog.add(program::Copy(data, src2));
-  prog.add(program::Copy(data, accum));
 }
 
 program::Sequence
@@ -274,32 +309,34 @@ Tensor ringAllReduce(Graph &graph,
                      program::Sequence &prog,
                      uint32_t stride,
                      uint32_t size) {
-  std::map<unsigned int, unsigned int> ring = createRing(graph, stride, size),
-                                       revRing = reverseMap(ring);
+  auto ring    = createRing(graph, stride, size);
+  auto revRing = reverseMap(ring);
 
-  std::vector<size_t> shape = data.shape();
-  Tensor accum = graph.addVariable(data.elementType(), shape, {"accum"});
-  poputil::mapTensorLinearly(graph, accum, 1, 1); // TODO: better mapping ?
-  Tensor src = graph.addVariable(data.elementType(), data.shape(), {"source"});
-  poputil::mapTensorLinearly(graph, src, 1, 1); // TODO: better mapping ?
-  Tensor dst =
-      graph.addVariable(data.elementType(), data.shape(), {"destination"});
-  poputil::mapTensorLinearly(graph, dst, 1, 1); // TODO: better mapping ?
-  Tensor src2 = graph.addVariable(data.elementType(), data.shape(), {"source"});
-  poputil::mapTensorLinearly(graph, src2, 1, 1); // TODO: better mapping ?
-  Tensor dst2 =
-      graph.addVariable(data.elementType(), data.shape(), {"destination"});
-  poputil::mapTensorLinearly(graph, dst2, 1, 1); // TODO: better mapping ?
+  // Create Buffers
+  Tensor accum = graph.clone(data, {"accum"});
+  Tensor src   = graph.clone(data, {"source"});
+  Tensor src2  = graph.clone(data, {"source2"});
+  Tensor dst   = graph.clone(data, {"destination"});
+  Tensor dst2  = graph.clone(data, {"destination2"});
+  // Initialise
+  prog.add(program::Copy(data, accum));
+  prog.add(program::Copy(data, src));
+  prog.add(program::Copy(data, src2));
+  prog.add(program::WriteUndef(dst));
+  prog.add(program::WriteUndef(dst2));
 
+  // Create counters
   Tensor one = graph.addConstant(poplar::UNSIGNED_INT, {1}, 1, {"one"});
-  graph.setTileMapping(one, 1); // TODO: find better tile ?
+  graph.setTileMapping(one, 1);
   Tensor step = graph.addVariable(poplar::UNSIGNED_INT, {}, {"index"});
-  graph.setTileMapping(step, 1); // TODO: find better tile ?
+  graph.setTileMapping(step, 1);
   prog.add(program::Copy(one, step));
-  allReduceInit(data, prog, accum, src, src2);
+
+  // Loop
   program::Sequence loop = allReduceLoop(
       graph, accum, src, src2, dst, dst2, step, ring, revRing, stride, true);
   prog.add(program::Repeat((ring.size() / 4) - 1, loop, {"loop"}));
+  // Final Step
   program::Sequence endLoop = allReduceLoop(
       graph, accum, src, src2, dst, dst2, step, ring, revRing, stride, false);
   prog.add(endLoop);
@@ -310,77 +347,14 @@ Tensor ringReduceScatter(Graph &graph,
                          const Tensor &data,
                          program::Sequence &prog,
                          uint32_t stride,
-                         uint32_t group) {
-  Tensor sum          = ringAllReduce(graph, data, prog, stride, group);
-  Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
-  graph.setTileMapping(replicaIndex, 1);
-  uint32_t replicaSize = std::ceil(float(data.numElements()) / float(group));
-  uint32_t dataSize    = data.numElements();
-  Tensor scatter =
-      graph.addVariable(data.elementType(), {replicaSize}, {"scatter"});
-  poputil::mapTensorLinearly(graph, scatter, 1, 1); // TODO: better mapping ?
-  initializeTensor(graph, prog, scatter, 0.0);
-  Tensor start =
-      popops::map(graph,
-                  popops::expr::Min(replicaSize * (popops::expr::_1 / stride),
-                                    popops::expr::Const(dataSize)),
-                  {replicaIndex},
-                  prog,
-                  {"startIndex"});
-  Tensor end = popops::map(
-      graph,
-      popops::expr::Min(replicaSize * ((popops::expr::_1 / stride) + 1),
-                        popops::expr::Const(dataSize)),
-      {replicaIndex},
-      prog,
-      {"endIndex"});
-  Tensor size = popops::map(
-      graph, popops::expr::_1 - popops::expr::_2, {end, start}, prog, {"size"});
-  std::vector<uint32_t> sizes;
-  sizes.push_back(replicaSize);
-  if (dataSize < group) {
-    sizes.push_back(0);
-  } else {
-    if ((dataSize % replicaSize) != 0)
-      sizes.push_back(dataSize % replicaSize);
-  }
-  std::vector<std::pair<std::int32_t, program::Program>> switchUpdates;
-  for (uint32_t s : sizes) {
-    program::Sequence update;
-    if (s != 0) {
-      popops::dynamicSliceWithOutput(graph,
-                                     scatter.slice(0, s),
-                                     sum,
-                                     start.expand({0}),
-                                     {0},
-                                     {s},
-                                     update,
-                                     {"scatterUpdate"});
-    }
-    switchUpdates.push_back({s, update});
-  }
-  prog.add(program::Switch(size, switchUpdates, {"switchUpdate"}));
+                         uint32_t size) {
+  assert(data.rank() == 1);
 
-  return scatter;
-}
+  Tensor reduced_data = ringAllReduce(graph, data, prog, stride, size);
+  Tensor scattered =
+      reduceScatterSlice(graph, reduced_data, prog, stride, size);
 
-void allGatherInit(Graph &graph,
-                   const Tensor &data,
-                   program::Sequence &prog,
-                   const Tensor &res,
-                   const Tensor &index,
-                   const Tensor &src,
-                   const Tensor &src2) {
-  prog.add(program::Copy(data, src));
-  prog.add(program::Copy(data, src2));
-  popops::dynamicUpdate(graph,
-                        res,
-                        data.expand({0}),
-                        index.expand({0}),
-                        {0},
-                        {1},
-                        prog,
-                        {"initialCopy"});
+  return scattered;
 }
 
 program::Sequence
@@ -450,44 +424,49 @@ Tensor ringAllGather(Graph &graph,
                      const Tensor &data,
                      program::Sequence &prog,
                      uint32_t stride,
-                     uint32_t group) {
-  std::map<unsigned int, unsigned int> ring = createRing(graph, stride, group),
-                                       revRing = reverseMap(ring);
+                     uint32_t size) {
+  auto ring    = createRing(graph, stride, size);
+  auto revRing = reverseMap(ring);
 
-  std::vector<size_t> shape = data.shape();
-  shape.insert(shape.begin(), group);
-  Tensor res = graph.addVariable(data.elementType(), shape, {"gather"});
-  poputil::mapTensorLinearly(graph, res, 1, 1); // TODO: better mapping ?
-  Tensor src = graph.addVariable(data.elementType(), data.shape(), {"source"});
-  poputil::mapTensorLinearly(graph, src, 1, 1); // TODO: better mapping ?
-  Tensor dst =
-      graph.addVariable(data.elementType(), data.shape(), {"destination"});
-  poputil::mapTensorLinearly(graph, dst, 1, 1); // TODO: better mapping ?
-
-  Tensor src2 = graph.addVariable(data.elementType(), data.shape(), {"source"});
-  poputil::mapTensorLinearly(graph, src2, 1, 1); // TODO: better mapping ?
-  Tensor dst2 =
-      graph.addVariable(data.elementType(), data.shape(), {"destination"});
-  poputil::mapTensorLinearly(graph, dst2, 1, 1); // TODO: better mapping ?
-
-  Tensor index1 = graph.addVariable(poplar::UNSIGNED_INT, {}, {"index"});
-  graph.setTileMapping(index1, 1); // TODO: find better tile ?
-  Tensor index2 = graph.addVariable(poplar::UNSIGNED_INT, {}, {"index"});
-  graph.setTileMapping(index2, 1); // TODO: find better tile ?
+  // Calculate index
   Tensor replicaIndex = graph.addReplicationIndexConstant({"replicaIndex"});
   graph.setTileMapping(replicaIndex, 1);
-  popops::mapInPlace(graph,
-                     (popops::expr::_2 / stride),
-                     {index1, replicaIndex},
-                     prog,
-                     {"computeIndex"});
-  prog.add(program::Copy(index1, index2));
-  allGatherInit(graph, data, prog, res, index1, src, src2);
+  Tensor index1 = popops::map(graph,
+                              (popops::expr::_1 / stride),
+                              {replicaIndex},
+                              prog,
+                              {"computeIndex"});
+  Tensor index2 = poputil::duplicate(graph, index1, prog);
+
+  // Create buffers
+  Tensor res  = graph.cloneN(data, size);
+  Tensor src  = graph.clone(data);
+  Tensor src2 = graph.clone(data);
+  Tensor dst  = graph.clone(data);
+  Tensor dst2 = graph.clone(data);
+
+  // Initialise
+  popops::dynamicUpdate(graph,
+                        res,
+                        data.expand({0}),
+                        index1.expand({0}),
+                        {0},
+                        {1},
+                        prog,
+                        {"initialCopy"});
+  prog.add(program::Copy(data, src));
+  prog.add(program::Copy(data, src2));
+  prog.add(program::WriteUndef(dst));
+  prog.add(program::WriteUndef(dst2));
+
+  // Setup counters
   Tensor one = graph.addConstant(poplar::UNSIGNED_INT, {1}, 1, {"one"});
-  graph.setTileMapping(one, 1); // TODO: find better tile ?
+  graph.setTileMapping(one, 1);
   Tensor step = graph.addVariable(poplar::UNSIGNED_INT, {}, {"step"});
-  graph.setTileMapping(step, 1); // TODO: find better tile ?
+  graph.setTileMapping(step, 1);
   prog.add(program::Copy(one, step));
+
+  // Loop
   program::Sequence loop = allGatherLoop(graph,
                                          res,
                                          src,
@@ -500,9 +479,11 @@ Tensor ringAllGather(Graph &graph,
                                          ring,
                                          revRing,
                                          stride,
-                                         group,
+                                         size,
                                          true);
   prog.add(program::Repeat((ring.size() / 4) - 1, loop, {"loop"}));
+
+  // Final Step
   program::Sequence endLoop = allGatherLoop(graph,
                                             res,
                                             src,
@@ -515,15 +496,121 @@ Tensor ringAllGather(Graph &graph,
                                             ring,
                                             revRing,
                                             stride,
-                                            group,
+                                            size,
                                             false);
   prog.add(endLoop);
   return res;
 }
+} // namespace
 
 // -------- All Reduce --------
 
 Tensor allReduceStrided(Graph &graph,
+                        const Tensor &data,
+                        program::Sequence &prog,
+                        gcl::CollectiveOperator op,
+                        uint32_t stride,
+                        uint32_t size,
+                        const DebugContext &debugContext,
+                        const OptionFlags &options) {
+  if (!(op == gcl::CollectiveOperator::ADD ||
+        op == gcl::CollectiveOperator::MEAN)) {
+    throw runtime_error(
+        "reduceScatterStrided only supports "
+        "gcl::CollectiveOperator::ADD and gcl::CollectiveOperator::MEAN");
+  }
+  if (stride == 1) {
+    return gcl::allReduceCrossReplica(graph,
+                                      data,
+                                      op,
+                                      prog,
+                                      consecutiveGroup(graph, size * stride),
+                                      debugContext,
+                                      options);
+  } else {
+    if (stride == 64) {
+      return gcl::allReduceCrossReplica(
+          graph,
+          data,
+          op,
+          prog,
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          debugContext,
+          options);
+    } else {
+      Tensor out;
+      if (stride * size == 64) {
+        out = ringAllReduce(graph, data, prog, stride, size);
+      } else {
+        out = maskedAllReduce(graph, data, prog, stride, size);
+      }
+      if (op == gcl::CollectiveOperator::MEAN) {
+        popops::mulInPlace(
+            graph, out, 1.f / static_cast<float>(size), prog, debugContext);
+      }
+      return out;
+    }
+  }
+}
+
+// -------- All Reduce --------
+
+// ------ Reduce Scatter ------
+
+Tensor reduceScatterStrided(Graph &graph,
+                            const Tensor &data,
+                            program::Sequence &prog,
+                            gcl::CollectiveOperator op,
+                            uint32_t stride,
+                            uint32_t size,
+                            const DebugContext &debugContext,
+                            const OptionFlags &options) {
+  if (!(op == gcl::CollectiveOperator::ADD ||
+        op == gcl::CollectiveOperator::MEAN)) {
+    throw runtime_error(
+        "reduceScatterStrided only supports "
+        "gcl::CollectiveOperator::ADD and gcl::CollectiveOperator::MEAN");
+  }
+  if (stride == 1) {
+    return gcl::reduceScatterCrossReplica(
+        graph,
+        data,
+        op,
+        prog,
+        consecutiveGroup(graph, size * stride),
+        debugContext,
+        options);
+  } else {
+    if (stride == 64) {
+      return gcl::reduceScatterCrossReplica(
+          graph,
+          data,
+          op,
+          prog,
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          debugContext,
+          options);
+    } else {
+      Tensor out;
+      if (stride * size == 64) {
+        out = ringReduceScatter(graph, data, prog, stride, size);
+      } else {
+        out = maskedReduceScatter(graph, data, prog, stride, size);
+      }
+      if (op == gcl::CollectiveOperator::MEAN) {
+        popops::mulInPlace(
+            graph, out, 1.f / static_cast<float>(size), prog, debugContext);
+      }
+      return out;
+    }
+  }
+}
+
+// ------ Reduce Scatter ------
+
+// -------- All Gather --------
+
+Tensor allGatherStrided(Graph &graph,
                         const Tensor &data,
                         program::Sequence &prog,
                         uint32_t stride,
@@ -531,32 +618,29 @@ Tensor allReduceStrided(Graph &graph,
                         const DebugContext &debugContext,
                         const OptionFlags &options) {
   if (stride == 1) {
-    return gcl::allReduceCrossReplica(
-        graph,
-        data,
-        gcl::CollectiveOperator::ADD,
-        prog,
-        gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, size),
-        debugContext,
-        options);
+    return gcl::allGatherCrossReplica(graph,
+                                      data,
+                                      prog,
+                                      consecutiveGroup(graph, size * stride),
+                                      debugContext,
+                                      options);
   } else {
     if (stride == 64) {
-      return gcl::allReduceCrossReplica(
+      return gcl::allGatherCrossReplica(
           graph,
           data,
-          gcl::CollectiveOperator::ADD,
           prog,
           gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
           debugContext,
           options);
     } else {
       if (stride * size == 64) {
-        return ringAllReduce(graph, data, prog, stride, size);
+        return ringAllGather(graph, data, prog, stride, size);
       } else {
-        return maskedAllReduce(graph, data, prog, stride, size);
+        return maskedAllGather(graph, data, prog, stride, size);
       }
     }
   }
 }
 
-// -------- All Reduce --------
+// -------- All Gather --------

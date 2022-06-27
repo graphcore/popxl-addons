@@ -8,6 +8,7 @@ import numpy as np
 import popart._internal.ir as _ir
 
 from popxl_addons.ops.replicated_strided_collectives import *
+from popxl_addons.patterns import apply_pre_alias_patterns
 
 
 def test_all_reduce_strided_op():
@@ -30,8 +31,7 @@ def test_all_reduce_strided_op():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        y = replicated_all_reduce_strided(x, rg)
+        y = replicated_all_reduce_strided(x, group=ir.replica_grouping(stride, group_size))
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
@@ -66,8 +66,9 @@ def test_all_reduce_strided_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided, x, rg)
+        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided,
+                                           x,
+                                           group=ir.replica_grouping(stride, group_size))
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -80,9 +81,7 @@ def test_all_reduce_strided_op_backwards():
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir)
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -109,16 +108,13 @@ def test_all_reduce_strided_identical_inputs_op():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        y = replicated_all_reduce_strided_identical_inputs(x, rg)
+        y = replicated_all_reduce_strided_identical_inputs(x, group=ir.replica_grouping(stride, group_size))
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir)
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -150,8 +146,9 @@ def test_all_reduce_strided_identical_inputs_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_inputs, x, rg)
+        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_inputs,
+                                           x,
+                                           group=ir.replica_grouping(stride, group_size))
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -165,9 +162,7 @@ def test_all_reduce_strided_identical_inputs_op_backwards():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir)
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -199,16 +194,13 @@ def test_all_reduce_strided_identical_grad_inputs_op():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        y = replicated_all_reduce_strided_identical_grad_inputs(x, rg)
+        y = replicated_all_reduce_strided_identical_grad_inputs(x, group=ir.replica_grouping(stride, group_size))
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir)
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -240,8 +232,9 @@ def test_all_reduce_strided_identical_grad_inputs_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        rg = ir.replica_grouping(stride, group_size)
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_grad_inputs, x, rg)
+        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_grad_inputs,
+                                           x,
+                                           group=ir.replica_grouping(stride, group_size))
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -255,9 +248,7 @@ def test_all_reduce_strided_identical_grad_inputs_op_backwards():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    ir._pb_ir.setPatterns(_ir.patterns.Patterns(_ir.patterns.PatternsLevel.Default))
-    for g in ir._pb_ir.getAllGraphs():
-        ir._pb_ir.applyPreAliasPatterns(g)
+    apply_pre_alias_patterns(ir)
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -290,7 +281,7 @@ def test_error_need_to_run_pattern():
         x = ops.host_load(x_h2d, name="x")
 
         rg = ir.replica_grouping(stride, group_size)
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_grad_inputs, x, rg)
+        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_grad_inputs, x, group=rg)
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)

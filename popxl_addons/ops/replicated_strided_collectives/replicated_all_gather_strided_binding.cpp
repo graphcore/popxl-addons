@@ -64,11 +64,7 @@ public:
                                const uint32_t stride_,
                                const uint32_t groupSize_,
                                const Op::Settings &settings_)
-      : CollectivesBaseOp(
-            _opid,
-            stride_ == 1 ? CommGroup(CommGroupType::Consecutive, groupSize_)
-                         : CommGroup(CommGroupType::None, 0),
-            settings_),
+      : CollectivesBaseOp(_opid, CommGroup(CommGroupType::None, 0), settings_),
         stride(stride_), groupSize(groupSize_) {}
 
   std::unique_ptr<Op> clone() const {
@@ -147,7 +143,7 @@ public:
   }
 
   uint32_t getStride() const { return stride; }
-  uint32_t getGroupSize() const { return groupSize; }
+  int64_t getCommSize() const override { return groupSize; }
 
 protected:
   TensorInfo gatheredOutInfo;
@@ -172,52 +168,19 @@ public:
 
   void grow(snap::program::Sequence &prog) const {
     auto &op = getOp<ReplicatedAllGatherStridedOp>();
-
+    poplar::Tensor toGather =
+        getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
+            .getPoplarTensor();
     const poplar::OptionFlags &allGatherOptions = dv_p->lowering().gclOptions;
-    poplar::Tensor gathered;
-    uint32_t stride = op.getStride(), groupSize = op.getGroupSize();
-    if (stride == 1) {
-      gathered = gcl::allGatherCrossReplica(
-          graph().getPoplarGraph(),
-          getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
-              .getPoplarTensor(),
-          prog.getPoplarSequence(),
-          toGCLCommGroup(popart::CommGroup(popart::CommGroupType::Consecutive,
-                                           op.getGroupSize())),
-          debugContext("replicatedAllGatherStrided"),
-          allGatherOptions);
-    } else {
-      if (stride == 64) {
-        gathered = gcl::allGatherCrossReplica(
-            graph().getPoplarGraph(),
-            getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
-                .getPoplarTensor(),
-            prog.getPoplarSequence(),
-            toGCLCommGroup(
-                popart::CommGroup(popart::CommGroupType::Orthogonal, stride)),
-            debugContext("replicatedAllGatherStrided"),
-            allGatherOptions);
-      } else {
-        if (stride * groupSize == 64) {
-          gathered = ringAllGather(
-              graph().getPoplarGraph(),
-              getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
-                  .getPoplarTensor(),
 
-              prog.getPoplarSequence(),
-              stride,
-              groupSize);
-        } else {
-          gathered = maskedAllGather(
-              graph().getPoplarGraph(),
-              getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
-                  .getPoplarTensor(),
-              prog.getPoplarSequence(),
-              stride,
-              groupSize);
-        }
-      }
-    }
+    poplar::Tensor gathered =
+        allGatherStrided(graph().getPoplarGraph(),
+                         toGather,
+                         prog.getPoplarSequence(),
+                         op.getStride(),
+                         op.getCommSize(),
+                         debugContext("replicatedAllGatherStrided"),
+                         allGatherOptions);
 
     if (getOp<ReplicatedAllGatherStridedOp>()
             .isConfigureOutputForReplicatedTensorSharding()) {
@@ -357,7 +320,7 @@ PYBIND11_MODULE(replicated_all_gather_strided_binding, m) {
 <%
 cfg['extra_compile_args'] = ['-std=c++14', '-fPIC', '-O2', '-DONNX_NAMESPACE=onnx', '-Wall', '-Wno-sign-compare']
 cfg['sources'] = ['mgcl.cpp']
-cfg['libraries'] = ['popart']
+cfg['libraries'] = ['popart', 'poplar', 'popops']
 setup_pybind11(cfg)
 %>
 */

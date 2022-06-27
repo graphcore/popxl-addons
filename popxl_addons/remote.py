@@ -1,18 +1,20 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from contextlib import contextmanager
-from typing import List, Tuple, Union
+from multiprocessing.sharedctypes import Value
+from typing import List, Tuple, Union, Optional
 
 import numpy as np
 
 import popxl
-from popxl import ops
+from popxl import ReplicaGrouping, ops
 
 from popxl_addons.dot_tree import DotTree
 from popxl_addons import GraphWithNamedArgs, NamedVariableFactories, NamedTensors
+from popxl_addons.named_replica_grouping import NamedReplicaGrouping, get_instance_replica_grouping, is_cross_instance
 from popxl_addons.rts import replica_sharded_spec
 from popxl_addons.utils import null_context
 
-__all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_variable_buffers"]
+__all__ = ["load_remote_graph", "store_remote_graph", "named_buffers", "named_variable_buffers", "create_remote_buffer"]
 
 
 class NamedRemoteBuffers(DotTree[popxl.RemoteBuffer]):
@@ -31,7 +33,6 @@ def named_buffers(tensors: NamedTensors, entries: int = 1, sharded_threshold: in
     Returns:
         NamedRemoteBuffers: A buffer for each Tensor with names matching the NamedTensors' names.
     """
-    rf = popxl.gcg().ir.replication_factor
     buffers = {}
     for name, t in tensors.to_dict().items():
         spec = replica_sharded_spec(t, sharded_threshold)
@@ -41,33 +42,73 @@ def named_buffers(tensors: NamedTensors, entries: int = 1, sharded_threshold: in
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def named_variable_buffers(factories: NamedVariableFactories, entries: int = 1, sharded_threshold: int = 1024):
+def named_variable_buffers(factories: NamedVariableFactories,
+                           entries: int = 1,
+                           sharded_threshold: int = 1024,
+                           shard_groups: Optional[NamedReplicaGrouping] = None):
     """Create a buffer for each VariableFactory in `factories`. The buffers will have `entries` set.
-    Any factory with `nelms >= sharded_threshold` will have a replica sharded RemoteBuffer created instead.
+    Any factory with `nelms >= sharded_threshold` will have a replica sharded buffer over the instances instead.
 
     Args:
         factories (NamedVariableFactories): VariableFactories to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         sharded_threshold (int, optional): factories with nelms >= this will have replica sharded buffers. Defaults to 1024.
-
+        shard_groups (NamedReplicaGrouping, optional): rts groups for the factories.
     Returns:
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
+    ir = popxl.gcg().ir
+
+    shard_groups = shard_groups or factories.replica_groupings.map(get_instance_replica_grouping)
+    shard_groups = shard_groups.to_dict()
     for name, f in factories.to_dict().items():
-        nelms = np.prod(f.shape)
-        rf = popxl.gcg().ir.replication_factor
-        if f.replica_sharded:
-            buffer = popxl.remote_buffer(f.shape, f.dtype, entries)
-            buffer.meta_shape = f.meta_shape
-        elif popxl.gcg().ir.replication_factor > 1 and nelms >= sharded_threshold and nelms % rf == 0:
-            shape = (nelms // rf, )
-            buffer = popxl.remote_buffer(shape, f.dtype, entries)
-            buffer.meta_shape = f.shape
-        else:
-            buffer = popxl.remote_buffer(f.shape, f.dtype, entries)
-        buffers[name] = buffer
+        tensor_spec = popxl.TensorSpec(shape=f.shape, dtype=f.dtype, meta_shape=f.meta_shape)
+        replica_grouping = f.replica_grouping or ir.replica_grouping()
+        buffers[name] = create_remote_buffer(tensor_spec,
+                                             entries=entries,
+                                             sharded_threshold=sharded_threshold,
+                                             replica_group=f.replica_grouping,
+                                             shard_group=shard_groups[name])
     return NamedRemoteBuffers.from_dict(buffers)
+
+
+def create_remote_buffer(spec: popxl.TensorSpec,
+                         entries: int = 1,
+                         sharded_threshold: int = 1024,
+                         replica_group: Optional[ReplicaGrouping] = None,
+                         shard_group: Optional[ReplicaGrouping] = None):
+    """Create a buffer given a TensorSpec and a replica grouping.
+    If the spec has `nelms >= sharded_threshold` a replica sharded buffer over the instances will be produced instead.
+
+    Args:
+        spec (popxl.TensorSpec): tensor spec to create buffers for.
+        entries (int, optional): Number of entries of the buffer. Defaults to 1.
+        sharded_threshold (int, optional): if the spec has nelms >= this a replica sharded buffer will be created. Defaults to 1024.
+        replica_group (ReplicaGrouping, optional): variable replica group
+        shard_group (ReplicaGrouping, optional): rts replica group
+    Returns:
+        NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
+    """
+    ir = popxl.gcg().ir
+    nelms = np.prod(spec.shape)
+    replica_group = replica_group or ir.replica_grouping()
+
+    if is_cross_instance(shard_group):
+        raise ValueError("The shard group must be restricted to a single instance. Use get_instance_replica_grouping.")
+
+    # TODO add default shard
+
+    if spec.meta_shape:
+        buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
+        buffer.meta_shape = spec.meta_shape
+    elif nelms >= sharded_threshold and nelms % shard_group.group_size == 0:
+        # Include replica_grouping dim
+        shape = (replica_group.num_groups, *spec.shape) if replica_group.num_groups > 1 else spec.shape
+        buffer = popxl.replica_sharded_buffer(shape, spec.dtype, replica_group, shard_group, entries)
+    else:
+        buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
+    return buffer
 
 
 def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1,

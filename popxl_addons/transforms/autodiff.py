@@ -12,6 +12,7 @@ from popxl_addons.dot_tree import sanitise
 from popxl_addons.variable_factory import VariableFactory, NamedVariableFactories, add_variable_input
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.graph import GraphWithNamedArgs
+from popxl_addons.named_replica_grouping import NamedReplicaGrouping
 
 __all__ = ["autodiff", "autodiff_with_accumulation"]
 
@@ -80,7 +81,8 @@ def autodiff(
 def autodiff_with_accumulation(
         graph: GraphWithNamedArgs,
         tensors_to_accumulate_grads: Iterable[popxl.Tensor],
-        grads_required: Optional[Iterable[popxl.Tensor]] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
+        grads_required: Optional[Iterable[popxl.Tensor]] = None,
+        replica_groupings: Optional[NamedReplicaGrouping] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
     """
     Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
     graph which takes a running mean of the tensor and the result stored in an accumulator tensor. The accumulators are
@@ -96,13 +98,15 @@ def autodiff_with_accumulation(
         graph (popxl.Graph)
         tensors_to_accumulate_grads (Iterable[popxl.Tensor]). Tensors to accumulate and calculate a running mean. They are automatically added as grads required.
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
+        replica_groupings (Optional[NamedReplicaGrouping], optional). Replica groupings for tensors_to_accumulate_grads. Defaults to all replicas.
 
     Returns:
-        NamedVariableFactories: variable factories for the accumulation tensors (initialised as zeros) needed for graph inputs
+        NamedVariableFactories: variable factories for the accumulation tensors (initialised as zeros and with the provided replica grouping) needed for graph inputs
         GraphWithNamedArgs: grad graph of `graph` with NamedArgs
         GradGraphInfo: grad graph of `graph`
     """
-
+    replica_groupings = replica_groupings or NamedReplicaGrouping.build_default_groups(graph.args.named_tensors.keys())
+    replica_groupings = replica_groupings.to_dict()
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads
 
@@ -135,8 +139,13 @@ def autodiff_with_accumulation(
                 subgraph_tensor = popxl.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getOutputTensor(idx))
 
                 name = names.get(tensor, sanitise(tensor.name))
+                replica_grouping = replica_groupings[name] or popxl.gcg().ir.replica_grouping()
                 name = "accum." + name
-                accum = add_input(name, partial(np.zeros, shape=tensor.shape), tensor.dtype, by_ref=True)
+                accum = add_input(name,
+                                  partial(np.zeros, shape=tensor.shape),
+                                  tensor.dtype,
+                                  by_ref=True,
+                                  replica_grouping=replica_grouping)
                 ops.var_updates.accumulate_mean_(accum, subgraph_tensor, counter)
 
         ops.var_updates.accumulate_(counter, popxl.constant(1, popxl.float32))

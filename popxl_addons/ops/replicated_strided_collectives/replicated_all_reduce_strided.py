@@ -5,7 +5,7 @@ import cppimport.import_hook
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_all_reduce_strided_binding
 
-from typing import Tuple, List
+from typing import Optional, Tuple, List
 import popxl
 from popxl import Tensor, ReplicaGrouping, ops
 from popxl.context import op_debug_context, get_current_context
@@ -21,30 +21,32 @@ __all__ = [
 
 
 @op_debug_context
-def replicated_all_reduce_strided(t: Tensor, rg: ReplicaGrouping, op: CollectiveOps = "add") -> Tensor:
+def replicated_all_reduce_strided(t: Tensor, op: CollectiveOps = "add",
+                                  group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce.
 
     Args:
         t (Tensor): Tensor to be reduced
-        rg (ReplicaGrouping): Stride and group size used in the partition of the replicas.
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
+        group (ReplicaGrouping, optional): Stride and group size used in the partition of the replicas. Default all replicas.
 
     Returns:
 
     """
     return _replicated_all_reduce_strided(
         t,
-        rg.stride,
-        rg.group_size,
         op,
+        group,
         identical_inputs=False,
         identical_grad_inputs=False,
     )
 
 
 @op_debug_context
-def replicated_all_reduce_strided_identical_inputs(t: Tensor, rg: ReplicaGrouping, op: CollectiveOps = "add") -> Tensor:
+def replicated_all_reduce_strided_identical_inputs(t: Tensor,
+                                                   op: CollectiveOps = "add",
+                                                   group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce.
 
@@ -53,25 +55,25 @@ def replicated_all_reduce_strided_identical_inputs(t: Tensor, rg: ReplicaGroupin
 
     Args:
         t (Tensor): Tensor to be reduced
-        rg (ReplicaGrouping): Stride and group size used in the partition of the replicas.
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
+        group (ReplicaGrouping, optional): Stride and group size used in the partition of the replicas. Default all replicas.
 
     Returns:
 
     """
     return _replicated_all_reduce_strided(
         t,
-        rg.stride,
-        rg.group_size,
         op,
+        group,
         identical_inputs=True,
         identical_grad_inputs=False,
     )
 
 
 @op_debug_context
-def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor, rg: ReplicaGrouping,
-                                                        op: CollectiveOps = "add") -> Tensor:
+def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor,
+                                                        op: CollectiveOps = "add",
+                                                        group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce.
 
@@ -80,17 +82,16 @@ def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor, rg: ReplicaGr
 
     Args:
         t (Tensor): Tensor to be reduced
-        rg (ReplicaGrouping): Stride and group size used in the partition of the replicas.
         op (str, optional): Operation to reduce with. 'add' is currently only supported.
+        group (ReplicaGrouping, optional): Stride and group size used in the partition of the replicas. Default all replicas.
 
     Returns:
 
     """
     return _replicated_all_reduce_strided(
         t,
-        rg.stride,
-        rg.group_size,
         op,
+        group,
         identical_inputs=False,
         identical_grad_inputs=True,
     )
@@ -98,17 +99,11 @@ def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor, rg: ReplicaGr
 
 def _replicated_all_reduce_strided(
         t: Tensor,
-        stride: int,
-        group_size: int,
         op: CollectiveOps,
+        group: Optional[ReplicaGrouping],
         identical_inputs: bool,
         identical_grad_inputs: bool,
 ) -> Tensor:
-
-    is_mean = op == "mean"
-    if is_mean:
-        op = "add"
-
     op_ = to_collective_op(op)  # Only add is currently supported
 
     ctx = get_current_context()
@@ -116,6 +111,13 @@ def _replicated_all_reduce_strided(
     pb_g = g._pb_graph
 
     check_in_graph(g, t=t)
+
+    if group is not None:
+        stride = group.stride
+        size = group.group_size
+    else:
+        stride = 1
+        size = g.ir.replication_factor
 
     settings = ctx._get_op_settings("ReplicatedAllReduceStrided")
     op = replicated_all_reduce_strided_binding.ReplicatedAllReduceStridedOp.createOpInGraph(
@@ -128,31 +130,26 @@ def _replicated_all_reduce_strided(
         },
         op_,
         stride,
-        group_size,
+        size,
         identical_inputs,
         identical_grad_inputs,
         settings,
     )
     ctx._op_created(op)
 
-    out = Tensor._from_pb_tensor(op.outTensor(0))
-    if is_mean:
-        out = out / group_size
-
-    return out
+    return Tensor._from_pb_tensor(op.outTensor(0))
 
 
 def replicated_all_reduce_strided_graph(tensors: NamedTensors,
-                                        group: ReplicaGrouping,
-                                        op: CollectiveOps,
+                                        op: CollectiveOps = 'add',
+                                        group: Optional[ReplicaGrouping] = None,
                                         use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that reduces each Tensor in `tensors` using op.
     The Graph with have a NamedArg for each the tensors in `tensors`.
-    Tensors with `nelms >= threshold` will be reduce scattered for replica sharding, otherwise all_reduced.
 
     Usage:
     ```
-        g, names = reduce_replica_sharded_graph(tensors)
+        g, names = replicated_all_reduce_strided_graph(tensors)
         ...
         reduced_ts = NamedTensors.pack(names, g.bind(ts).call())
     ```
@@ -160,7 +157,7 @@ def replicated_all_reduce_strided_graph(tensors: NamedTensors,
     Args:
         tensors (NamedTensors): Input Tensors to replica reduced.
         op (CollectiveOps): Operation to use for reduction.
-        threshold (int, optional): Tensors with nelms >= this will be reduce scattered for replica sharding. Defaults to 1024.
+        group (ReplicaGrouping, optional): Stride and group size used in the partition of the replicas. Default all replicas.
         use_io_tiles (bool, optional): If True, tensors will be copied to IO tiles before reducing. Defaults to False.
 
     Returns:

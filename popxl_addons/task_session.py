@@ -23,7 +23,7 @@ ReportMissingMethods = Literal['none', 'warn', 'error']
 def write_variables_pb(session: popxl.Session, weights: Mapping[popxl.Tensor, np.ndarray]):
     weightsIo = popart.PyWeightsIO({xl_t.id: np_t for xl_t, np_t in weights.items()})
     session._pb_session.writeWeights(weightsIo)
-    if session.device.isAttached:
+    if session.is_attached:
         session._pb_session.weightsFromHost()
 
 

@@ -23,6 +23,6 @@ class LayerNorm(addons.Module):
     """
 
     def build(self, x: popxl.Tensor, eps: float = 1e-5) -> popxl.Tensor:
-        w = self.add_variable_input("weight", partial(np.ones, x.shape[-1]), x.dtype)
-        b = self.add_variable_input("bias", partial(np.zeros, x.shape[-1]), x.dtype)
+        w = self.add_variable_input("weight", partial(np.ones, x.shape[1]), x.dtype)
+        b = self.add_variable_input("bias", partial(np.zeros, x.shape[1]), x.dtype)
         return ops.layer_norm(x, w, b, eps=eps)

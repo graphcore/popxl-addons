@@ -1,32 +1,26 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 
 import argparse
-from doctest import OutputChecker
 from functools import partial
 from typing import Mapping, Optional
-from typing_extensions import Literal
 import torch
 import torchvision
 from tqdm import tqdm
 import numpy as np
 from time import time
-from dataclasses import dataclass, field
 
 import popxl
 import popxl_addons as addons
 import popxl.ops as ops
-from typing import Union, Dict
-from popxl_addons.graph import GraphWithNamedArgs, BoundGraph
+from typing import Union
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.variable_factory import NamedVariableFactories
-from popxl.transforms import GradGraphInfo
-import logging
 from popxl_addons import batch_serialise, batch_serialise_fwd_and_grad, batch_serial_buffer
 from popxl_addons.rts import (
     all_gather_replica_sharded_graph,
     replica_sharded_spec,
 )
-from popxl_addons.reduce_remote_variables import reduce_replica_sharded_graph
+from popxl_addons.rts import reduce_replica_sharded_graph
 
 from popxl_addons.remote import (
     named_variable_buffers,

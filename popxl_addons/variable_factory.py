@@ -11,6 +11,7 @@ from popxl.utils import to_numpy
 
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.dot_tree import DotTree
+from popxl_addons.named_replica_grouping import NamedReplicaGrouping
 from popxl_addons.named_tensors import NamedTensors
 
 if TYPE_CHECKING:
@@ -46,8 +47,6 @@ class VariableFactory:
                 `(n_groups, *data_shape)`
         """
 
-        assert not (replica_sharded and replica_grouping), 'Not tested with replica group and replica sharded'
-
         if callable(data_iter):
             # Test callable
             try:
@@ -81,12 +80,14 @@ class VariableFactory:
 
         self.dtype = dtype or dtypes.dtype.as_dtype(data_peek)
 
+        self.meta_shape = None
+        self.shape = data_peek.shape
         if self.replica_sharded:
-            self.meta_shape = data_peek.shape
-            self.shape = (int(np.prod(self.meta_shape)) // popxl.gcg().ir.replication_factor, )
-        else:
-            self.meta_shape = None
-            self.shape = data_peek.shape
+            self.meta_shape = self.shape
+            ir = popxl.gcg().ir
+            group = self.replica_grouping or ir.replica_grouping()
+            shard_size = ir.instance_replication_factor // group.num_groups
+            self.shape = (int(np.prod(self.meta_shape)) // shard_size, )
 
     def create_input(self, prefix: Optional[str] = None) -> popxl.Tensor:
         """Create a subgraph input for the current graph."""
@@ -128,7 +129,7 @@ class VariableFactory:
             return popxl.remote_variable(data, buffer, entry, dtype, name, replica_grouping=self.replica_grouping)
 
     def next_data(self) -> HostTensor:
-        if not self.replica_grouping:
+        if not self.replica_grouping or self.replica_grouping.num_groups == 1:
             return next(self.data_iter)
         else:
             return np.concatenate([
@@ -214,6 +215,13 @@ class NamedVariableFactories(DotTree[VariableFactory]):
             ts[name] = ops.init(factory.shape, factory.dtype, name, "undef")
         return NamedTensors.from_dict(ts)
 
+    @property
+    def replica_groupings(self) -> NamedReplicaGrouping:
+        groups = {}
+        for name, f in self.to_dict().items():
+            groups[name] = f.replica_grouping
+        return NamedReplicaGrouping.from_dict(groups)
+
 
 def add_variable_input(
         name: str,
@@ -223,16 +231,18 @@ def add_variable_input(
         replica_grouping: Optional[ReplicaGrouping] = None,
 ) -> Tuple[popxl.Tensor, VariableFactory]:
     """Create a VariableFactory and graph_input in the current graph."""
-    input_f = VariableFactory(data_iter, dtype, name, by_ref, replica_grouping=replica_grouping)
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, False, replica_grouping=replica_grouping)
     tensor = input_f.create_input()
     return tensor, input_f
 
 
-def add_replica_sharded_variable_input(name: str,
-                                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                                       dtype: Optional[dtypes.dtype] = None,
-                                       by_ref: bool = False) -> Tuple[popxl.Tensor, VariableFactory]:
+def add_replica_sharded_variable_input(
+        name: str,
+        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+        dtype: Optional[dtypes.dtype] = None,
+        by_ref: bool = False,
+        replica_grouping: Optional[ReplicaGrouping] = None) -> Tuple[popxl.Tensor, VariableFactory]:
     """Create a VariableFactory and replica sharded graph_input in the current graph."""
-    input_f = VariableFactory(data_iter, dtype, name, by_ref, True)
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, True, replica_grouping=replica_grouping)
     tensor = input_f.create_input()
     return tensor, input_f

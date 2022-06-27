@@ -109,7 +109,8 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
                                            name: str,
                                            data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                                            dtype: Optional[dtypes.dtype] = None,
-                                           by_ref: bool = False) -> popxl.Tensor:
+                                           by_ref: bool = False,
+                                           replica_grouping: Optional[ReplicaGrouping] = None) -> popxl.Tensor:
         """Add a replica sharded initialised input tensor. The graph input will be sharded, however the initialised Tensor will
             be constructed whole.
             `remote_replica_sharded_variable` or `ops.collectives.replicated_reduce_scatter(..., configure_output_for_replicated_tensor_sharding=True)`
@@ -117,7 +118,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
 
         Args:
             name (str): named of the input Tensor. Used for both the Named VariableFactory/Arg and the Tensor debug name.
-            data_iter (Union[Callable[[None], np.ndarray], Iterable[np.ndarray]]): 
+            data_iter (Union[Callable[[None], np.ndarray], Iterable[np.ndarray]]):
                 Either a function or iterable that generates data for each instance of the input tensor. Each element of
                 data should be a HostTensor type (numpy, pytorch, ect.) with the same shape and data type (this is not
                 checked at runtime). If you want your data to be the same for all tensor instances wrap it in a
@@ -125,7 +126,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             dtype (Optional[dtypes.dtype], optional): dtype of input. Defaults to None.
             by_ref (bool, optional): Pass the input by reference. Defaults to False.
         """
-        tensor, variable_f = add_replica_sharded_variable_input(name, data_iter, dtype, by_ref)
+        tensor, variable_f = add_replica_sharded_variable_input(name, data_iter, dtype, by_ref, replica_grouping)
         self._variable_factories.insert(name, variable_f)
         self._named_inputs.insert(name, tensor)
         return tensor
