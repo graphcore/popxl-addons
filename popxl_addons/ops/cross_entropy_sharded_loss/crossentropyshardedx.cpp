@@ -191,7 +191,7 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
                                            nSamples,
                                            nClasses,
                                            1,
-                                           {nClasses - 1}, // max index value
+                                           {1},
                                            sliceOptions);
 
   auto lossPartial =
@@ -315,7 +315,7 @@ void CrossEntropyShardedGradOpx::grow(snap::program::Sequence &prog) const {
                                            nSamples,
                                            nClasses,
                                            1,
-                                           {nClasses - 1}, // max index value
+                                           {1},
                                            sliceOptions);
 
   popops::groupedMultiUpdateAdd(graphPop,

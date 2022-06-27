@@ -10,6 +10,9 @@ from typing import Optional
 
 import popxl_addons as addons
 
+# The dynamic slice libraries particularly like multiples of 16.
+MULTISLICE_MAGIC_NUMBER = 16
+
 
 class Embedding(addons.Module):
     def __init__(self,
@@ -32,7 +35,7 @@ class Embedding(addons.Module):
         self.hidden_size = hidden_size
         self.axis = axis
         self.replica_grouping = replica_grouping
-        if replica_grouping:
+        if self.replica_grouping:
             self.n_shards = self.replica_grouping.num_groups
         else:
             self.n_shards = 1
@@ -43,7 +46,8 @@ class Embedding(addons.Module):
     @staticmethod
     def get_vocab_shard_size(vocab_size: int, n_shards: int) -> int:
         """If using sharding, vocab size per shard. If no sharding it is equivalent to `vocab_size`"""
-        return ceil(vocab_size / n_shards)
+        shard_size = ceil(vocab_size / n_shards)
+        return MULTISLICE_MAGIC_NUMBER * ceil(shard_size / MULTISLICE_MAGIC_NUMBER)
 
     @staticmethod
     def get_offsets(vocab_size: int, n_shards: int) -> np.ndarray:

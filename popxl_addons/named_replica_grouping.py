@@ -5,7 +5,6 @@ from popxl import ReplicaGrouping, ops
 from popxl.context import debug_context_frame_offset
 from popxl.tensor import Variable
 from popxl_addons.dot_tree import DotTree
-
 if TYPE_CHECKING:
     from popxl_addons import GraphWithNamedArgs
 
