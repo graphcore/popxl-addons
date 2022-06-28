@@ -102,7 +102,7 @@ def create_remote_buffer(spec: popxl.TensorSpec,
     if spec.meta_shape:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
         buffer.meta_shape = spec.meta_shape
-    elif nelms >= sharded_threshold and nelms % shard_group.group_size == 0:
+    elif shard_group.group_size > 1 and nelms >= sharded_threshold and nelms % shard_group.group_size == 0:
         # Include replica_grouping dim
         shape = (replica_group.num_groups, *spec.shape) if replica_group.num_groups > 1 else spec.shape
         buffer = popxl.replica_sharded_buffer(shape, spec.dtype, replica_group, shard_group, entries)
