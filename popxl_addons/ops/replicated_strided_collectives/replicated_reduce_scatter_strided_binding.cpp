@@ -131,6 +131,7 @@ public:
 
   void appendOutlineAttributes(OpSerialiserBase &os) const {
     Op::appendOutlineAttributes(os);
+    os.appendAttribute("op", op);
     os.appendAttribute("stride", stride);
     os.appendAttribute("groupSize", groupSize);
   }

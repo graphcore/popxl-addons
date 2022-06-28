@@ -3,6 +3,7 @@
 #include "mgcl.hpp"
 #include <cmath>
 #include <gcl/Collectives.hpp>
+#include <poplar/Target.hpp>
 #include <poplar/VariableMappingMethod.hpp>
 #include <popnn/Loss.hpp>
 #include <popops/Cast.hpp>
@@ -15,6 +16,12 @@
 #include <poputil/Util.hpp>
 
 namespace {
+
+bool ringSupported(Graph &graph, uint32_t stride, uint32_t size) {
+  auto &target = graph.getTarget();
+  return stride * size == target.getIpuLinkDomainSize() &&
+         target.getIpuLinkTopology() == IpuLinkTopology::Torus;
+}
 
 gcl::CommGroup consecutiveGroup(Graph &graph, uint32_t size) {
   // Handle GCL's preference of ALL
@@ -243,13 +250,18 @@ Tensor maskedReduceScatter(Graph &graph,
 
 std::map<unsigned int, unsigned int>
 createRing(const Graph &graph, uint32_t stride, uint32_t size) {
-  unsigned int pod = graph.getTarget().getIpuLinkDomainSize();
+  unsigned int pod       = graph.getTarget().getIpuLinkDomainSize();
+  unsigned int instances = graph.getReplicationFactor() / pod;
   assert(stride * size == pod);
   std::map<unsigned int, unsigned int> ring;
-  for (uint32_t i = 0; i < 2; ++i) {
-    for (uint32_t j = 0; j < pod; j += 2) {
-      uint32_t index = i + j;
-      ring[index]    = (index + 2) % pod;
+  for (uint32_t rank = 0; rank < instances; ++rank) {
+    for (uint32_t i = 0; i < 2; ++i) {
+      for (uint32_t j = 0; j < pod; j += 2) {
+        uint32_t offset     = (rank * pod);
+        uint32_t from       = i + j;
+        uint32_t to         = (from + 2) % pod;
+        ring[offset + from] = offset + to;
+      }
     }
   }
   return ring;
@@ -528,18 +540,18 @@ Tensor allReduceStrided(Graph &graph,
                                       debugContext,
                                       options);
   } else {
-    if (stride == 64) {
+    if (stride == graph.getTarget().getIpuLinkDomainSize()) {
       return gcl::allReduceCrossReplica(
           graph,
           data,
           op,
           prog,
-          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, size),
           debugContext,
           options);
     } else {
       Tensor out;
-      if (stride * size == 64) {
+      if (ringSupported(graph, stride, size)) {
         out = ringAllReduce(graph, data, prog, stride, size);
       } else {
         out = maskedAllReduce(graph, data, prog, stride, size);
@@ -581,18 +593,18 @@ Tensor reduceScatterStrided(Graph &graph,
         debugContext,
         options);
   } else {
-    if (stride == 64) {
+    if (stride == graph.getTarget().getIpuLinkDomainSize()) {
       return gcl::reduceScatterCrossReplica(
           graph,
           data,
           op,
           prog,
-          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, size),
           debugContext,
           options);
     } else {
       Tensor out;
-      if (stride * size == 64) {
+      if (ringSupported(graph, stride, size)) {
         out = ringReduceScatter(graph, data, prog, stride, size);
       } else {
         out = maskedReduceScatter(graph, data, prog, stride, size);
@@ -625,16 +637,16 @@ Tensor allGatherStrided(Graph &graph,
                                       debugContext,
                                       options);
   } else {
-    if (stride == 64) {
+    if (stride == graph.getTarget().getIpuLinkDomainSize()) {
       return gcl::allGatherCrossReplica(
           graph,
           data,
           prog,
-          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, stride),
+          gcl::CommGroup(gcl::CommGroupType::ORTHOGONAL, size),
           debugContext,
           options);
     } else {
-      if (stride * size == 64) {
+      if (ringSupported(graph, stride, size)) {
         return ringAllGather(graph, data, prog, stride, size);
       } else {
         return maskedAllGather(graph, data, prog, stride, size);
