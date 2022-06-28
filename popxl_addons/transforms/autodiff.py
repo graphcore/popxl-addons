@@ -105,7 +105,7 @@ def autodiff_with_accumulation(
         GraphWithNamedArgs: grad graph of `graph` with NamedArgs
         GradGraphInfo: grad graph of `graph`
     """
-    replica_groupings = replica_groupings or NamedReplicaGrouping.build_default_groups(graph.args.named_tensors.keys())
+    replica_groupings = replica_groupings or NamedReplicaGrouping.build_groups(graph.args.named_tensors.keys())
     replica_groupings = replica_groupings.to_dict()
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads

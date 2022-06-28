@@ -28,9 +28,14 @@ class NamedReplicaGrouping(DotTree[popxl.ReplicaGrouping]):
         return cls.pack(names, groups)
 
 
-def get_instance_replica_grouping(replica_grouping: popxl.ReplicaGrouping) -> popxl.ReplicaGrouping:
+def get_instance_replica_grouping(replica_grouping: Optional[popxl.ReplicaGrouping] = None) -> popxl.ReplicaGrouping:
+    """
+    Given a replica grouping, returns its equivalent group restricted to a single instance, meaning
+    that the group will have the same stride but will include only IPUs in the instance replication factor.
+    If replica_grouping is None, it defaults to all replicas inside an instance
+    """
     ir = popxl.gcg().ir
-
+    replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
     if replica_grouping.stride > ir.instance_replication_factor:
         raise ValueError("replica grouping stride must be < ir.instance_replication_factor")
 
