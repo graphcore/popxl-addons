@@ -2,6 +2,12 @@
 
 # popxl.addons
 
+> **Warning**
+> The popxl Python package is currently experimental and may be subject to change in future releases in ways that are backwards incompatible without deprecation warnings.
+
+> **Warning**
+> Due to the experimental nature of PopXL and popxl.addons the user and API reference documentation provided is incomplete.
+
 `popxl.addons` provides additionally functionality to supplement the PopXL framework.
 
 Obligatory package alias:
