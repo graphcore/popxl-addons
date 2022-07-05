@@ -8,7 +8,7 @@ Obligatory package alias:
 import popxl_addons as addons
 ```
 
-For examples please see the [user guide](#user-guide), [MNIST examples](examples/mnist) or [tests](tests).
+For examples please see the [tests](tests).
 
 Please note we are not currently accepting pull requests or issues on this repository. If you are actively using this repository and want to report any issues, please raise a ticket through the Graphcore support portal: https://www.graphcore.ai/support.
 
@@ -18,7 +18,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 - Create a Python virtual environment: `python3 -m venv <virtual_env>`
 - Activate the virtual environment: `. <virtual_env>/bin/activate`
 - Update `pip`: `pip3 install --upgrade pip`
-- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@phabricator.sourcevertex.net/diffusion/POPXLADDONS/popxladdons.git`.
+- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@github.com:graphcore/popxl-addons.git`.
 
 ## User guide
 
