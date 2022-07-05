@@ -14,7 +14,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 
 ## Installation
 
-- Install the Poplar SDK >2.6 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
+- Install the Poplar SDK >=2.6 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
 - Create a Python virtual environment: `python3 -m venv <virtual_env>`
 - Activate the virtual environment: `. <virtual_env>/bin/activate`
 - Update `pip`: `pip3 install --upgrade pip`
