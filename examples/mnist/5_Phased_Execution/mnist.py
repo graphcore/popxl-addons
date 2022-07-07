@@ -253,7 +253,7 @@ class Graphs:
 
         self._fwd_all_gather, self._fwd_all_gather_names = all_gather_replica_sharded_graph(
             NamedTensors.pack(self._fwd_load_names, self._fwd_load.graph.outputs))
-        grad_accums = self.grad_facts.copy()
+        grad_accums = self.bwd.args.copy() if self.bwd else self.fwd.args.bwd.copy()
         grad_accums.pop("mean_accum_counter")
         self._grad_reduce, self._grad_reduce_names = reduce_replica_sharded_graph(grad_accums,
                                                                                   'mean',

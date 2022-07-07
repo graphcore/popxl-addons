@@ -239,8 +239,6 @@ def evaluate_throughput(session, samples_per_step, epochs: int = 5):
     durations = []
     assert not session.is_attached
     with session:
-        assert session.is_attached
-        print(session.device)
         for i in range(epochs):
             start = time()
             session.run(inputs)
