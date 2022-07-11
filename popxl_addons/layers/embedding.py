@@ -53,7 +53,7 @@ class Embedding(addons.Module):
     def get_offsets(vocab_size: int, n_shards: int) -> np.ndarray:
         """If using sharding, indices offset per shard."""
         vocab_shard_size = Embedding.get_vocab_shard_size(vocab_size, n_shards)
-        return np.arange(max(vocab_size, n_shards), step=vocab_shard_size)
+        return np.arange(n_shards * vocab_shard_size, step=vocab_shard_size)
 
     def build(self, indices: popxl.Tensor) -> popxl.Tensor:
         """
