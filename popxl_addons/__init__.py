@@ -8,6 +8,7 @@ from .transforms import *
 from .streams import *
 from .utils import *
 from .task_session import *
+from .performance_utils import *
 
 import git
 try:
