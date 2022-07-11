@@ -9,6 +9,8 @@ import numpy as np
 import popxl
 from popxl.utils import table_to_string
 
+__all__ = ["total_FLOPs", "evaluate_ir_FLOPs", "evaluate_FLOPs", "print_FLOPs", "format_flops_scientific"]
+
 
 def total_FLOPs(ir: popxl.Ir) -> int:
     """
