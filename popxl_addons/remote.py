@@ -84,9 +84,10 @@ def create_remote_buffer(spec: popxl.TensorSpec,
     Args:
         spec (popxl.TensorSpec): tensor spec to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
-        sharded_threshold (int, optional): if the spec has nelms >= this a replica sharded buffer will be created. Defaults to 1024.
+        sharded_threshold (int, optional): if the spec has nelms >= this a replica sharded buffer will be created using the provided 
+        shard group. Thresholod defaults to 1024.
         replica_group (ReplicaGrouping, optional): variable replica group
-        shard_group (ReplicaGrouping, optional): rts replica group
+        shard_group (ReplicaGrouping, optional): replica group used for sharding the tensor.
     Returns:
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
@@ -94,10 +95,10 @@ def create_remote_buffer(spec: popxl.TensorSpec,
     nelms = np.prod(spec.shape)
     replica_group = replica_group or ir.replica_grouping()
 
-    if is_cross_instance(shard_group):
+    if shard_group and is_cross_instance(shard_group):
         raise ValueError("The shard group must be restricted to a single instance. Use get_instance_replica_grouping.")
 
-    # TODO add default shard
+    shard_group = shard_group or get_instance_replica_grouping(ir.replica_grouping(group_size=1))
 
     if spec.meta_shape:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
@@ -108,6 +109,7 @@ def create_remote_buffer(spec: popxl.TensorSpec,
         buffer = popxl.replica_sharded_buffer(shape, spec.dtype, replica_group, shard_group, entries)
     else:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
+
     return buffer
 
 

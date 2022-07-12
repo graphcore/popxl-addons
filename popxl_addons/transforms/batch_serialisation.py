@@ -8,21 +8,54 @@ import numpy as np
 from typing_extensions import Literal
 from dataclasses import dataclass
 import popxl
-from popxl import ops
+from popxl import HostToDeviceStream, ReplicaGrouping, in_sequence, io_tiles, ops
 from popxl.transforms.autodiff import ExpectedConnectionType
 from popxl_addons import GraphWithNamedArgs, NamedTensors, VariableFactory, add_variable_input
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.transforms.autodiff import remap_grad_info
 from popxl_addons.utils import suffix_graph_name
+from popxl_addons.rts import gather_replica_sharded_tensor, replica_sharded_spec
+from popxl_addons.remote import create_remote_buffer
 
-__all__ = ["batch_serialise", "batch_serialise_fwd_and_grad", "batch_serial_buffer"]
-
-RemoteBufferAndOffset = Tuple[popxl.RemoteBuffer, Optional[int]]
+__all__ = ["batch_serialise", "batch_serialise_fwd_and_grad", "batch_serial_buffer", "RemoteHandle"]
 
 
+@dataclass
+class RemoteHandle:
+    """
+    The RemoteHandle class gathers necessary info to deal with remote tensors.
+    @param buffer (popxl.RemoteBuffer): the remote buffer for the tensor
+    @param row_offset (int): the row offset index to access the tensor in the buffer. See batch_serialise for more on that. Default is 0.
+    @param shard_group (Optional[popxl.ReplicaGrouping]): shard group for rts, used to create the buffer (see remote.create_remote_buffer)
+    """
+    buffer: popxl.RemoteBuffer
+    row_offset: int = 0
+    shard_group: Optional[popxl.ReplicaGrouping] = None
+
+
+#TODO remove when all code changed to use RemoteHandles
+RemoteBufferWithOffset = Tuple[popxl.RemoteBuffer, Optional[int]]
+
+
+#TODO remove when all code changed to use RemoteHandles
+def _convert_to_remote_handles(handles):
+    for t, h in handles.items():
+        if _is_remote_buffer_and_offset(h):
+            handles[t] = RemoteHandle(*h)
+    return handles
+
+
+#TODO remove when all code changed to use RemoteHandles
 def _is_remote_buffer_and_offset(value: Any) -> bool:
-    return len(value) == 2 and isinstance(value[0], popxl.RemoteBuffer) and (isinstance(value[1], int)
-                                                                             or value[1] is None)
+    if isinstance(value, HostToDeviceStream) or isinstance(value, RemoteHandle):
+        return False
+    else:
+        return len(value) >= 2 and isinstance(value[0], popxl.RemoteBuffer) and (isinstance(value[1], int)
+                                                                                 or value[1] is None)
+
+
+def _is_remote_handle(value: Any) -> bool:
+    return isinstance(value, RemoteHandle)
 
 
 def _io_copy(ts: List[popxl.Tensor]) -> List[popxl.Tensor]:
@@ -32,15 +65,15 @@ def _io_copy(ts: List[popxl.Tensor]) -> List[popxl.Tensor]:
 
 def _get_loaded_ts(
         compute_graph: GraphWithNamedArgs,
-        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]]) -> List[popxl.Tensor]:
+        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]]) -> List[popxl.Tensor]:
     """Get Tensors that should be loaded to execute `compute_graph`"""
     return list(filter(lambda t: t in load_handles.keys(), compute_graph.graph.inputs))
 
 
 def _get_stored_ts(compute_graph: GraphWithNamedArgs,
-                   load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
+                   load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]],
                    store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
-                   store_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset]) -> List[popxl.Tensor]:
+                   store_buffers: Dict[popxl.Tensor, RemoteHandle]) -> List[popxl.Tensor]:
     """Get Tensors that should be stored after executing `compute_graph`"""
 
     def filter_fn(t):
@@ -51,7 +84,7 @@ def _get_stored_ts(compute_graph: GraphWithNamedArgs,
 
 
 def _get_passed_through_ts(compute_graph: GraphWithNamedArgs,
-                           load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
+                           load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]],
                            seed_t: Optional[popxl.Tensor]) -> List[popxl.Tensor]:
     """Get input tensors that should be passed_through to each iteration of `compute_graph`.
         Input tensors without an entry in `load_handles` will be marked as `passed_through`."""
@@ -82,7 +115,7 @@ def _add_passed_through_inputs(compute_graph: GraphWithNamedArgs,
 
 def _apply_load_offsets(
         index: popxl.Tensor, ts: List[popxl.Tensor],
-        handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]], steps: int, rows: int
+        handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]], steps: int, rows: int
 ) -> List[Tuple[popxl.Tensor, Union[popxl.HostToDeviceStream, Tuple[popxl.RemoteBuffer, popxl.Tensor]]]]:
     """Apply the offsets defined in `handles` and return the handles in the same order as `ts`."""
     applied = []
@@ -90,12 +123,13 @@ def _apply_load_offsets(
         handle = handles[t]
         if isinstance(handle, popxl.HostToDeviceStream):
             applied.append((t, handle))
-        elif _is_remote_buffer_and_offset(handle):
+        elif _is_remote_handle(handle):
             # (RemoteBuffer, int) handle.
             # RemoteLoad.
             # Int represents row_offset into RemoteBuffer.entries from which to start loading from.
             # row_offset of None will always read from the first entry
-            buffer, row_offset = handle
+            buffer = handle.buffer
+            row_offset = handle.row_offset
             index_with_offset = index
             if row_offset is None:
                 index_with_offset = index_with_offset % steps
@@ -112,14 +146,14 @@ def _apply_load_offsets(
     return applied
 
 
-def _apply_store_offsets(index: popxl.Tensor, ts: List[popxl.Tensor],
-                         buffers: Dict[popxl.Tensor, RemoteBufferAndOffset], steps: int,
-                         rows: int) -> Dict[popxl.Tensor, Tuple[popxl.RemoteBuffer, popxl.Tensor]]:
+def _apply_store_offsets(index: popxl.Tensor, ts: List[popxl.Tensor], buffers: Dict[popxl.Tensor, RemoteHandle],
+                         steps: int, rows: int) -> Dict[popxl.Tensor, Tuple[popxl.RemoteBuffer, popxl.Tensor]]:
     """Apply the offsets defined in `buffers`"""
     buffers_with_offset = {}
     for t in ts:
         if t in buffers.keys():
-            buffer, row_offset = buffers[t]
+            buffer = buffers[t].buffer
+            row_offset = buffers[t].row_offset
             index_with_offset = index
             # Store the Tensor
             if row_offset is None:
@@ -163,6 +197,37 @@ def _store_tensors(ts: List[popxl.Tensor], to_store: List[popxl.Tensor],
             ops.remote_store(buffer, entry, store)
 
 
+def _gather_tensors(load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]],
+                    loaded_ts: Dict[popxl.Tensor, popxl.Tensor]) -> List[popxl.Tensor]:
+    """
+    Gather replica sharded tensors
+    """
+    gathered = []
+    for t, loaded_t in loaded_ts.items():
+        if _is_remote_handle(load_handles[t]):
+            rg = load_handles[t].shard_group
+            if rg and rg.group_size != 1:
+                # io tiles external
+                loaded_t = gather_replica_sharded_tensor(loaded_t, use_io_tiles=False, replica_group=rg)
+        gathered.append(loaded_t)
+    return gathered
+
+
+def _slice_tensors(store_buffers: Dict[popxl.Tensor, RemoteHandle],
+                   to_store: Dict[popxl.Tensor, popxl.Tensor]) -> List[popxl.Tensor]:
+    """
+    Slice replica sharded tensors
+    """
+    sliced = []
+    for t, parent_t in to_store.items():
+        if t in store_buffers:
+            rg = store_buffers[t].shard_group
+            if rg and rg.group_size != 1:
+                parent_t = ops.collectives.replica_sharded_slice(parent_t, group=rg)
+        sliced.append(parent_t)
+    return sliced
+
+
 # Backported to python3.6
 @contextmanager
 def null_context():
@@ -173,10 +238,10 @@ def null_context():
 class BatchSerialResult:
     """Result of executing the a BatchSerialisation transform.
     `graph` is the transformed graph.
-    `stored_buffers` is a map from tensors in the original graph to RemoteBufferAndOffset of values stored as a result of the transform
+    `stored_buffers` is a map from tensors in the original graph to RemoteHandle of values stored as a result of the transform
     """
     graph: GraphWithNamedArgs
-    stored_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset]
+    stored_buffers: Dict[popxl.Tensor, RemoteHandle]
 
     _remap_dict: Dict[popxl.Tensor, popxl.Tensor]
 
@@ -192,28 +257,44 @@ class BatchSerialResult:
         return ts.remap(self._remap_dict)
 
 
-def batch_serial_buffer(t: popxl.Tensor, steps: int, rows: int = 1) -> popxl.remote_buffer:
-    """Create a RemoteBuffer and row_offset tuple from that matches a Tensor `t`
+def batch_serial_buffer(t: popxl.Tensor,
+                        steps: int = 1,
+                        rows: int = 1,
+                        sharded_threshold: int = 1024,
+                        shard_group: Optional[ReplicaGrouping] = None) -> popxl.remote_buffer:
+    """Create a RemoteBuffer for the Tensor `t`, with a matrix layout.
+    The returned buffer can be seen as a matrix with `steps` columns and `rows` rows.
+    Each column corresponds to the tensor at a different serial step.
+    You want to use multiple rows when you create a buffer for identical layers, so that each layer has its row.
+    The tensor at a given batch step is located in the remote buffer at `index = row_index * steps + batch_index`. 
 
     Args:
         t (popxl.Tensor): Tensor to make a RemoteBuffer for.
-        entries (int, optional): the size of the buffer. Defaults to 1
-
+        steps (int, optional) = 1: number of batch serialisation steps. Defaults to 1.
+        rows (int, optional) = 1: number of rows for the buffer. Defaults to 1,
+        sharded_threshold (int, optional) = 1024: if the tensor has nelms >= this a replica sharded buffer will be created using the provided 
+                                           shard group.
+        shard_group (ReplicaGrouping, optional) = None: replica group used for sharding the tensor.
     Returns:
         popxl.remote_buffer : a remote buffer with entries = steps * rows
     """
-    return popxl.remote_buffer(t.shape, t.dtype, entries=steps * rows)
+    buffer = create_remote_buffer(t,
+                                  entries=steps * rows,
+                                  sharded_threshold=sharded_threshold,
+                                  replica_group=shard_group,
+                                  shard_group=shard_group)
+    return buffer
 
 
-def batch_serialise_non_overlapped(
-        graph: GraphWithNamedArgs,
-        steps: int,
-        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
-        store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
-        store_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset],
-        seed_input: Optional[popxl.Tensor] = None,
-        rows: int = 1,
-        use_io_tiles: bool = False) -> BatchSerialResult:
+def batch_serialise_non_overlapped(graph: GraphWithNamedArgs,
+                                   steps: int,
+                                   load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]],
+                                   store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
+                                   store_buffers: Dict[popxl.Tensor, RemoteHandle],
+                                   seed_input: Optional[popxl.Tensor] = None,
+                                   rows: int = 1,
+                                   use_io_tiles: bool = False,
+                                   sharded_threshold: int = 1024) -> BatchSerialResult:
     """Batch Serialise `graph` without overlapped IO"""
     if rows < 1:
         raise ValueError("rows must be >0")
@@ -237,18 +318,30 @@ def batch_serialise_non_overlapped(
             buffers_with_offset = _apply_store_offsets(index, stored_ts, store_buffers, steps, rows)
         # Load
         with tileset(), popxl.transforms.merge_exchange(), popxl.in_sequence(False):
-            loaded = _load_tensors(to_load)
+            loaded = _load_tensors(to_load)  # loaded on io tiles if io
+
+    # RTS Gather
+        with tileset():
+            loaded = _gather_tensors(load_handles, dict(zip(loaded_ts, loaded)))
+
         if use_io_tiles:
-            loaded = _io_copy(loaded)
+            loaded = _io_copy(loaded)  # io -> compute tiles
+
         # Compute
         info = graph.call_with_info(
             args=_inputs_dict(loaded_ts, loaded, passed_through_ts, passed_through, seed_input, seed))
         stored = [info.graph_to_parent(t) for t in stored_ts]
         # Store
         if use_io_tiles:
-            stored = _io_copy(stored)
+            stored = _io_copy(stored)  # compute -> io
+
+    # RTS Slice
+        with tileset():
+            stored = _slice_tensors(store_buffers, dict(zip(stored_ts, stored)))
+
         with tileset(), popxl.transforms.merge_exchange(), popxl.in_sequence(False):
             _store_tensors(stored_ts, stored, store_streams, buffers_with_offset)
+
         with tileset():
             index = index + 1
         return index, next_seed
@@ -291,11 +384,12 @@ def batch_serialise_non_overlapped(
 
 def batch_serialise_overlapped(graph: GraphWithNamedArgs,
                                steps: int,
-                               load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
+                               load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]],
                                store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
-                               store_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset],
+                               store_buffers: Dict[popxl.Tensor, RemoteHandle],
                                seed_input: Optional[popxl.Tensor] = None,
-                               rows: int = 1):
+                               rows: int = 1,
+                               sharded_threshold: int = 1024):
     """Batch Serialise `graph` with overlapped IO.
 
     To be able to overlap the IO with the compute we must decompose the standard batch serialisation loop 
@@ -337,13 +431,20 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
         with popxl.transforms.io_tile_exchange():
             loaded_io = _load_tensors(to_load)
             _store_tensors(stored_ts, stored_io, store_streams, buffers_with_offset)
+
         info = graph.call_with_info(
             args=_inputs_dict(loaded_ts, loaded, passed_through_ts, passed_through, seed_input, seed))
+
+        with popxl.io_tiles():
+            loaded_io = _gather_tensors(load_handles, dict(zip(loaded_ts, loaded_io)))
+
         stored = [info.graph_to_parent(t) for t in stored_ts]
         # ---------
         loaded = _io_copy(loaded_io)
+
         stored_io = _io_copy(stored)
         with popxl.io_tiles():
+            stored_io = _slice_tensors(store_buffers, dict(zip(stored_ts, stored_io)))
             index = index + 1
 
         return (index, next_seed, *loaded, *stored_io)
@@ -368,6 +469,10 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
             to_load = _apply_load_offsets(index, loaded_ts, load_handles, steps, rows)
         with popxl.transforms.io_tile_exchange():
             loaded_0 = _load_tensors(to_load)
+
+        with popxl.io_tiles():
+            loaded_0 = _gather_tensors(load_handles, dict(zip(loaded_ts, loaded_0)))
+
         loaded_0 = _io_copy(loaded_0)
         with popxl.io_tiles():
             index = index + 1
@@ -378,13 +483,20 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
             to_load = _apply_load_offsets(index, loaded_ts, load_handles, steps, rows)
         with popxl.transforms.io_tile_exchange():
             loaded_1 = _load_tensors(to_load)
+
         info = graph.call_with_info(
             args=_inputs_dict(loaded_ts, loaded_0, passed_through_ts, passed_through, seed_input, seed_0))
+
+        with popxl.io_tiles():
+            loaded_1 = _gather_tensors(load_handles, dict(zip(loaded_ts, loaded_1)))
+
         stored_0 = [info.graph_to_parent(t) for t in stored_ts]
+
         # ---------
         loaded_1 = _io_copy(loaded_1)
         stored_0 = _io_copy(stored_0)
         with popxl.io_tiles():
+            stored_0 = _slice_tensors(store_buffers, dict(zip(stored_ts, stored_0)))
             index = index + 1
 
         if steps - 2 > 0:
@@ -413,6 +525,7 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
         # ---------
         stored_n = _io_copy(stored_n)
         with popxl.io_tiles():
+            stored_n = _slice_tensors(store_buffers, dict(zip(stored_ts, stored_n)))
             store_index = store_index + 1
 
         # Store batch n. Not overlapped
@@ -437,14 +550,15 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
     return BatchSerialResult(named_graph, stored_buffers, remap_dict)
 
 
-def batch_serialise(graph: GraphWithNamedArgs,
-                    steps: int,
-                    load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
-                    store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
-                    store_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset],
-                    seed_input: Optional[popxl.Tensor] = None,
-                    rows: int = 1,
-                    io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io') -> BatchSerialResult:
+def batch_serialise(
+        graph: GraphWithNamedArgs,
+        steps: int,
+        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferWithOffset, RemoteHandle]],
+        store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
+        store_buffers: Dict[popxl.Tensor, Union[RemoteBufferWithOffset, RemoteHandle]],
+        seed_input: Optional[popxl.Tensor] = None,
+        rows: int = 1,
+        io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io') -> BatchSerialResult:
     """Transform a Graph to repeat the computation `steps` times.
 
         Each iteration:
@@ -454,7 +568,7 @@ def batch_serialise(graph: GraphWithNamedArgs,
 
         You can think to the RemoteBuffer as a matrix having `batch_index = 0 ... steps-1` labeling columns and `row_offset = 0 ... rows-1` labeling rows.
         A specific tensor identified by `(row_offset, batch_index)` is located in the remote buffer at `index = row_index * steps + batch_index`. 
-        When you specify a RemoteBufferAndOffset you provide an int value which is used as row_offset: it will adjust the remote load/store index
+        When you specify a RemoteHandle you provide an int value which is used as row_offset: it will adjust the remote load/store index
         by `+(row_offset*steps)`. 
         If the value of row_offset is None, the remote load/store index will be adjusted by `index % steps`, which provides the `batch_index` (first row will be accessed).
 
@@ -466,25 +580,27 @@ def batch_serialise(graph: GraphWithNamedArgs,
     Args:
         graph (GraphWithNamedArgs): Graph to transform
         steps (int): Number of batch serialise steps
-        load_handles (Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]]): Handles to load inputs before computation.
+        load_handles (Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]]): Handles to load inputs before computation.
         store_streams (Dict[popxl.Tensor, popxl.DeviceToHostStream]): Streams to store outputs after computation.
-        store_buffers (Dict[popxl.Tensor, RemoteBufferAndOffset]): Buffers to store outputs (or inputs) after computation.
+        store_buffers (Dict[popxl.Tensor, RemoteHandle]): Buffers to store outputs (or inputs) after computation.
         seed_input (Optional[popxl.Tensor], optional): Input tensor of a random seed. Defaults to None.
         rows (int, optional): Increases the size of the remote buffers to allow for the returned Graph to be used with multiple input values. Defaults to 1.
         io_mode (Literal['compute', 'io', 'io_overlapped']): How to load/store the Tensors during the loop.
                                                              `compute` uses the Compute tiles.
                                                              `io` uses the IO tiles.
                                                              `io_overlapped` uses the io tiles and builds the loop such that Compute and IO execute at the same time.
-
     Returns:
         BatchSerialResult
     """
+    # TODO remove when all code changed to use RemoteHandles
+    load_handles = _convert_to_remote_handles(load_handles)
+    store_buffers = _convert_to_remote_handles(store_buffers)
+
     # IO overlapped requires steps>=2. If steps == 1 default back to the non overlapped version with IO tiles.
     if io_mode == 'io_overlapped' and steps < 2:
         logging.warning(
             "batch_serialisation with io_mode='io_overlapped' requires at least 3 steps. Falling back to io_mode='io'.")
         io_mode = 'io'
-
     if io_mode in ['compute', 'io']:
         return batch_serialise_non_overlapped(graph,
                                               steps,
@@ -505,12 +621,13 @@ def batch_serialise_fwd_and_grad(
         gradient_graph: GraphWithNamedArgs,
         named_inputs_for_grad_graph: NamedTensors,
         steps: int,
-        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]],
+        load_handles: Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferWithOffset, RemoteHandle]],
         store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
-        store_buffers: Dict[popxl.Tensor, RemoteBufferAndOffset],
+        store_buffers: Dict[popxl.Tensor, Union[RemoteBufferWithOffset, RemoteHandle, popxl.ReplicaGrouping]],
         seed_input: Optional[popxl.Tensor] = None,
         rows: int = 1,
-        io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io') -> Tuple[BatchSerialResult, BatchSerialResult]:
+        io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io',
+        sharded_threshold: int = 1024) -> Tuple[BatchSerialResult, BatchSerialResult]:
     """Transform a matching forward and gradient Graphs that the computation is `steps` times.
 
         Tensors required for autodiff will be stored automatically.
@@ -522,21 +639,29 @@ def batch_serialise_fwd_and_grad(
         gradient_graph (GraphWithNamedArgs): Gradient Graph to transform
         named_inputs_for_grad_graph (NamedTensors): for each tensor provided here, a named input is added to the backward graph. Typically you want them to be the fwd variables, fwd.args
         steps (int): Number of batch serialise steps
-        load_handles (Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteBufferAndOffset]]): Handles to load inputs before computation.
+        load_handles (Dict[popxl.Tensor, Union[popxl.HostToDeviceStream, RemoteHandle]]): Handles to load inputs before computation.
         store_streams (Dict[popxl.Tensor, popxl.DeviceToHostStream]): Streams to store outputs after computation.
-        store_buffers (Dict[popxl.Tensor, RemoteBufferAndOffset]): Buffers to store outputs (or inputs) after computation.
+        store_buffers (Dict[popxl.Tensor, RemoteHandle, popxl.ReplicaGrouping]): Dictionary between tensors and RemoteHandles specifying where to store outputs (or inputs) after computation.
+                                                                                 If you want an activation to be sharded, you can provide an entry (activation, ReplicaGrouping) in the dictionary,
+                                                                                 specifying the shard_group.
         seed_input (Optional[popxl.Tensor], optional): Input tensor of a random seed. Defaults to None.
         rows (int, optional): Increases the size of the remote buffers to allow for the returned Graph to be used with multiple input values. Defaults to 1.
         io_mode (Literal['compute', 'io', 'io_overlapped']): How to load/store the Tensors during the loop.
                                                              `compute` uses the Compute tiles.
                                                              `io` uses the IO tiles.
                                                              `io_overlapped` uses the io tiles and builds the loop such that Compute and IO execute at the same time.
-
+        sharded_threshold (int, optional) = 1024: shard threshold for activations specified in store_buffers.
     Returns:
         Tuple[BatchSerialResult, BatchSerialResult]:
             result of forward_graph, result of gradient_graph
     """
 
+    def _filter_store_buffers(buffers: Dict[popxl.Tensor, Union[RemoteHandle, popxl.ReplicaGrouping]]):
+        replica_groups = {t: rg for t, rg in buffers.items() if isinstance(rg, popxl.ReplicaGrouping)}
+        buffers = {t: b for t, b in buffers.items() if not isinstance(b, popxl.ReplicaGrouping)}
+        return buffers, replica_groups
+
+    store_buffers, activations_shard_groups = _filter_store_buffers(store_buffers)
     grad_inputs = gradient_graph.graph.inputs
     grad_graph_info = gradient_graph.grad_graph_info
 
@@ -545,7 +670,6 @@ def batch_serialise_fwd_and_grad(
         i_ec for i_ec in enumerate(grad_graph_info.expected_inputs)
         if i_ec[1].connection_type == ExpectedConnectionType.Fwd
     ]
-
     for grad_idx, ec in activations:
         t = ec.fwd_tensor
         if t in store_buffers.keys() or t in named_inputs_for_grad_graph.tensors:
@@ -555,8 +679,16 @@ def batch_serialise_fwd_and_grad(
             # activation already stored in the input handles
             store_buffers[t] = load_handles[t]
         else:
-            # create a buffer for the activation
-            store_buffers[t] = (batch_serial_buffer(t, steps=steps, rows=rows), 0)
+            # create a buffer for the activations
+            shard_group = None
+            if activations_shard_groups and t in activations_shard_groups:
+                shard_group = activations_shard_groups[t]
+            buffer = batch_serial_buffer(t,
+                                         steps=steps,
+                                         rows=rows,
+                                         sharded_threshold=sharded_threshold,
+                                         shard_group=shard_group)
+            store_buffers[t] = RemoteHandle(buffer, 0, shard_group)
 
     forward_result = batch_serialise(forward_graph, steps, load_handles, store_streams, store_buffers, seed_input, rows,
                                      io_mode)
