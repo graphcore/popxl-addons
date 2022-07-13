@@ -139,7 +139,7 @@ def autodiff_with_accumulation(
                 subgraph_tensor = popxl.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getOutputTensor(idx))
 
                 name = names.get(tensor, sanitise(tensor.name))
-                replica_grouping = replica_groupings[name] or popxl.gcg().ir.replica_grouping()
+                replica_grouping = replica_groupings.get(name, None) or popxl.gcg().ir.replica_grouping()
                 name = "accum." + name
                 accum = add_input(name,
                                   partial(np.zeros, shape=tensor.shape),
