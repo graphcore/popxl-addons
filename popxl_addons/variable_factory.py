@@ -15,7 +15,7 @@ from popxl_addons.named_replica_grouping import NamedReplicaGrouping
 from popxl_addons.named_tensors import NamedTensors
 
 if TYPE_CHECKING:
-    from popxl_addons.transforms.phased import NamedRemoteBuffers
+    from popxl_addons.remote import NamedRemoteBuffers
 
 
 class VariableFactory:
@@ -98,25 +98,30 @@ class VariableFactory:
                                  by_ref=self.by_ref,
                                  meta_shape=self.meta_shape)
 
-    def create_tensor(self, name: Optional[str] = None):
+    def create_tensor(self, name: Optional[str] = None, empty: bool = False):
         """
         Create a new tensor for the current graph.
 
         Args:
             name: Name of the tensor
+            empty: Don't use data and use numpy empty
 
         Returns:
         """
         name = name or self.name
         dtype = self.dtype or None
-        data: HostTensor = self.next_data()
+        data: HostTensor = self.next_data(empty)
 
         return popxl.variable(data, dtype, name, replica_grouping=self.replica_grouping)
 
-    def create_remote_tensor(self, buffer: popxl.RemoteBuffer, entry: int, name: Optional[str] = None):
+    def create_remote_tensor(self,
+                             buffer: popxl.RemoteBuffer,
+                             entry: int,
+                             name: Optional[str] = None,
+                             empty: bool = False):
         name = name or self.name
-        data: HostTensor = self.next_data()
         dtype = self.dtype or None
+        data: HostTensor = self.next_data(empty)
 
         if buffer.meta_shape:
             return popxl.remote_replica_sharded_variable(data,
@@ -128,14 +133,18 @@ class VariableFactory:
         else:
             return popxl.remote_variable(data, buffer, entry, dtype, name, replica_grouping=self.replica_grouping)
 
-    def next_data(self) -> HostTensor:
+    def next_data(self, empty: bool = False) -> HostTensor:
+        def next():
+            if not empty:
+                return next(self.data_iter)
+            else:
+                return np.empty(self.meta_shape or self.shape, self.dtype.as_numpy())
+
         if not self.replica_grouping or self.replica_grouping.num_groups == 1:
-            return next(self.data_iter)
+            return next()
         else:
-            return np.concatenate([
-                to_numpy(next(self.data_iter), copy=False)[np.newaxis, ...]
-                for _ in range(self.replica_grouping.num_groups)
-            ])
+            return np.concatenate(
+                [to_numpy(next(), copy=False)[np.newaxis, ...] for _ in range(self.replica_grouping.num_groups)])
 
 
 class NamedVariableFactories(DotTree[VariableFactory]):
@@ -170,7 +179,11 @@ class NamedVariableFactories(DotTree[VariableFactory]):
             inputs[name] = value.create_tensor(prefixed)
         return NamedTensors.from_dict(inputs)
 
-    def init_remote(self, buffers: "NamedRemoteBuffers", entry: int = 0, prefix: Optional[str] = None) -> NamedTensors:
+    def init_remote(self,
+                    buffers: "NamedRemoteBuffers",
+                    entry: int = 0,
+                    prefix: Optional[str] = None,
+                    empty: bool = False) -> NamedTensors:
         """Construct remote variables for each VariableFactory using the buffer with a matching name in `buffers`.
 
         The tensors are created in alphabetical order to generate the data deterministically.
@@ -179,6 +192,7 @@ class NamedVariableFactories(DotTree[VariableFactory]):
             buffers (NamedRemoteBuffers): Buffers to store the variables in.
             entry (int, optional): Entry into the remote buffer to store the variable. Defaults to 0.
             prefix (Optional[str], optional): Prefix the tensor name of the created tensors. Defaults to None.
+            empty (bool): If True, create an array of the right shape and dtype with garbage data
 
         Returns:
             NamedTensors: A named Tensor collection. The keys are the same with values being Tensors generated from the
@@ -188,7 +202,7 @@ class NamedVariableFactories(DotTree[VariableFactory]):
         buffers_ = buffers.to_dict()
         for name, factory in sorted(self.to_dict().items()):
             prefixed = f"{prefix}.{name}" if prefix else name
-            variables[name] = factory.create_remote_tensor(buffers_[name], entry, prefixed)
+            variables[name] = factory.create_remote_tensor(buffers_[name], entry, prefixed, empty)
         return NamedTensors.from_dict(variables)
 
     def init_zero(self) -> NamedTensors:
