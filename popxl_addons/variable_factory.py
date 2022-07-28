@@ -134,17 +134,17 @@ class VariableFactory:
             return popxl.remote_variable(data, buffer, entry, dtype, name, replica_grouping=self.replica_grouping)
 
     def next_data(self, empty: bool = False) -> HostTensor:
-        def next():
+        def next_():
             if not empty:
                 return next(self.data_iter)
             else:
                 return np.empty(self.meta_shape or self.shape, self.dtype.as_numpy())
 
         if not self.replica_grouping or self.replica_grouping.num_groups == 1:
-            return next()
+            return next_()
         else:
             return np.concatenate(
-                [to_numpy(next(), copy=False)[np.newaxis, ...] for _ in range(self.replica_grouping.num_groups)])
+                [to_numpy(next_(), copy=False)[np.newaxis, ...] for _ in range(self.replica_grouping.num_groups)])
 
 
 class NamedVariableFactories(DotTree[VariableFactory]):
