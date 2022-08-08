@@ -10,6 +10,7 @@ import numpy as np
 import popxl
 from popxl_addons import InputStreams, OutputStreams
 from popxl_addons.named_tensors import NamedTensors
+from popxl_addons.utils import timer
 
 # TODO: remove this method once T61041 has landed and use normal `Session.write_variables_data`
 import popart
@@ -31,9 +32,8 @@ class TaskSession(popxl.Session):
     def __init__(self, inputs: Union[InputStreams, Iterable[popxl.HostToDeviceStream]],
                  outputs: Union[OutputStreams, Iterable[popxl.DeviceToHostStream]], model: NamedTensors, *args,
                  **kwargs):
-        t = time()
-        super().__init__(*args, **kwargs)
-        logging.info(f"popxl compilation duration: {(time() - t) / 60:.2f} mins")
+        with timer('PopXL compilation'):
+            super().__init__(*args, **kwargs)
         self.inputs: InputStreams = inputs if isinstance(inputs, InputStreams) else InputStreams.from_streams(inputs)
         self.outputs: OutputStreams = outputs if isinstance(outputs,
                                                             OutputStreams) else OutputStreams.from_streams(outputs)
@@ -51,6 +51,7 @@ class TaskSession(popxl.Session):
             self.save_checkpoint_to_file(file_path, ckpt)
 
     def save_checkpoint_to_file(self, file_path: str, ckpt: Mapping[str, np.ndarray]):
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         np.savez(file_path, ckpt=ckpt)
 
     def save_checkpoint_to_wandb(self, name: str, ckpt: Mapping[str, np.ndarray]):
@@ -135,4 +136,11 @@ class TaskSession(popxl.Session):
         import wandb
         for t, np_t in self.get_tensors_data(self.ir.main_graph.variables).items():
             np_t = np_t.flatten().astype(np.float32)
-            wandb.log({t.name: wandb.Histogram(np_t)}, step=step)
+            finite_mask = np.isfinite(np_t)
+            finite_data = np_t[finite_mask]
+            n_non_finite = np.sum(~finite_mask)
+            wandb.log({
+                f'{t.name}:histogram': wandb.Histogram(finite_data),
+                f'{t.name}:not_finite': n_non_finite
+            },
+                      step=step)

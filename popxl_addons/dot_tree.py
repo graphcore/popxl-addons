@@ -72,32 +72,49 @@ class DotTree(Generic[L]):
 
     def get(self: CLS, key: Union[str, int]) -> 'Union[L, CLS]':
         """Get a value. Ints and strings that are numerical are interpreted as a numerical key."""
+        keys = "    \n".join(self._map.keys())
         if isinstance(key, int) or key.isnumeric():
             key = int(key)
             if key < 0:
                 numeric_max = max(map(int, filter(lambda e: e.isnumeric(), self._map.keys())))
                 pos_key = numeric_max + 1 + key
                 if pos_key < 0:
-                    raise KeyError(f"Negative numerical key does not exist: {key}. Max numerical key: {numeric_max}")
+                    raise KeyError(f"Negative numerical key does not exist: {key}. Max numerical key: {numeric_max}. "
+                                   f"Available keys: {keys}")
                 if str(pos_key) not in self._map:
-                    raise KeyError(f"Negative numerical key does not exist: {key}. Equivalent positive key: {pos_key}")
+                    raise KeyError(f"Negative numerical key does not exist: {key}. Equivalent positive key: {pos_key}. "
+                                   f"Available keys: {keys}")
                 key = pos_key
             else:
                 if str(key) not in self._map:
-                    raise KeyError(f"Numerical key does not exist: {key}.")
+                    raise KeyError(f"Numerical key does not exist: {key}. Available keys: {keys}")
             return self._map[str(key)]
         elif key in self._map:
             return self._map[key]
-        raise KeyError(f"Key does not exist: {key}")
+        raise KeyError(f"Key does not exist: {key}. Available keys: {keys}")
 
     def insert(self: CLS, key: Union[str, int], value: Union[L, CLS], overwrite: bool = False):
-        """Set item with key. Numerical keys represented using an int will automatically be converted to a string."""
+        """Set item with key. Numerical keys represented using an int will automatically be converted to a string.
+        If the key contains a dot this will be interpreted as a nested DotTree."""
         if isinstance(key, int):
             if key < 0:
                 raise ValueError(f"Numerical key cannot be negative: {key}")
             key = str(key)
+        key, *other_keys = key.split('.')
         self._validate_key(key, overwrite)
-        self._map[key] = value
+        if len(other_keys) == 0:
+            self._map[key] = value
+        else:
+            if key in self._map and isinstance(self._map[key], type(self)):
+                # Copy so if nested insert fails we can safely roll back
+                nested_dottree = self._map[key].copy()
+            else:
+                # If key is V then override
+                nested_dottree = type(self)()
+
+            nested_dottree.insert('.'.join(other_keys), value, overwrite)
+            # Only insert if nested operations don't fail
+            self._map[key] = nested_dottree
 
     def update(self: CLS, values: CLS, overwrite: bool = False):
         """Update map with another map"""
@@ -116,6 +133,24 @@ class DotTree(Generic[L]):
                 v = v.copy()
             tree.insert(k, v)
         return tree
+
+    def keys(self) -> List[str]:
+        return list(self._map.keys())
+
+    def keys_flat(self) -> List[str]:
+        return list(self.to_dict().keys())
+
+    def values(self) -> List[V]:
+        return list(self._map.values())
+
+    def values_flat(self) -> List[V]:
+        return list(self.to_dict().values())
+
+    def len(self) -> int:
+        return len(self._map)
+
+    def len_flat(self) -> int:
+        return len(self.to_dict())
 
     def to_mapping(self, values: 'DotTree[V]') -> Dict[L, V]:
         """Given another DotTree, for common keys create a dictionary of their values"""
@@ -185,12 +220,13 @@ class DotTree(Generic[L]):
 
     def _validate_key(self, key: str, allow_mutable: bool = False):
         if not allow_mutable and key in self._map:
-            raise ValueError(f"'{key}' already exists in {self.__repr__()}")
+            raise ValueError(f"'{key}' already exists")
         if not key.isnumeric() and not key.isidentifier():
             raise ValueError(f"'{key}' is not a valid python identifier")
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         try:
-            return str(self.to_dict())
+            cls_name = type(self).__name__
+            return f'{cls_name}({self.to_dict()})'
         except:  # Fail gracefully and always provide a string
-            return super().__str__()
+            return super().__repr__()

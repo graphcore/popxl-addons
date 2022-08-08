@@ -74,3 +74,23 @@ def test_nested_clear():
     tree._clear()
     assert tree.foo
     assert not hasattr(tree.foo, "bar")
+
+
+def test_nested_insert():
+    tree = DotTree()
+    # Insert
+    tree.insert('foo.bar.hee', 'a')
+    assert tree.foo.bar.hee == 'a'
+
+    # Insert with number
+    tree.insert('tee.0.hee', 'b')
+    assert tree.tee[0].hee == 'b'
+
+    # Error when key already exists
+    with pytest.raises(ValueError):
+        tree.insert('foo.bar.goo', 'c')
+
+    # Insert when key already exists and merge
+    tree.insert('foo.bar.goo', 'c', overwrite=True)
+    assert tree.foo.bar.goo == 'c'
+    assert tree.foo.bar.hee == 'a'
