@@ -4,10 +4,10 @@ on:
   push:
     branches: [master]
 jobs:
-  Explore-GitHub-Actions:
+  copyright-header-check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v1
       - name: Run test_copyright.py
-        run: python3 utils/test_copyright.py
+        run: python3 ci/test_copyright.py

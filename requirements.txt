@@ -1,4 +1,5 @@
 numpy
+scipy
 more_itertools
 gitpython
 cppimport>=22.07.17

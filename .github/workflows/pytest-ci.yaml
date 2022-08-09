@@ -1,0 +1,56 @@
+name: pytest-ci
+on:
+  pull_request:
+  push:
+    branches: [master]
+defaults:
+  run:
+    shell: bash
+jobs:
+  cancel-previous:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Workflows
+        uses: styfle/cancel-workflow-action@0.10.0
+        with:
+          access_token: ${{ github.token }}
+  pytest-ci:
+    runs-on: [self-hosted, applications]
+    container: 
+      image: cr.ipu.graphcore.ai/builds/pytorch:3.0.0-EA.1-ubuntu-18.04
+      options: --ulimit memlock=-1:-1 --cap-add=IPC_LOCK --device=/dev/infiniband/ -e IPUOF_VIPU_API_HOST -e IPUOF_VIPU_API_PARTITION_ID --shm-size=128G
+    steps:
+      - name: Install prerequisites
+        run: |
+          # Install an upto date version of git
+          apt-get update
+          apt-get install -y software-properties-common
+          add-apt-repository ppa:git-core/ppa
+          apt-get update
+          apt-get install -y git
+          # Update pip
+          pip3 install --upgrade pip
+          echo "Python version: $(python3 --version)"
+          echo "Pip version: $(python3 -m pip --version)"
+      - name: Attach RDMA Network
+        run: |
+          python3 -m pip install docker
+          python3 -c "import docker; client=docker.from_env(); client.networks.get('macvlan_rdma_swarm').connect(client.containers.get('${{ job.container.id }}'))"
+      - name: Checkout repo
+        uses: actions/checkout@v3
+      - name: Pip install requirements
+        run: python3 -m pip install -r requirements.txt
+      - name: Pip install dev requirements
+        run: python3 -m pip install -r requirements-dev.txt
+      - name: pytest
+        run: |
+          ec=0
+          python3 -m pytest -n 5 --forked -m "not serial" --junitxml=pytest_non_serial_report.xml || ((ec++)) &&
+          python3 -m pytest -m "serial" --junitxml=pytest_serial_report.xml || ((ec++)) &&
+          exit $ec
+      - name: pytest Report
+        uses: mikepenz/action-junit-report@v3
+        if: always()
+        with:
+          check_name: 'pytest Report'
+          report_paths: '*_report.xml'

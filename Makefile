@@ -7,7 +7,7 @@ install:
 lint:
 	yapf --recursive --in-place .
 	find -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i
-	python3 utils/test_copyright.py
+	python3 ci/test_copyright.py
 
 test:
 	pytest --forked -n 5
