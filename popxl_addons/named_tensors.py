@@ -5,11 +5,16 @@ from popxl import ops
 from popxl.context import debug_context_frame_offset
 from popxl.tensor import Variable
 from popxl_addons.dot_tree import DotTree
+import numpy as np
 
 if TYPE_CHECKING:
     from popxl_addons import GraphWithNamedArgs
 
 TensorMap = Mapping[popxl.Tensor, popxl.Tensor]
+
+
+class NamedTensorData(DotTree[np.ndarray]):
+    pass
 
 
 class NamedTensors(DotTree[popxl.Tensor]):
