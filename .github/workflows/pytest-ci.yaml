@@ -45,8 +45,8 @@ jobs:
       - name: pytest
         run: |
           ec=0
-          python3 -m pytest -n 5 --forked -m "not serial" --junitxml=pytest_non_serial_report.xml || ((ec++)) &&
-          python3 -m pytest -m "serial" --junitxml=pytest_serial_report.xml || ((ec++)) &&
+          python3 -m pytest -n 5 --forked -m "not serial" --junitxml=pytest_non_serial_report.xml || ((ec++))
+          python3 -m pytest -m "serial" --junitxml=pytest_serial_report.xml || ((ec++))
           exit $ec
       - name: pytest Report
         uses: mikepenz/action-junit-report@v3
