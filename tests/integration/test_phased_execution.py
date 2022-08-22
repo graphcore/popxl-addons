@@ -94,4 +94,4 @@ def test_phased_rts():
 
 
 if __name__ == "__main__":
-    test_phased_rts()
+    test_phased_load_store()

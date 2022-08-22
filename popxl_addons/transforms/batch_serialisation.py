@@ -274,15 +274,16 @@ def batch_serial_buffer(t: popxl.Tensor,
         rows (int, optional) = 1: number of rows for the buffer. Defaults to 1,
         sharded_threshold (int, optional) = 1024: if the tensor has nelms >= this a replica sharded buffer will be created using the provided 
                                            shard group.
-        shard_group (ReplicaGrouping, optional) = None: replica group used for sharding the tensor.
+        shard_group (ReplicaGrouping, optional) = None: replica group used for sharding the tensor. If no group is provided, the tensor won't be sharded.
     Returns:
         popxl.remote_buffer : a remote buffer with entries = steps * rows
     """
+    shard_over = shard_group.group_size if shard_group else 1
     buffer = create_remote_buffer(t,
                                   entries=steps * rows,
                                   sharded_threshold=sharded_threshold,
                                   replica_group=shard_group,
-                                  shard_group=shard_group)
+                                  shard_over=shard_over)
     return buffer
 
 

@@ -1,7 +1,8 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from contextlib import contextmanager
 from multiprocessing.sharedctypes import Value
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Dict
+from webbrowser import get
 
 import numpy as np
 
@@ -45,7 +46,7 @@ def named_buffers(tensors: NamedTensors, entries: int = 1, sharded_threshold: in
 def named_variable_buffers(factories: NamedVariableFactories,
                            entries: int = 1,
                            sharded_threshold: int = 1024,
-                           shard_groups: Optional[NamedReplicaGrouping] = None):
+                           shard_over_dict: Optional[Dict[str, int]] = None):
     """Create a buffer for each VariableFactory in `factories`. The buffers will have `entries` set.
     Any factory with `nelms >= sharded_threshold` will have a replica sharded buffer over the instances instead.
 
@@ -53,23 +54,24 @@ def named_variable_buffers(factories: NamedVariableFactories,
         factories (NamedVariableFactories): VariableFactories to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         sharded_threshold (int, optional): factories with nelms >= this will have replica sharded buffers. Defaults to 1024.
-        shard_groups (NamedReplicaGrouping, optional): rts groups for the factories.
+        shard_over_dict (Dict[str, int], optional): by default, sharded buffers will shard in the full replica group.
+                                                        If you want to shard over less devices, you can provide an entry in this dictionary
     Returns:
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
     ir = popxl.gcg().ir
-
-    shard_groups = shard_groups or factories.replica_groupings.map(get_instance_replica_grouping)
-    shard_groups = shard_groups.to_dict()
     for name, f in factories.to_dict().items():
         tensor_spec = popxl.TensorSpec(shape=f.shape, dtype=f.dtype, meta_shape=f.meta_shape)
         replica_grouping = f.replica_grouping or ir.replica_grouping()
+        shard_over = None
+        if shard_over_dict and name in shard_over_dict:
+            shard_over = shard_over_dict[name]
         buffers[name] = create_remote_buffer(tensor_spec,
                                              entries=entries,
                                              sharded_threshold=sharded_threshold,
                                              replica_group=f.replica_grouping,
-                                             shard_group=shard_groups[name])
+                                             shard_over=shard_over)
     return NamedRemoteBuffers.from_dict(buffers)
 
 
@@ -77,7 +79,7 @@ def create_remote_buffer(spec: popxl.TensorSpec,
                          entries: int = 1,
                          sharded_threshold: int = 1024,
                          replica_group: Optional[ReplicaGrouping] = None,
-                         shard_group: Optional[ReplicaGrouping] = None):
+                         shard_over: Optional[int] = None):
     """Create a buffer given a TensorSpec and a replica grouping.
     If the spec has `nelms >= sharded_threshold` a replica sharded buffer over the instances will be produced instead.
 
@@ -85,28 +87,32 @@ def create_remote_buffer(spec: popxl.TensorSpec,
         spec (popxl.TensorSpec): tensor spec to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         sharded_threshold (int, optional): if the spec has nelms >= this a replica sharded buffer will be created using the provided 
-        shard group. Thresholod defaults to 1024.
-        replica_group (ReplicaGrouping, optional): variable replica group
-        shard_group (ReplicaGrouping, optional): replica group used for sharding the tensor.
+                                           replica group. Thresholod defaults to 1024.
+        replica_group (ReplicaGrouping, optional): replica group for the tensor. Represent the devices where the tensor is equal, and the largest possible
+                                                   set of devices for replicated tensor sharding. 
+        shard_over (int, optional): number of replicas used to shard the tensor inside the provided replica group.
+                                    See also `popxl.replica_sharded_buffer` documentation.
     Returns:
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     ir = popxl.gcg().ir
     nelms = np.prod(spec.shape)
     replica_group = replica_group or ir.replica_grouping()
-
-    if shard_group and is_cross_instance(shard_group):
-        raise ValueError("The shard group must be restricted to a single instance. Use get_instance_replica_grouping.")
-
-    shard_group = shard_group or get_instance_replica_grouping(ir.replica_grouping(group_size=1))
-
+    shard_over = shard_over or replica_group.group_size
+    # TODO remove min when sharding across multiple instances becomes available
+    shard_over = min(shard_over, ir.instance_replication_factor)
+    # buffer for sharded tensor
     if spec.meta_shape:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
         buffer.meta_shape = spec.meta_shape
-    elif shard_group.group_size > 1 and nelms >= sharded_threshold and nelms % shard_group.group_size == 0:
+    # shard tensor and create buffer
+    elif shard_over > 1 and nelms >= max(sharded_threshold, shard_over):
+        if nelms % shard_over != 0:
+            raise ValueError(f"Can't shard tensor with {int(nelms)} elements over {shard_over} replicas")
         # Include replica_grouping dim
         shape = (replica_group.num_groups, *spec.shape) if replica_group.num_groups > 1 else spec.shape
-        buffer = popxl.replica_sharded_buffer(shape, spec.dtype, replica_group, shard_group, entries)
+        buffer = popxl.replica_sharded_buffer(shape, spec.dtype, replica_group, shard_over, entries)
+    # standard buffer
     else:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)
 

@@ -23,6 +23,7 @@ def replica_sharded_spec(t: popxl.Tensor,
                          replica_grouping: Optional[popxl.ReplicaGrouping] = None) -> popxl.TensorSpec:
     ir = popxl.gcg().ir
     group = replica_grouping or ir.replica_grouping()
+    # TODO need changes when restriction of rts is removed
     shard_size = ir.instance_replication_factor // group.num_groups
     if shard_size > 1 and t.nelms >= threshold and not t.meta_shape and t.nelms % shard_size == 0:
         shape = (int(np.prod(t.shape)) // shard_size, )
@@ -45,7 +46,7 @@ def gather_replica_sharded_tensor(t: popxl.Tensor,
     """
     ir = popxl.gcg().ir
     replica_group = replica_group or ir.replica_grouping()
-
+    # TODO need changes when restriction of rts is removed
     replica_group = get_instance_replica_grouping(replica_group)
 
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()

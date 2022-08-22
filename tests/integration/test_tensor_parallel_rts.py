@@ -31,7 +31,6 @@ def test_tensor_parallel_rts():
     tensor_parallel_grouping = ir.replica_grouping(group_size=2)
     data_parallel_grouping = ir.replica_grouping(stride=2)
     rts_grouping = ir.replica_grouping(stride=2, group_size=2)
-
     np.random.seed(1984)
     input_x = np.random.normal(0, 1, (4, 4)).astype(np.float32)
     input_ff1 = np.random.normal(0, 1, (4, 4)).astype(np.float32)
@@ -45,12 +44,12 @@ def test_tensor_parallel_rts():
                                                           popxl.float32,
                                                           "ff1",
                                                           replica_grouping=data_parallel_grouping,
-                                                          shard_grouping=rts_grouping)
+                                                          shard_over=rts_grouping.group_size)
         ff2_v, ff2_shard = popxl.replica_sharded_variable(shard(input_ff2, tensor_parallel_grouping.group_size, axis=0),
                                                           popxl.float32,
                                                           "ff2",
                                                           replica_grouping=data_parallel_grouping,
-                                                          shard_grouping=rts_grouping)
+                                                          shard_over=rts_grouping.group_size)
 
         ff1 = replicated_all_gather_strided(ff1_shard, group=rts_grouping)
 

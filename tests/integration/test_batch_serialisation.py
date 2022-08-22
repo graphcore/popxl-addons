@@ -450,13 +450,6 @@ def test_batch_serialisation_sharded_activations(io_mode):
     b = np.ones((tp, fc1_shard_size)).astype(np.float32)
     shared_bias = np.full((fc1_shard_size, ), 2).astype(np.float32)
 
-    def write_variables_pb(session, weights):
-
-        weightsIo = popart.PyWeightsIO({xl_t.id: np_t for xl_t, np_t in weights.items()})
-        session._pb_session.writeWeights(weightsIo)
-        if session.is_attached:
-            session._pb_session.weightsFromHost()
-
     def normal():
         ir = popxl.Ir()
         main = ir.main_graph
@@ -491,7 +484,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
         sess = popxl.Session(ir, "ipu_hw")
 
         with sess:
-            write_variables_pb(sess, {weights.fc1.weight: w, weights.fc1.bias: b, weights.bias: shared_bias})
+            sess.write_variables_data({weights.fc1.weight: w, weights.fc1.bias: b, weights.bias: shared_bias})
             out = sess.run({in_h2d: inputs})[out_d2h]
         return out
 
@@ -572,10 +565,14 @@ def test_batch_serialisation_sharded_activations(io_mode):
 
         sess = popxl.Session(ir, "ipu_hw")
         with sess:
-            write_variables_pb(sess, {weights.fc1.weight: w, weights.fc1.bias: b, weights.bias: shared_bias})
+            sess.write_variables_data({weights.fc1.weight: w, weights.fc1.bias: b, weights.bias: shared_bias})
             out = sess.run({in_h2d: np.transpose(inputs, (1, 0, 2, 3))})[out_d2h]
         return np.transpose(out, (1, 0, 2, 3))
 
     norm = normal()
     bs = batch_serial()
     np.testing.assert_almost_equal(norm.reshape(-1), bs.reshape(-1))
+
+
+if __name__ == '__main__':
+    test_batch_serialisation_sharded_activations('compute')
