@@ -1,5 +1,3 @@
-**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons-internal) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL)**
-
 # popxl.addons
 
 > **Warning**
@@ -16,23 +14,18 @@ Obligatory package alias:
 import popxl_addons as addons
 ```
 
-For examples please see the [user guide](#user-guide), [MNIST examples](examples/mnist) or [tests](tests).
+For examples please see the tutorials available in Graphcore's
+[tutorials repository](https://github.com/graphcore/tutorials/tree/master/tutorials/popxl) or the [tests](tests).
 
 Please note we are not currently accepting pull requests or issues on this repository. If you are actively using this repository and want to report any issues, please raise a ticket through the Graphcore support portal: https://www.graphcore.ai/support.
 
 ## Installation
 
-- Install the Poplar SDK >2.6 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
+- Install the Poplar SDK >=3.0 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
 - Create a Python virtual environment: `python3 -m venv <virtual_env>`
 - Activate the virtual environment: `. <virtual_env>/bin/activate`
 - Update `pip`: `pip3 install --upgrade pip`
-- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL/popxladdonsinternal.git`.
-
-## Development
-
-* To reformat code to repo standard: `make lint`
-* To build documentation: `make docs`
-* Do not push to master branch. Make changes through github PR requests.
+- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+https://github.com/graphcore/popxl-addons.git`.
 
 ## User guide
 
@@ -40,7 +33,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 
 The Module extends popxl's create_graph to help with managing variables.
 
-First we define a Module class. 
+First we define a Module class.
 ```
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
@@ -54,7 +47,7 @@ args, graph = Scale().create_graph(x)
 A tuple is returned from `Module.create_graph`.
 
 The first value is a `NamedVariableFactories` object. This contains all inputs to the graph that are created using `Module.add_variable_input`
-during the construction of the graph. In most cases these can be considered the constructors of variables of your modules. 
+during the construction of the graph. In most cases these can be considered the constructors of variables of your modules.
 If we want an instance of these variables we can initialise one:
 ```
 scale_vars = args.init()
