@@ -17,7 +17,7 @@ jobs:
   pytest-ci:
     runs-on: [self-hosted, applications]
     container: 
-      image: cr.ipu.graphcore.ai/builds/pytorch:3.0.0-EA.1-ubuntu-18.04
+      image: cr.ipu.graphcore.ai/rc/pytorch:3.0.0-ubuntu-18.04
       options: --ulimit memlock=-1:-1 --cap-add=IPC_LOCK --device=/dev/infiniband/ -e IPUOF_VIPU_API_HOST -e IPUOF_VIPU_API_PARTITION_ID --shm-size=128G
     steps:
       - name: Install prerequisites

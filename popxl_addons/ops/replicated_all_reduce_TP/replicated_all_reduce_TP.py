@@ -9,7 +9,7 @@ from typing import Optional
 
 from popxl import Tensor, ReplicaGrouping
 from popxl.context import op_debug_context, get_current_context
-from popxl.ops.collectives.collectives import CollectiveOps, CommGroup, to_collective_op
+from popxl.ops.collectives.collectives import CollectiveOps, to_collective_op
 from popxl.ops.utils import check_in_graph
 
 __all__ = ['replicated_all_reduce_identical_inputs', 'replicated_all_reduce_identical_grad_inputs']
@@ -73,14 +73,11 @@ def _replicated_all_reduce_TP(
 
     op_ = to_collective_op(op)  # Only add is currently supported
 
-    if group is None:
-        comm_group = CommGroup()
-    else:
-        comm_group = group._to_comm_group()
-
     ctx = get_current_context()
     g = ctx.graph
     pb_g = g._pb_graph
+
+    group = g.ir.replica_grouping() if group is None else group
 
     check_in_graph(g, t=t)
 
@@ -94,7 +91,7 @@ def _replicated_all_reduce_TP(
             0: g._create_tensor_id("replicated_all_reduce_TP_out"),
         },
         op_,
-        comm_group,
+        group._pb_replica_grouping,
         identical_inputs,
         identical_grad_inputs,
         settings,

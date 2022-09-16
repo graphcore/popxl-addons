@@ -77,7 +77,7 @@ PYBIND11_MODULE(crossentropysharded_binding, m) {
 <%
 cfg['sources'] = ['crossentropysharded.cpp', 'crossentropyshardedx.cpp']
 cfg['extra_compile_args'] = ['-std=c++14', '-fPIC', '-O2', '-DONNX_NAMESPACE=onnx', '-Wall', '-Wno-sign-compare']
-cfg['libraries'] = ['popart', 'poputil', 'popops', 'poplin', 'popnn', 'poprand', 'gcl_ct']
+cfg['libraries'] = ['popart', 'poputil', 'popops', 'poplin', 'popnn', 'poprand', 'gcl']
 setup_pybind11(cfg)
 %>
 */

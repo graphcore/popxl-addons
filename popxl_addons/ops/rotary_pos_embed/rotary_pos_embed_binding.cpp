@@ -67,7 +67,7 @@ PYBIND11_MODULE(rotary_pos_embed_binding, m) {
 <%
 cfg['sources'] = ['rotary_pos_embed.cpp', 'rotary_pos_embedx.cpp']
 cfg['extra_compile_args'] = ['-std=c++14', '-fPIC', '-O2', '-DONNX_NAMESPACE=onnx', '-Wall', '-Wno-sign-compare']
-cfg['libraries'] = ['popart', 'poputil', 'popops', 'poplin', 'popnn', 'poprand', 'gcl_ct']
+cfg['libraries'] = ['popart', 'poputil', 'popops', 'poplin', 'popnn', 'poprand', 'gcl']
 setup_pybind11(cfg)
 %>
 */
