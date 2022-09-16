@@ -58,7 +58,7 @@ class ReplicatedAllReduceTPOp : public ReplicatedAllReduceOp {
 public:
   ReplicatedAllReduceTPOp(const OperatorIdentifier &_opid,
                           const CollectiveOperator &op_,
-                          const CommGroup &group_,
+                          const ReplicaGrouping &group_,
                           const bool identicalInputs_,
                           const bool identicalGradInputs_,
                           const Op::Settings &settings_)
@@ -85,7 +85,7 @@ public:
     result.push_back(
         std::make_unique<ReplicatedAllReduceTPOp>(opid,
                                                   op,
-                                                  getGCLCommGroup(),
+                                                  getReplicaGrouping(),
                                                   identicalGradInputs,
                                                   identicalInputs,
                                                   settings));
@@ -95,7 +95,7 @@ public:
   void appendOutlineAttributes(OpSerialiserBase &os) const override {
     Op::appendOutlineAttributes(os);
     os.appendAttribute("op", op);
-    os.appendAttribute("group", getGCLCommGroup());
+    os.appendAttribute("group", getReplicaGrouping());
     os.appendAttribute("identicalInputs", identicalInputs);
     os.appendAttribute("identicalGradInputs", identicalGradInputs);
   }
@@ -129,7 +129,7 @@ public:
                   const InMapType &in,
                   const OutMapType &out,
                   const CollectiveOperator &op,
-                  const CommGroup &group,
+                  const ReplicaGrouping &group,
                   const bool identicalInputs,
                   const bool identicalGradInputs,
                   const popart::Op::Settings &settings) {
@@ -185,7 +185,7 @@ PYBIND11_MODULE(replicated_all_reduce_TP_binding, m) {
       binding(m, "ReplicatedAllReduceTPOp");
   binding.def(py::init<const popart::OperatorIdentifier &,
                        const popart::CollectiveOperator &,
-                       const popart::CommGroup &,
+                       const popart::ReplicaGrouping &,
                        const bool,
                        const bool,
                        const popart::Op::Settings &>(),
@@ -200,7 +200,7 @@ PYBIND11_MODULE(replicated_all_reduce_TP_binding, m) {
                                        const InMapType &,
                                        const OutMapType &,
                                        const popart::CollectiveOperator &,
-                                       const popart::CommGroup &,
+                                       const popart::ReplicaGrouping &,
                                        const bool,
                                        const bool,
                                        const popart::Op::Settings &>(
