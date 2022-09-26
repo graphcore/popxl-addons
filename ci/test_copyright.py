@@ -39,7 +39,7 @@ def check_file(path, language, amend):
         if amend:
             now = datetime.datetime.now()
             year = now.year
-            copyright_msg = '{} Copyright (c) {} Graphcore Ltd. All rights reserved.'.format(comment, year)
+            copyright_msg = '{} Copyright (c) {} Graphcore Ltd. All rights reserved.\n'.format(comment, year)
             index = 0
             for line in fileinput.FileInput(path, inplace=1):
                 if index == first_line_index:
