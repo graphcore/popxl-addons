@@ -84,6 +84,7 @@ def autodiff(graph: GraphWithNamedArgs,
 def autodiff_with_accumulation(
         graph: GraphWithNamedArgs,
         tensors_to_accumulate_grads: Iterable[popxl.Tensor],
+        grads_provided: Optional[Iterable[popxl.Tensor]] = None,
         grads_required: Optional[Iterable[popxl.Tensor]] = None,
         called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
         replica_groupings: Optional[NamedReplicaGrouping] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
@@ -117,6 +118,7 @@ def autodiff_with_accumulation(
 
     # Autodiff the graph.
     grad_info = _autodiff_with_patterns(graph.graph,
+					grads_provided=grads_provided,
                                         grads_required=grads_required,
                                         called_graphs_grad_info=called_graphs_grad_info)
 
