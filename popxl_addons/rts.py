@@ -135,7 +135,7 @@ def reduce_replica_sharded_tensor(t: popxl.Tensor,
         return t
 
     # RTS
-    if t.nelms >= threshold and t.nelms % shard_group.group_size == 0:
+    if shard_group.group_size > 1 and t.nelms >= threshold and t.nelms % shard_group.group_size == 0:
         # A multi stage collective is required to keep the RTS behaviour within an instance
         second_stage = ir.replica_grouping(
             stride=ir.instance_replication_factor) if is_cross_instance(replica_group) else None

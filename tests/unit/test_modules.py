@@ -63,7 +63,9 @@ def test_linear_autodiff():
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors, [graph.graph.inputs[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(graph,
+                                                           graph.args.tensors,
+                                                           grads_required=[graph.graph.inputs[0]])
 
         layer = graph.bind(args.init())
         grad_layer = grad_graph.bind(grad_args.init())
@@ -85,7 +87,9 @@ def test_linear_recompute():
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph, graph.args.tensors, [graph.graph.inputs[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(graph,
+                                                           graph.args.tensors,
+                                                           grads_required=[graph.graph.inputs[0]])
 
         grad_graph = recompute_graph(grad_graph)
 

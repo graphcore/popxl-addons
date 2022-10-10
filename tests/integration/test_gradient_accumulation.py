@@ -26,7 +26,7 @@ def model(with_accumulation):
 
         args, graph = Scale().create_graph(x)
         if with_accumulation:
-            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.scale], graph.graph.inputs)
+            dargs, dgraph = autodiff_with_accumulation(graph, [graph.args.scale], grads_required=graph.graph.inputs)
         else:
             dgraph = autodiff(graph, grads_required=graph.graph.inputs)
             # Create empty. No named inputs.
