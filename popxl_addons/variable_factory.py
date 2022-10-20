@@ -24,8 +24,8 @@ class VariableFactory:
                  dtype: Optional[dtypes.dtype] = None,
                  name: Optional[str] = None,
                  by_ref: bool = False,
-                 replica_sharded: bool = False,
-                 replica_grouping: Optional[ReplicaGrouping] = None):
+                 replica_grouping: Optional[ReplicaGrouping] = None,
+                 shard_over: int = 1):
         """
         Generates variable tensors for a subgraph from a host tensor data iterator.
 
@@ -39,12 +39,12 @@ class VariableFactory:
                 The name of the variable tensor - by default 't'
             by_ref (bool = False):
                 If true the graph_input's created for this tensor will be flagged as pass by reference.
-            replica_sharded (bool = False):
-                If true the variable is Replica Tensor Sharded (RTS)
             replica_grouping (Optional[ReplicaGrouping]):
                 The replica group of the variable. Determines which replicas of the variable will have identical data or
                 not when written to. On variable initialisation it will fill a tensor with the replica grouping shape
                 `(n_groups, *data_shape)`
+            shard_over (int):
+                Number of replicas in `replica_grouping` to shard the variable over. Defaults to 1, meaning that the variable is not sharded. If you want to create a replica_sharded_variable, specify shard_over > 1 (to shard over all replicas, `shard_over=replica_grouping.group_size`). See also `add_replica_sharded_variable_input`.
         """
 
         if callable(data_iter):
@@ -70,8 +70,8 @@ class VariableFactory:
         self.data_iter: peekable[HostTensor] = peekable(data_iter_)
         self.name = name
         self.by_ref = by_ref
-        self.replica_sharded = replica_sharded
-        self.replica_grouping = replica_grouping
+        self.replica_sharded = shard_over > 1
+        self.replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
 
         data_peek = self.data_iter.peek()
         if not isinstance(data_peek, tuple(host_tensor_types)):
@@ -84,10 +84,8 @@ class VariableFactory:
         self.shape = data_peek.shape
         if self.replica_sharded:
             self.meta_shape = self.shape
-            ir = popxl.gcg().ir
-            group = self.replica_grouping or ir.replica_grouping()
-            shard_size = ir.instance_replication_factor // group.num_groups
-            self.shape = (int(np.prod(self.meta_shape)) // shard_size, )
+            assert shard_over <= self.replica_grouping.group_size
+            self.shape = (int(np.prod(self.meta_shape)) // shard_over, )
 
     def create_input(self, prefix: Optional[str] = None) -> popxl.Tensor:
         """Create a subgraph input for the current graph."""
@@ -140,7 +138,7 @@ class VariableFactory:
             else:
                 return np.empty(self.meta_shape or self.shape, self.dtype.as_numpy())
 
-        if not self.replica_grouping or self.replica_grouping.num_groups == 1:
+        if self.replica_grouping.num_groups == 1:
             return next_()
         else:
             return np.concatenate(
@@ -245,18 +243,23 @@ def add_variable_input(
         replica_grouping: Optional[ReplicaGrouping] = None,
 ) -> Tuple[popxl.Tensor, VariableFactory]:
     """Create a VariableFactory and graph_input in the current graph."""
-    input_f = VariableFactory(data_iter, dtype, name, by_ref, False, replica_grouping=replica_grouping)
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, replica_grouping=replica_grouping)
     tensor = input_f.create_input()
     return tensor, input_f
 
 
-def add_replica_sharded_variable_input(
-        name: str,
-        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-        dtype: Optional[dtypes.dtype] = None,
-        by_ref: bool = False,
-        replica_grouping: Optional[ReplicaGrouping] = None) -> Tuple[popxl.Tensor, VariableFactory]:
-    """Create a VariableFactory and replica sharded graph_input in the current graph."""
-    input_f = VariableFactory(data_iter, dtype, name, by_ref, True, replica_grouping=replica_grouping)
+def add_replica_sharded_variable_input(name: str,
+                                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+                                       dtype: Optional[dtypes.dtype] = None,
+                                       by_ref: bool = False,
+                                       replica_grouping: Optional[ReplicaGrouping] = None,
+                                       shard_over: Optional[int] = None) -> Tuple[popxl.Tensor, VariableFactory]:
+    """Create a VariableFactory and replica sharded graph_input in the current graph. 
+        If no `replica_grouping` is specified, assume the variable is the same on all replicas. 
+        If `shard_over` is not provided, all replicas in replica_grouping will be used for sharding. 
+    """
+    group = replica_grouping or popxl.gcg().ir.replica_grouping()
+    shard_over = shard_over or group.group_size
+    input_f = VariableFactory(data_iter, dtype, name, by_ref, replica_grouping, shard_over)
     tensor = input_f.create_input()
     return tensor, input_f

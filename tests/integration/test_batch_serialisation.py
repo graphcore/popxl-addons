@@ -515,7 +515,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
             input_grad = dgraph.graph.inputs[0]
 
             # all dp replicas will compute on the same data in this case
-            grad_buffer = batch_serial_buffer(input_grad, steps=bf, sharded_threshold=0, shard_group=tp_group)
+            grad_buffer = batch_serial_buffer(input_grad, steps=bf, shard_group=tp_group)
             bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
                                                            dgraph,
                                                            graph.args,
@@ -526,8 +526,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
                                                            },
                                                            store_streams={dgraph.graph.outputs[0]: out_d2h},
                                                            store_buffers=activations_shard_groups,
-                                                           io_mode=io_mode,
-                                                           sharded_threshold=0)
+                                                           io_mode=io_mode)
             # --- Create variables and bind
             weights = args.init()
             fwd = bs_fwd.graph.bind(weights)

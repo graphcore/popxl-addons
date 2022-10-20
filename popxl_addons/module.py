@@ -110,7 +110,8 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
                                            data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
                                            dtype: Optional[dtypes.dtype] = None,
                                            by_ref: bool = False,
-                                           replica_grouping: Optional[ReplicaGrouping] = None) -> popxl.Tensor:
+                                           replica_grouping: Optional[ReplicaGrouping] = None,
+                                           shard_over: Optional[int] = None) -> popxl.Tensor:
         """Add a replica sharded initialised input tensor. The graph input will be sharded, however the initialised Tensor will
             be constructed whole.
             `remote_replica_sharded_variable` or `ops.collectives.replicated_reduce_scatter(..., configure_output_for_replicated_tensor_sharding=True)`
@@ -125,8 +126,11 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
                 lambda function e.g. `lambda: data`.
             dtype (Optional[dtypes.dtype], optional): dtype of input. Defaults to None.
             by_ref (bool, optional): Pass the input by reference. Defaults to False.
+            replica_grouping (popxl.ReplicaGrouping, optional): variable replica grouping
+            shard_over (int, optional): number of replicas in the variable replica group to be used for sharding. If not provided, the variable will be sharded using all replicas.
         """
-        tensor, variable_f = add_replica_sharded_variable_input(name, data_iter, dtype, by_ref, replica_grouping)
+        tensor, variable_f = add_replica_sharded_variable_input(name, data_iter, dtype, by_ref, replica_grouping,
+                                                                shard_over)
         self._variable_factories.insert(name, variable_f)
         self._named_inputs.insert(name, tensor)
         return tensor

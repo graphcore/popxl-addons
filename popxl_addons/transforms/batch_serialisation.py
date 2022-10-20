@@ -257,10 +257,7 @@ class BatchSerialResult:
         return ts.remap(self._remap_dict)
 
 
-def batch_serial_buffer(t: popxl.Tensor,
-                        steps: int = 1,
-                        rows: int = 1,
-                        sharded_threshold: int = 1024,
+def batch_serial_buffer(t: popxl.Tensor, steps: int = 1, rows: int = 1,
                         shard_group: Optional[ReplicaGrouping] = None) -> popxl.remote_buffer:
     """Create a RemoteBuffer for the Tensor `t`, with a matrix layout.
     The returned buffer can be seen as a matrix with `steps` columns and `rows` rows.
@@ -271,19 +268,13 @@ def batch_serial_buffer(t: popxl.Tensor,
     Args:
         t (popxl.Tensor): Tensor to make a RemoteBuffer for.
         steps (int, optional) = 1: number of batch serialisation steps. Defaults to 1.
-        rows (int, optional) = 1: number of rows for the buffer. Defaults to 1,
-        sharded_threshold (int, optional) = 1024: if the tensor has nelms >= this a replica sharded buffer will be created using the provided 
-                                           shard group.
+        rows (int, optional) = 1: number of rows for the buffer. Defaults to 1.
         shard_group (ReplicaGrouping, optional) = None: replica group used for sharding the tensor. If no group is provided, the tensor won't be sharded.
     Returns:
         popxl.remote_buffer : a remote buffer with entries = steps * rows
     """
     shard_over = shard_group.group_size if shard_group else 1
-    buffer = create_remote_buffer(t,
-                                  entries=steps * rows,
-                                  sharded_threshold=sharded_threshold,
-                                  replica_group=shard_group,
-                                  shard_over=shard_over)
+    buffer = create_remote_buffer(t, entries=steps * rows, replica_group=shard_group, shard_over=shard_over)
     return buffer
 
 
@@ -294,8 +285,7 @@ def batch_serialise_non_overlapped(graph: GraphWithNamedArgs,
                                    store_buffers: Dict[popxl.Tensor, RemoteHandle],
                                    seed_input: Optional[popxl.Tensor] = None,
                                    rows: int = 1,
-                                   use_io_tiles: bool = False,
-                                   sharded_threshold: int = 1024) -> BatchSerialResult:
+                                   use_io_tiles: bool = False) -> BatchSerialResult:
     """Batch Serialise `graph` without overlapped IO"""
     if rows < 1:
         raise ValueError("rows must be >0")
@@ -389,8 +379,7 @@ def batch_serialise_overlapped(graph: GraphWithNamedArgs,
                                store_streams: Dict[popxl.Tensor, popxl.DeviceToHostStream],
                                store_buffers: Dict[popxl.Tensor, RemoteHandle],
                                seed_input: Optional[popxl.Tensor] = None,
-                               rows: int = 1,
-                               sharded_threshold: int = 1024):
+                               rows: int = 1):
     """Batch Serialise `graph` with overlapped IO.
 
     To be able to overlap the IO with the compute we must decompose the standard batch serialisation loop 
@@ -627,8 +616,7 @@ def batch_serialise_fwd_and_grad(
         store_buffers: Dict[popxl.Tensor, Union[RemoteBufferWithOffset, RemoteHandle, popxl.ReplicaGrouping]],
         seed_input: Optional[popxl.Tensor] = None,
         rows: int = 1,
-        io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io',
-        sharded_threshold: int = 1024) -> Tuple[BatchSerialResult, BatchSerialResult]:
+        io_mode: Literal['compute', 'io', 'io_overlapped'] = 'io') -> Tuple[BatchSerialResult, BatchSerialResult]:
     """Transform a matching forward and gradient Graphs that the computation is `steps` times.
 
         Tensors required for autodiff will be stored automatically.
@@ -651,7 +639,6 @@ def batch_serialise_fwd_and_grad(
                                                              `compute` uses the Compute tiles.
                                                              `io` uses the IO tiles.
                                                              `io_overlapped` uses the io tiles and builds the loop such that Compute and IO execute at the same time.
-        sharded_threshold (int, optional) = 1024: shard threshold for activations specified in store_buffers.
     Returns:
         Tuple[BatchSerialResult, BatchSerialResult]:
             result of forward_graph, result of gradient_graph
@@ -684,11 +671,7 @@ def batch_serialise_fwd_and_grad(
             shard_group = None
             if activations_shard_groups and t in activations_shard_groups:
                 shard_group = activations_shard_groups[t]
-            buffer = batch_serial_buffer(t,
-                                         steps=steps,
-                                         rows=rows,
-                                         sharded_threshold=sharded_threshold,
-                                         shard_group=shard_group)
+            buffer = batch_serial_buffer(t, steps=steps, rows=rows, shard_group=shard_group)
             store_buffers[t] = RemoteHandle(buffer, 0, shard_group)
 
     forward_result = batch_serialise(forward_graph, steps, load_handles, store_streams, store_buffers, seed_input, rows,

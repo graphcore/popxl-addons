@@ -111,7 +111,8 @@ def autodiff_with_accumulation(
         GraphWithNamedArgs: grad graph of `graph` with NamedArgs
         GradGraphInfo: grad graph of `graph`
     """
-    replica_groupings = replica_groupings or NamedReplicaGrouping.build_groups(graph.args.named_tensors.keys())
+    replica_groupings = replica_groupings or NamedReplicaGrouping.build_groups(graph.args.named_tensors.keys(),
+                                                                               popxl.gcg().ir.replica_grouping())
     replica_groupings = replica_groupings.to_dict()
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads
@@ -148,13 +149,11 @@ def autodiff_with_accumulation(
                 subgraph_tensor = popxl.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getOutputTensor(idx))
 
                 name = names.get(tensor, sanitise(tensor.name))
-                replica_grouping = replica_groupings.get(name, None) or popxl.gcg().ir.replica_grouping()
-                name = "accum." + name
-                accum = add_input(name,
+                accum = add_input("accum." + name,
                                   partial(np.zeros, shape=tensor.shape),
                                   tensor.dtype,
                                   by_ref=True,
-                                  replica_grouping=replica_grouping)
+                                  replica_grouping=replica_groupings.get(name, None))
                 ops.var_updates.accumulate_mean_(accum, subgraph_tensor, counter)
 
         ops.var_updates.accumulate_(counter, popxl.constant(1, popxl.float32))

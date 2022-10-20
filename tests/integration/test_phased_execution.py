@@ -7,7 +7,7 @@ from popxl import ops
 
 from popxl_addons import (Module, host_load, NamedTensors, named_variable_buffers, load_remote_graph,
                           store_remote_graph)
-from popxl_addons.rts import (all_gather_replica_sharded_graph, replica_sharded_slice_graph)
+from popxl_addons.rts import (all_gather_replica_sharded_graph, reduce_replica_sharded_graph)
 
 
 class Add(Module):
@@ -62,10 +62,12 @@ def test_phased_rts():
 
         args, graph = Add().create_graph(x)
 
-        buffers = named_variable_buffers(args, 2, 0)
+        buffers = named_variable_buffers(args, 2, {k: 4 for k in args.keys_flat()})
         load, names = load_remote_graph(buffers)
-        gather_, _ = all_gather_replica_sharded_graph(NamedTensors.pack(names, load.graph.outputs))
-        reduce_, _ = replica_sharded_slice_graph(NamedTensors.pack(names, gather_.graph.outputs), threshold=0)
+        gather_, _ = all_gather_replica_sharded_graph(NamedTensors.pack(names, load.graph.outputs),
+                                                      replica_groups=args.replica_groupings)
+        reduce_, _ = reduce_replica_sharded_graph(NamedTensors.pack(names, gather_.graph.outputs),
+                                                  shard_groups=args.replica_groupings)
         store = store_remote_graph(buffers)
 
         variables = NamedTensors(layer0=args.init_remote(buffers, 0), layer1=args.init_remote(buffers, 1))
@@ -90,7 +92,7 @@ def test_phased_rts():
         sess.run({x_stream: replicated_data})
     after = sess.get_tensors_data(variables.tensors)
     for t in before.keys():
-        np.testing.assert_almost_equal(before[t] + data, after[t])
+        np.testing.assert_almost_equal((before[t] + data) * 4, after[t])
 
 
 if __name__ == "__main__":
