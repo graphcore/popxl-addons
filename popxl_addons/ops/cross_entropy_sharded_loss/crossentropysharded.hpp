@@ -5,6 +5,7 @@
 #include <popart/graph.hpp>
 #include <popart/op.hpp>
 #include <popart/vendored/optional.hpp>
+#include <popart/replicagrouping.hpp>
 
 #include "common.hpp"
 
@@ -13,7 +14,7 @@ namespace popart {
 class CrossEntropyShardedOp : public Op {
 public:
   CrossEntropyShardedOp(const OperatorIdentifier &_opid,
-                        uint32_t groupSize_,
+                        ReplicaGrouping group,
                         float availableMemoryProportion_,
                         const Op::Settings &settings_);
 
@@ -27,14 +28,14 @@ public:
   createOpInGraph(popart::Graph &graph,
                   const InMapType &in,
                   const OutMapType &out,
-                  uint32_t groupSize,
+                  ReplicaGrouping group,
                   float availableMemoryProportion,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<CrossEntropyShardedOp>(
         in,
         out,
         CrossEntropySharded,
-        groupSize,
+        group,
         availableMemoryProportion,
         settings);
   }
@@ -46,10 +47,10 @@ public:
     availableMemoryProportion = availableMemoryProportion_.value();
   }
   float getAvailableMemoryProportion() { return availableMemoryProportion; }
-  uint32_t getGroupSize() { return groupSize; }
+  ReplicaGrouping getGroup() { return group; }
 
 protected:
-  uint32_t groupSize;
+  ReplicaGrouping group;
   float availableMemoryProportion;
 };
 

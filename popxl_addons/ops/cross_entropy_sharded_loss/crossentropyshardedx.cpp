@@ -6,6 +6,8 @@
 #include <popart/popx/opxmanager.hpp>
 #include <popart/popx/popopx.hpp>
 #include <popart/util.hpp>
+#include <popart/replicagrouping.hpp>
+#include <popart/popx/op/collectives/collectivesx.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
@@ -72,7 +74,6 @@ CrossEntropyShardedOpx::CrossEntropyShardedOpx(Op *op, Devicex *devicex)
 
   availableMemoryProportion =
       getOp<CrossEntropyShardedOp>().getAvailableMemoryProportion();
-  groupSize = getOp<CrossEntropyShardedOp>().getGroupSize();
 }
 
 /**
@@ -88,7 +89,7 @@ poplar::Tensor
 CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
                                       poplar::program::Sequence &prog,
                                       const poplar::Tensor &logits) const {
-
+  ReplicaGrouping group = getOp<CrossEntropyShardedOp>().getGroup();
   auto elementType = logits.elementType();
 
   std::vector<poplar::Tensor> maxs;
@@ -107,7 +108,7 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
       maxPartial,
       gcl::CollectiveOperator::MAX,
       prog,
-      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      toGclCommGroup(group),
       debugContext("all_reduce_max"));
 
   auto maxBroadcasted = max.expand({1}).broadcast(logits.dim(1), 1);
@@ -133,7 +134,7 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
       denominatorPartial,
       gcl::CollectiveOperator::ADD,
       prog,
-      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      toGclCommGroup(group),
       debugContext("all_reduce_denominator"));
 
   // Final calculation of log softmax on each shard
@@ -172,6 +173,8 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
                                                 poplar::program::Sequence &prog,
                                                 poplar::Tensor &negLogSoftmax,
                                                 poplar::Tensor &indices) const {
+  ReplicaGrouping group = getOp<CrossEntropyShardedOp>().getGroup();
+
   assert(negLogSoftmax.shape()[0] == indices.shape()[0]);
   auto nSamples = negLogSoftmax.shape()[0];
   auto nClasses = negLogSoftmax.shape()[1]; // sharded number of classes
@@ -223,7 +226,7 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
       lossPartial,
       gcl::CollectiveOperator::ADD,
       prog,
-      gcl::CommGroup(gcl::CommGroupType::CONSECUTIVE, groupSize),
+      toGclCommGroup(group),
       debugContext("allreduce_partial_losses"));
 
   return loss;
@@ -251,14 +254,13 @@ void CrossEntropyShardedOpx::grow(snap::program::Sequence &prog) const {
 CrossEntropyShardedGradOpx::CrossEntropyShardedGradOpx(Op *op, Devicex *devicex)
     : PopOpx(op, devicex) {
   verifyOp<CrossEntropyShardedGradOp>(op, {CrossEntropyShardedGrad});
+  auto op_ = getOp<CrossEntropyShardedGradOp>();
 
-  availableMemoryProportion =
-      getOp<CrossEntropyShardedGradOp>().getAvailableMemoryProportion();
+  availableMemoryProportion = op_.getAvailableMemoryProportion();
 
-  logSoftmaxIndex =
-      getOp<CrossEntropyShardedGradOp>().getlogSoftmaxStartIndex();
-  logitsIndex = getOp<CrossEntropyShardedGradOp>().getlogitsStartIndex();
-  labelsIndex = getOp<CrossEntropyShardedGradOp>().getlabelsStartIndex();
+  logSoftmaxIndex = op_.getlogSoftmaxStartIndex();
+  logitsIndex = op_.getlogitsStartIndex();
+  labelsIndex = op_.getlabelsStartIndex();
 }
 
 /**

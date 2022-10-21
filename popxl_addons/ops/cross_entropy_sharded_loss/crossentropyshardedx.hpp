@@ -5,6 +5,7 @@
 #include <vector>
 #include <popart/names.hpp>
 #include <popart/popx/popopx.hpp>
+#include <popart/replicagrouping.hpp>
 
 namespace popart {
 namespace popx {
@@ -25,7 +26,6 @@ public:
                           poplar::Tensor &indicesConcat) const;
 
 protected:
-  int32_t groupSize;
   float availableMemoryProportion;
 };
 

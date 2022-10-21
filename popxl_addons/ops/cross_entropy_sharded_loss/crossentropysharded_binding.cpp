@@ -22,6 +22,7 @@
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
 #include <popart/vendored/optional.hpp>
+#include <popart/replicagrouping.hpp>
 
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
@@ -46,14 +47,14 @@ PYBIND11_MODULE(crossentropysharded_binding, m) {
                      py::overload_cast<popart::Graph &,
                                        const InMapType &,
                                        const OutMapType &,
-                                       uint32_t,
+                                       popart::ReplicaGrouping,
                                        float,
                                        const popart::Op::Settings &>(
                          &popart::CrossEntropyShardedOp::createOpInGraph),
                      py::arg("graph"),
                      py::arg("inputs"),
                      py::arg("outputs"),
-                     py::arg("groupSize"),
+                     py::arg("group"),
                      py::arg("availableMemoryProportion"),
                      py::arg("settings"),
                      py::return_value_policy::reference);
@@ -64,9 +65,6 @@ PYBIND11_MODULE(crossentropysharded_binding, m) {
   binding.def("setAvailableMemoryProportion",
               py::overload_cast<nonstd::optional<float>>(
                   &popart::CrossEntropyShardedOp::setAvailableMemoryProportion),
-              py::return_value_policy::reference);
-  binding.def("getGroupSize",
-              &popart::CrossEntropyShardedOp::getGroupSize,
               py::return_value_policy::reference);
 };
 

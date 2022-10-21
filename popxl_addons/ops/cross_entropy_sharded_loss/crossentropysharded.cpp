@@ -24,10 +24,10 @@ namespace popart {
 ////// Fwd op
 
 CrossEntropyShardedOp::CrossEntropyShardedOp(const OperatorIdentifier &_opid,
-                                             uint32_t groupSize_,
+                                             ReplicaGrouping group,
                                              float availableMemoryProportion_,
                                              const Op::Settings &settings_)
-    : Op(_opid, settings_), groupSize(groupSize_),
+    : Op(_opid, settings_), group(group),
       availableMemoryProportion(availableMemoryProportion_) {}
 
 std::unique_ptr<Op> CrossEntropyShardedOp::clone() const {
@@ -73,7 +73,7 @@ void CrossEntropyShardedOp::appendOutlineAttributes(
     OpSerialiserBase &os) const {
   Op::appendOutlineAttributes(os);
   os.appendAttribute("availableMemoryProportion", availableMemoryProportion);
-  os.appendAttribute("groupSize", groupSize);
+  os.appendAttribute("group", group);
 }
 
 /////////////////////////////////////////////////////////////

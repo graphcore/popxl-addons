@@ -61,9 +61,7 @@ def cross_entropy_sharded_loss(logits: Tensor,
 
     settings = ctx._get_op_settings('cross_entropy_sharded')
     group = replica_grouping if replica_grouping is not None else g.ir.replica_grouping()
-    if group.stride != 1:
-        raise ValueError(
-            "Cross entropy sharded loss only supported for consecutive ipus. Expected replica grouping stride = 1.")
+
     op = crossentropysharded_binding.CrossEntropyShardedOp.createOpInGraph(
         pb_g, {
             0: logits.id,
@@ -72,7 +70,7 @@ def cross_entropy_sharded_loss(logits: Tensor,
             0: g._create_tensor_id(f"cross_entropy_sharded_out"),
             1: g._create_tensor_id(f"cross_entropy_sharded_soft_max_out"),
         },
-        groupSize=group.group_size,
+        group=group._pb_replica_grouping,
         availableMemoryProportion=available_memory_proportion,
         settings=settings)
 
