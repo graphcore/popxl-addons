@@ -108,8 +108,11 @@ class TaskSession(popxl.Session):
             },
                       step=step)
 
-    def _save_checkpoint_to_file(self, file_path: str, ckpt: Mapping[str, np.ndarray]):
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    def save_checkpoint_to_file(self, file_path: str, ckpt: Mapping[str, np.ndarray]):
+        file_path = os.path.relpath(os.path.expanduser(file_path))
+        dir = os.path.dirname(file_path)
+        if dir != '':
+            os.makedirs(dir, exist_ok=True)
         np.savez(file_path, ckpt=ckpt)
 
     def _save_checkpoint_to_wandb(self, name: str, ckpt: Mapping[str, np.ndarray]):
