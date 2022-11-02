@@ -4,8 +4,8 @@
 
 #include <popart/graph.hpp>
 #include <popart/op.hpp>
-#include <popart/vendored/optional.hpp>
 #include <popart/replicagrouping.hpp>
+#include <popart/vendored/optional.hpp>
 
 #include "common.hpp"
 

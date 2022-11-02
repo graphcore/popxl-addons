@@ -3,17 +3,21 @@ import os
 import logging
 import tempfile
 from time import time
-from typing import Dict, Iterable, Mapping, Union
+from typing import Dict, Iterable, Mapping, Union, Optional
 from typing_extensions import Literal
 import numpy as np
+import shutil
+from collections import deque
 
 import popxl
 from popxl_addons import InputStreams, OutputStreams
 from popxl_addons.named_tensors import NamedTensors, NamedTensorData
 from popxl_addons.utils import timer
-
-# TODO: remove this method once T61041 has landed and use normal `Session.write_variables_data`
+import json
+from popxl.session import Session, d2hStreamBufferMaps, h2dStreamBufferMaps
 import popart
+import popdist
+import glob
 
 __all__ = ["TaskSession", "write_variables_pb"]
 
@@ -21,7 +25,7 @@ ReportMissingMethods = Literal['none', 'warn', 'error']
 
 
 # TODO: remove this method once T61041 has landed and use normal `Session.write_variables_data`
-def write_variables_pb(session: popxl.Session, weights: Mapping[popxl.Tensor, np.ndarray]):
+def write_variables_pb(session: Session, weights: Mapping[popxl.Tensor, np.ndarray]):
     weightsIo = popart.PyWeightsIO({xl_t.id: np_t for xl_t, np_t in weights.items()})
     session._pb_session.writeWeights(weightsIo)
     if session.is_attached:
@@ -36,8 +40,12 @@ class TaskSession(popxl.Session):
 
     """
 
-    def __init__(self, inputs: Union[InputStreams, Iterable[popxl.HostToDeviceStream]],
-                 outputs: Union[OutputStreams, Iterable[popxl.DeviceToHostStream]], state: NamedTensors, *args,
+    def __init__(self,
+                 inputs: Union[InputStreams, Iterable[popxl.HostToDeviceStream]],
+                 outputs: Union[OutputStreams, Iterable[popxl.DeviceToHostStream]],
+                 state: NamedTensors,
+                 max_checkpoints: int = 1,
+                 *args,
                  **kwargs):
         with timer('PopXL compilation'):
             super().__init__(*args, **kwargs)
@@ -45,6 +53,34 @@ class TaskSession(popxl.Session):
         self.outputs: OutputStreams = outputs if isinstance(outputs,
                                                             OutputStreams) else OutputStreams.from_streams(outputs)
         self.state = state
+        self.session_state = {'steps': 0}
+        self.__dataloader = None
+        self.__session_filename = r"session_info.json"
+        self.__dataloader_filename = r"dataloader.bin"
+        self.__checkpoints = deque([])
+        self.__max_checkpoints = max_checkpoints
+
+    @property
+    def dataloader(self):
+        if self.__dataloader is None:
+            logging.warning(
+                "No dataloader set. Checkpoint support is incomplete. You won't be able to resume training.")
+        return self.__dataloader
+
+    @dataloader.setter
+    def dataloader(self, dl):
+        if hasattr(dl, 'save') and hasattr(dl, 'resume'):
+            self.__dataloader = dl
+        else:
+            raise ValueError("Dataloader must implement save and resume methods")
+
+    def add_session_state_info(self, info: Dict):
+        """
+        Add any extra info required to resume training.
+        For example, model configuration, total training steps, or learning rate schedule.
+        All the state is dumped to a json file in checkpoints.
+        """
+        self.session_state.update(info)
 
     def get_named_tensors_data(self) -> NamedTensorData:
         """
@@ -57,42 +93,12 @@ class TaskSession(popxl.Session):
             named_state_dict[name] = state_dict_t[t]
         return NamedTensorData.from_dict(named_state_dict)
 
-    def save_checkpoint(self, file_path: str):
-        """
-        Save the state to file in .npz format (see `numpy savez <https://numpy.org/doc/stable/reference/generated/numpy.savez.html>`__. )
-        or to wandb.
-        Data for variables in `state` is read from IPU and saved to checkpoint.
-        Args:
-            file_path (str): file to save the checkpoint.
-                             If a wandb address is provided (starts with "wandb://" ),
-                             checkpoint is saved to wandb.
-        """
-        ckpt = self.get_named_tensors_data().to_dict()
-
-        if file_path.startswith("wandb://"):
-            self._save_checkpoint_to_wandb(file_path.replace("wandb://", ""), ckpt)
-        else:
-            self._save_checkpoint_to_file(file_path, ckpt)
-
-    def load_checkpoint(self, file_path: str, report_missing: ReportMissingMethods = 'warn'):
-        """
-        Load checkpoint from a file in .npz format or from wandb.
-        Data is read from the checkpoint and written to the ipu to the corresponding `state` variables.
-        Args:
-            file_path: path to the .npz checkpoint or to wandb checkpoint (starting with "wandb://")
-            report_missing: how to report missing keys in the checkpoint.
-        """
-        if file_path.startswith("wandb://"):
-            self._load_checkpoint_from_wandb(file_path.replace("wandb://", ""), report_missing)
-        else:
-            self._load_checkpoint_from_file(file_path, report_missing)
-
     def load_from_session(self, src: 'TaskSession', report_missing: ReportMissingMethods = 'none'):
         """
         Copy variables data from `src` session.
         """
         loaded = src.get_tensors_data(src.state.tensors)
-        self._load_from_tensors(src.state, loaded, report_missing)
+        self.__load_from_tensors(src.state, loaded, report_missing)
 
     def wandb_variable_histograms(self, step: int = 0):
         """Track all variables as a histogram in Weights & Biases"""
@@ -108,66 +114,179 @@ class TaskSession(popxl.Session):
             },
                       step=step)
 
-    def save_checkpoint_to_file(self, file_path: str, ckpt: Mapping[str, np.ndarray]):
-        file_path = os.path.relpath(os.path.expanduser(file_path))
-        dir = os.path.dirname(file_path)
-        if dir != '':
-            os.makedirs(dir, exist_ok=True)
-        np.savez(file_path, ckpt=ckpt)
+    def save_checkpoint(self, checkpoint_dir: str):
+        """
+        Save a checkpoint for the task, consisting of the model state (weights), the optimiser state, the dataloader state and
+        the session state (always containing the step) which can be customised with application-specific requirements.
 
-    def _save_checkpoint_to_wandb(self, name: str, ckpt: Mapping[str, np.ndarray]):
-        import wandb
-        artifact = wandb.Artifact(name=name, type="ckpt")
-        with tempfile.TemporaryDirectory() as td:
-            file_path = os.path.join(td, "state.npz")
-            self._save_checkpoint_to_file(file_path, ckpt)
-            artifact.add_file(file_path)
-            wandb.log_artifact(artifact)
+        Tensors are saved in .npz format (see `numpy savez <https://numpy.org/doc/stable/reference/generated/numpy.savez.html>`__. )
+        The dataloader state is saved in binary format.
+        Session state is saved in json format.
 
-    def _load_checkpoint_from_file(self, file_path: str, report_missing: ReportMissingMethods = 'warn'):
-        loaded = np.load(file_path, allow_pickle=True)
-        assert loaded is not None
+        In case of distributed training, only instance 0 saves on file.
+        Args:
+            checkpoint_dir (str): directory to save the checkpoint.
+        """
+        # weightsFromHost calls must be performed by all instances,
+        # since they it involves cross-instances collectives
+        with timer(f"Get tensor data from IPU ... "):
+            state = self.get_named_tensors_data().to_dict()
 
-        ckpt = loaded["ckpt"].item()
+        if popdist.getInstanceIndex() == 0:
+            with timer(f"Saving checkpoint {checkpoint_dir} ... "):
+                if checkpoint_dir.startswith("wandb://"):
+                    import wandb
+                    checkpoint_dir = checkpoint_dir.replace("wandb://", "")
+                    artifact = wandb.Artifact(name=checkpoint_dir, type=f"checkpoints")
+                    with tempfile.TemporaryDirectory() as td:
+                        os.makedirs(os.path.join(td, "model"), exist_ok=True)
+                        self.__save_checkpoint_to_file(td, state)
+                        artifact.add_dir(td)
+                    wandb.log_artifact(artifact)
+                    # not able to delete artifacts
+                else:
+                    checkpoint_dir = os.path.relpath(os.path.expanduser(checkpoint_dir))
+                    if checkpoint_dir != '':
+                        os.makedirs(checkpoint_dir, exist_ok=True)
+                        os.makedirs(os.path.join(checkpoint_dir, "model"), exist_ok=True)
+                    if len(self.__checkpoints) >= self.__max_checkpoints:
+                        to_delete = self.__checkpoints.popleft()
+                        try:
+                            logging.info(f"\t Deleting old checkpoint {to_delete} ... ")
+                            shutil.rmtree(to_delete)
+                        except OSError as e:
+                            print(f"\t Failed to remove {to_delete} ", e)
+
+                    self.__save_checkpoint_to_file(checkpoint_dir, state)
+                    self.__checkpoints.append(checkpoint_dir)
+
+    def load_checkpoint(self, checkpoint_dir: str, report_missing: ReportMissingMethods = 'warn'):
+        """
+        Load a checkpoint for the task, consisting of the model state (weights), the optimiser state, the dataloader state and
+        the session state (always containing the step) which can be customised with application-specific requirements.
+
+        Tensors are saved in .npz format (see `numpy savez <https://numpy.org/doc/stable/reference/generated/numpy.savez.html>`__. )
+        The dataloader state is saved in binary format.
+        Session state is saved in json format.
+
+        Args:
+            checkpoint_dir (str): directory to save the checkpoint.
+        """
+        with timer(f"Loading checkpoint {checkpoint_dir} ... "):
+            if checkpoint_dir.startswith("wandb://"):
+                import wandb
+                checkpoint_dir = checkpoint_dir.replace("wandb://", "")
+                artifact = wandb.use_artifact(checkpoint_dir, type='checkpoints')
+                artifact_dir = artifact.download()
+                self.__load_checkpoint_from_file(artifact_dir, report_missing)
+            else:
+                self.__load_checkpoint_from_file(checkpoint_dir, report_missing)
+
+    def __save_checkpoint_to_file(self, checkpoint_dir: str, state: Dict):
+        # save model state
+        logging.info("\t Saving model state...")
+        for name, var in state.items():
+            filename = name.replace(".", "_")
+            np.savez(os.path.join(checkpoint_dir, "model", f"{filename}.npz"), **{name: var})
+
+        # save dataloader state
+        if self.dataloader:
+            logging.info("\t Saving dataloader state...")
+            self.dataloader.save(os.path.join(checkpoint_dir, self.__dataloader_filename))
+
+        # session info
+        with open(os.path.join(checkpoint_dir, self.__session_filename), "w") as f:
+            logging.info(f"\t Saving session state...")
+            json.dump(self.session_state, f)
+
+    def __load_checkpoint_from_file(self, checkpoint_dir: str, report_missing: ReportMissingMethods = 'warn'):
+        """
+        Load checkpoint from a file in .npz format or from wandb.
+        Data is read from the checkpoint and written to the ipu to the corresponding `state` variables.
+        Args:
+            file_path: path to the .npz checkpoint or to wandb checkpoint (starting with "wandb://")
+            report_missing: how to report missing keys in the checkpoint.
+        """
         variables = self.state.to_dict()
 
-        ckpt_keys = set(ckpt.keys())
-        state_keys = set(variables.keys())
-        self._report_missing(ckpt_keys, state_keys, report_missing)
+        # check missing keys
+        ckpt = {}
+        files = glob.glob(os.path.join(checkpoint_dir, "model", '*.npz'))
 
-        self.write_variables_data({variables[name]: ckpt[name] for name in state_keys.intersection(ckpt_keys)})
+        def filename_from_var_name(x: str):
+            name = x.replace(".", "_")
+            return os.path.join(checkpoint_dir, "model", f"{name}.npz")
 
-    def _load_checkpoint_from_wandb(self, name: str, report_missing: ReportMissingMethods = 'warn'):
-        import wandb
-        artifact = wandb.use_artifact(name, type='ckpt')
-        artifact_dir = artifact.download()
-        file_path = os.path.join(artifact_dir, "state.npz")
-        self.load_checkpoint_from_file(file_path, report_missing)
+        expected = map(filename_from_var_name, variables.keys())
+        files = set(files)
+        expected = set(expected)
+        self.__report_missing(files, expected, report_missing)
+        existing_keys = files.intersection(expected)
 
-    def _load_from_tensors(self,
-                           src: NamedTensors,
-                           loaded: Mapping[popxl.Tensor, np.ndarray],
-                           report_missing: ReportMissingMethods = 'none'):
-        self._report_missing(src.to_dict().keys(), self.state.to_dict().keys(), report_missing)
+        # load existing keys
+        for filename in existing_keys:
+            name = os.path.basename(filename).replace(".npz", "")
+            loaded = np.load(filename, allow_pickle=True)
+            assert loaded is not None
+            ckpt.update({name: loaded[name] for name in loaded.files})
+
+        # write variables data to IPU for existing keys
+        data = {}
+        for var_name in variables:
+            filename = var_name.replace(".", "_")
+            if filename in ckpt:
+                data[variables[var_name]] = ckpt[filename]
+
+        self.write_variables_data(data)
+        logging.info("\t Loaded model state")
+
+        # dataloader
+        if self.dataloader:
+            self.dataloader.resume(filename=os.path.join(checkpoint_dir, self.__dataloader_filename))
+            logging.info(f"\t Loaded dataloader state: {self.dataloader.get_state()}", )
+
+        # session info
+        with open(os.path.join(checkpoint_dir, self.__session_filename), "r") as f:
+            loaded_state = json.load(f)
+            self.__report_missing(loaded_state.keys(), self.session_state.keys(), report_missing)
+            self.session_state = loaded_state
+        logging.info(f"\t Loaded session state: {self.session_state}")
+
+    def __load_from_tensors(self,
+                            src: NamedTensors,
+                            loaded: Mapping[popxl.Tensor, np.ndarray],
+                            report_missing: ReportMissingMethods = 'none'):
+        self.__report_missing(src.to_dict().keys(), self.state.to_dict().keys(), report_missing)
 
         src_dst = src.to_mapping(self.state)
 
         self.write_variables_data({src_dst[src_t]: t for src_t, t in loaded.items() if src_t in src_dst.keys()})
 
-    def _report_missing(self, ckpt_keys: Iterable[str], state_keys: Iterable[str], method: ReportMissingMethods):
+    def __report_missing(self, ckpt_keys: Iterable[str], state_keys: Iterable[str], method: ReportMissingMethods):
         if method is not 'none':
             ckpt_keys = set(ckpt_keys)
             state_keys = set(state_keys)
 
             message = ""
             if ckpt_keys - state_keys:
-                message += f"Checkpoint Tensors not in state: {ckpt_keys - state_keys}"
+                message += f"Checkpoint keys not in state: {ckpt_keys - state_keys}"
             if state_keys - ckpt_keys:
                 if message:
                     message += "\n"
-                message += f"state Tensors not in checkpoint: {state_keys - ckpt_keys}"
+                message += f"state keys not in checkpoint: {state_keys - ckpt_keys}"
             if message:
                 if method == 'error':
                     raise ValueError(message)
                 else:
                     logging.warning(message)
+
+    def run(
+            self,
+            inputs: Optional[h2dStreamBufferMaps] = None,
+            downcast_inputs: bool = True,
+    ) -> d2hStreamBufferMaps:
+        """
+        Run the program and keep track of the times `session.run` is called. 
+        """
+        self.session_state['steps'] += 1
+        return super().run(inputs, downcast_inputs)

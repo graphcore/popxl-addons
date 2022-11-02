@@ -12,8 +12,9 @@ from popxl.context import op_debug_context, get_current_context
 from popxl.ops.collectives.collectives import CollectiveOps, to_collective_op
 from popxl.ops.utils import check_in_graph
 
-__all__ = ['replicated_all_reduce_identical_inputs', 'replicated_all_reduce_identical_grad_inputs',
-           'replicated_all_reduce']
+__all__ = [
+    'replicated_all_reduce_identical_inputs', 'replicated_all_reduce_identical_grad_inputs', 'replicated_all_reduce'
+]
 
 
 @op_debug_context
@@ -65,9 +66,7 @@ def replicated_all_reduce_identical_grad_inputs(t: Tensor,
 
 
 @op_debug_context
-def replicated_all_reduce(t: Tensor,
-                        op: CollectiveOps = 'add',
-                        group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce(t: Tensor, op: CollectiveOps = 'add', group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce that is differentiable.
 

@@ -3,11 +3,11 @@
 #include <popart/error.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/op/collectives/collectivesx.hpp>
 #include <popart/popx/opxmanager.hpp>
 #include <popart/popx/popopx.hpp>
-#include <popart/util.hpp>
 #include <popart/replicagrouping.hpp>
-#include <popart/popx/op/collectives/collectivesx.hpp>
+#include <popart/util.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
@@ -90,7 +90,7 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
                                       poplar::program::Sequence &prog,
                                       const poplar::Tensor &logits) const {
   ReplicaGrouping group = getOp<CrossEntropyShardedOp>().getGroup();
-  auto elementType = logits.elementType();
+  auto elementType      = logits.elementType();
 
   std::vector<poplar::Tensor> maxs;
   auto maxPartial =
@@ -103,13 +103,12 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
 
   // TODO: replace allreduces with inplace varients
   // Obtain max from partial results
-  auto max = gcl::allReduceCrossReplica(
-      graph,
-      maxPartial,
-      gcl::CollectiveOperator::MAX,
-      prog,
-      toGclCommGroup(group),
-      debugContext("all_reduce_max"));
+  auto max = gcl::allReduceCrossReplica(graph,
+                                        maxPartial,
+                                        gcl::CollectiveOperator::MAX,
+                                        prog,
+                                        toGclCommGroup(group),
+                                        debugContext("all_reduce_max"));
 
   auto maxBroadcasted = max.expand({1}).broadcast(logits.dim(1), 1);
 
@@ -129,13 +128,13 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
                                            debugContext("reduce_numerators"));
 
   // All reduce the partial denominators to get global denominator on every IPU:
-  auto denominator = gcl::allReduceCrossReplica(
-      graph,
-      denominatorPartial,
-      gcl::CollectiveOperator::ADD,
-      prog,
-      toGclCommGroup(group),
-      debugContext("all_reduce_denominator"));
+  auto denominator =
+      gcl::allReduceCrossReplica(graph,
+                                 denominatorPartial,
+                                 gcl::CollectiveOperator::ADD,
+                                 prog,
+                                 toGclCommGroup(group),
+                                 debugContext("all_reduce_denominator"));
 
   // Final calculation of log softmax on each shard
   auto logDenominator =
@@ -221,13 +220,13 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
 
   // AllReduce result along the TP axis.
   // Assumes TP in the innermost dimension (stride 1)
-  auto loss = gcl::allReduceCrossReplica(
-      graph,
-      lossPartial,
-      gcl::CollectiveOperator::ADD,
-      prog,
-      toGclCommGroup(group),
-      debugContext("allreduce_partial_losses"));
+  auto loss =
+      gcl::allReduceCrossReplica(graph,
+                                 lossPartial,
+                                 gcl::CollectiveOperator::ADD,
+                                 prog,
+                                 toGclCommGroup(group),
+                                 debugContext("allreduce_partial_losses"));
 
   return loss;
 }
@@ -259,8 +258,8 @@ CrossEntropyShardedGradOpx::CrossEntropyShardedGradOpx(Op *op, Devicex *devicex)
   availableMemoryProportion = op_.getAvailableMemoryProportion();
 
   logSoftmaxIndex = op_.getlogSoftmaxStartIndex();
-  logitsIndex = op_.getlogitsStartIndex();
-  labelsIndex = op_.getlabelsStartIndex();
+  logitsIndex     = op_.getlogitsStartIndex();
+  labelsIndex     = op_.getlabelsStartIndex();
 }
 
 /**

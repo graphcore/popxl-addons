@@ -19,10 +19,10 @@
 #include <popart/popx/opxmanager.hpp>
 #include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
+#include <popart/replicagrouping.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
 #include <popart/vendored/optional.hpp>
-#include <popart/replicagrouping.hpp>
 
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>

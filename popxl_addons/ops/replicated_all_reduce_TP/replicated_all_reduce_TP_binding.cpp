@@ -82,13 +82,13 @@ public:
   std::vector<std::unique_ptr<Op>> getGradOps() override {
     std::vector<std::unique_ptr<Op>> result;
     // Reverse identicalInputs <-> identicalGradInputs
-    result.push_back(
-        std::make_unique<ReplicatedAllReduceTPOp>(ReplicatedAllReduceTPOp::defaultOperatorId(),
-                                                  op,
-                                                  getReplicaGrouping(),
-                                                  identicalGradInputs,
-                                                  identicalInputs,
-                                                  settings));
+    result.push_back(std::make_unique<ReplicatedAllReduceTPOp>(
+        ReplicatedAllReduceTPOp::defaultOperatorId(),
+        op,
+        getReplicaGrouping(),
+        identicalGradInputs,
+        identicalInputs,
+        settings));
     return result;
   }
 
