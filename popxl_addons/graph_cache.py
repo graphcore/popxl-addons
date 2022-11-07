@@ -3,13 +3,12 @@ import weakref
 import inspect
 from typing import Callable
 from functools import wraps
-from collections import OrderedDict
+from popxl_addons.utils import OrderedDict
 
 import popxl
 from popxl import ops
 from popxl.context import get_current_context
 from popxl_addons.graph import BoundGraph, GraphWithNamedArgs
-from popxl_addons.named_tensors import NamedTensors
 
 
 def bound_arguments(fn, *args, **kwargs):

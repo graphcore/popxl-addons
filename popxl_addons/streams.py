@@ -1,6 +1,6 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from typing import Tuple, Union, Iterable, TypeVar, Generic
-from collections import OrderedDict
+from popxl_addons.utils import OrderedDict
 from popxl import HostToDeviceStream, DeviceToHostStream
 import popxl
 

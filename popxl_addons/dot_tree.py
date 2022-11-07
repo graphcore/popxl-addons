@@ -1,6 +1,9 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 import re
-from typing import Callable, Dict, Generic, Iterable, List, Tuple, Type, TypeVar, Union
+from typing import Callable, Dict, Generic, Iterable, List, Tuple, Type, TypeVar, Union, Mapping
+import typing_extensions
+
+from popxl_addons.utils import OrderedDict
 
 
 def sanitise(name: str) -> str:
@@ -52,7 +55,7 @@ class DotTree(Generic[L]):
     """
 
     def __init__(self: CLS, **kwargs: 'Union[L, CLS]'):
-        self._map: Dict[str, Union[L, CLS]] = {}
+        self._map: OrderedDict[str, Union[L, CLS]] = OrderedDict()
         for k, v in kwargs.items():
             self.insert(k, v)
 
@@ -72,7 +75,9 @@ class DotTree(Generic[L]):
 
     def get(self: CLS, key: Union[str, int]) -> 'Union[L, CLS]':
         """Get a value. Ints and strings that are numerical are interpreted as a numerical key."""
-        keys = "    \n".join(self._map.keys())
+        existing_keys = "    \n".join(self._map.keys())
+
+        # Int key
         if isinstance(key, int) or key.isnumeric():
             key = int(key)
             if key < 0:
@@ -80,22 +85,36 @@ class DotTree(Generic[L]):
                 pos_key = numeric_max + 1 + key
                 if pos_key < 0:
                     raise KeyError(f"Negative numerical key does not exist: {key}. Max numerical key: {numeric_max}. "
-                                   f"Available keys: {keys}")
+                                   f"Available keys: {existing_keys}")
                 if str(pos_key) not in self._map:
                     raise KeyError(f"Negative numerical key does not exist: {key}. Equivalent positive key: {pos_key}. "
-                                   f"Available keys: {keys}")
+                                   f"Available keys: {existing_keys}")
                 key = pos_key
             else:
                 if str(key) not in self._map:
-                    raise KeyError(f"Numerical key does not exist: {key}. Available keys: {keys}")
+                    raise KeyError(f"Numerical key does not exist: {key}. Available keys: {existing_keys}")
             return self._map[str(key)]
-        elif key in self._map:
-            return self._map[key]
-        raise KeyError(f"Key does not exist: {key}. Available keys: {keys}")
+
+        key, *other_keys = key.split('.')
+
+        if key in self._map:
+            # Return singleton
+            if len(other_keys) == 0:
+                return self._map[key]
+
+            # Return sub-keys
+            if isinstance(self._map[key], type(self)):
+                return self._map[key].get('.'.join(other_keys))
+            else:
+                raise KeyError(f"Key exists ({key}) but is not a sub-DotTree of type {type(self)} "
+                               f"and therefore you cannot access the sub-key: {other_keys}.")
+
+        raise KeyError(f"Key does not exist: {key}. Available keys: {existing_keys}")
 
     def insert(self: CLS, key: Union[str, int], value: Union[L, CLS], overwrite: bool = False):
         """Set item with key. Numerical keys represented using an int will automatically be converted to a string.
-        If the key contains a dot this will be interpreted as a nested DotTree."""
+        If the key contains a dot this will be interpreted as a nested DotTree.
+        If overwrite==True, nested dot trees will be merged and values will be overwritten."""
         if isinstance(key, int):
             if key < 0:
                 raise ValueError(f"Numerical key cannot be negative: {key}")
@@ -121,9 +140,13 @@ class DotTree(Generic[L]):
         for k, v in values.copy()._map.items():
             self.insert(k, v, overwrite)
 
-    def pop(self, key):
+    def pop(self, key: str):
         """Pop key."""
-        return self._map.pop(key)
+        key, *other_keys = key.split('.')
+        if len(other_keys):
+            return self.get(key).pop('.'.join(other_keys))
+        else:
+            return self._map.pop(key)
 
     def copy(self):
         """Return shallow copy"""
@@ -133,6 +156,18 @@ class DotTree(Generic[L]):
                 v = v.copy()
             tree.insert(k, v)
         return tree
+
+    def filter_keys(self, keys: Iterable[Union[str, int]]) -> 'CLS':
+        """Return a new DotTree that only include the given keys."""
+        keys = list(keys)
+        if len(keys) != len(set(keys)):
+            raise ValueError("`keys` cannot contain duplicate values.")
+        new_dottree = self.__class__()
+        for key in keys:
+            value = self.get(key)
+            new_dottree.insert(key, value, overwrite=True)
+
+        return new_dottree
 
     def keys(self) -> List[str]:
         return list(self._map.keys())
@@ -156,9 +191,9 @@ class DotTree(Generic[L]):
         """Given another DotTree, for common keys create a dictionary of their values"""
         return to_mapping(self, values)
 
-    def to_dict(self) -> Dict[str, L]:
+    def to_dict(self) -> 'OrderedDict[str, L]':
         """Output a dict of the DotTree. Keys with dots represent nested DotTrees"""
-        mapping = {}
+        mapping = OrderedDict()
         for key, value in self._map.items():
             if isinstance(value, DotTree):
                 mapping.update({f"{key}.{name}": v for name, v in value.to_dict().items()})
@@ -167,7 +202,7 @@ class DotTree(Generic[L]):
         return mapping
 
     @classmethod
-    def from_dict(cls: Type[CLS], d: Dict[Union[str, int], Union[L, 'DotTree[L]']]) -> 'CLS':
+    def from_dict(cls: Type[CLS], d: Mapping[Union[str, int], Union[L, 'DotTree[L]']]) -> 'CLS':
         """
         Create a DotTree from a dictionary.
         Keys in the dictionary that contain dots will create a nested DotTree structure.
@@ -205,7 +240,7 @@ class DotTree(Generic[L]):
         """
         Apply fn to each element of the collection and returns a new DotTree with the transformed values.
         """
-        mapped = {}
+        mapped = OrderedDict()
         for k, v in self.to_dict().items():
             mapped[k] = fn(v)
         return self.from_dict(mapped)
@@ -230,3 +265,10 @@ class DotTree(Generic[L]):
             return f'{cls_name}({self.to_dict()})'
         except:  # Fail gracefully and always provide a string
             return super().__repr__()
+
+    def __contains__(self, key):
+        try:
+            self.get(key)
+            return True
+        except KeyError:
+            return False

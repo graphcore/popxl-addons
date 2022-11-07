@@ -84,6 +84,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             dtype: Optional[dtypes.dtype] = None,
             by_ref: bool = False,
             replica_grouping: Optional[ReplicaGrouping] = None,
+            overwrite: bool = False,
     ) -> popxl.Tensor:
         """Add an initialised input tensor.
 
@@ -99,10 +100,11 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             by_ref (bool, optional): Pass the input by reference. Defaults to False.
             replica_grouping (Optional[ReplicaGrouping]): The replica group of the variable. Determines which replicas
                 of the variable will have identical data or not when written to
+            overwrite (bool): If True nested names will be merged and values will be overwritten
         """
         tensor, variable_f = add_variable_input(name, data_iter, dtype, by_ref, replica_grouping)
-        self._variable_factories.insert(name, variable_f)
-        self._named_inputs.insert(name, tensor)
+        self._variable_factories.insert(name, variable_f, overwrite=overwrite)
+        self._named_inputs.insert(name, tensor, overwrite=overwrite)
         return tensor
 
     def add_replica_sharded_variable_input(self,
@@ -147,7 +149,8 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             self._named_inputs.insert(__name, __value._named_inputs)
         return super().__setattr__(__name, __value)
 
-    def add_variable_inputs(self, name: Union[str, int], variable_f: NamedVariableFactories) -> NamedTensors:
+    def add_variable_inputs(self, name: Union[str, int], variable_f: NamedVariableFactories,
+                            overwrite: bool = False) -> NamedTensors:
         """Add NamedVariableFactories as inputs tensors. Returns NamedTensors which can be used in the graph.
             This is useful for reusing a Module within another module. Usage:
             ```
@@ -163,6 +166,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             name (str): name of the variable factories used in the current module.
                 If a positive int, it will be cast to a string
             variable_f (NamedVariableFactories): variable factories to be added to the current module.
+            overwrite (bool): If True nested variable inputs will be merged and values will be overwritten.
 
         Returns:
             NamedTensors: Tensors in the current graph for each variable factory in `inputs`.
@@ -175,7 +179,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         for tensor_name, factory in variable_f.to_dict().items():
             tensors[tensor_name] = factory.create_input()
         tensors = NamedTensors.from_dict(tensors)
-        self._variable_factories.insert(name, variable_f.copy())
+        self._variable_factories.insert(name, variable_f.copy(), overwrite=overwrite)
         self._named_inputs.insert(name, tensors)
         return tensors
 

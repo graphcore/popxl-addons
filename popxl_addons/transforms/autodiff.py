@@ -87,7 +87,8 @@ def autodiff_with_accumulation(
         grads_provided: Optional[Iterable[popxl.Tensor]] = None,
         grads_required: Optional[Iterable[popxl.Tensor]] = None,
         called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
-        replica_groupings: Optional[NamedReplicaGrouping] = None) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
+        replica_groupings: Optional[NamedReplicaGrouping] = None,
+) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
     """
     Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
     graph which takes a running mean of the tensor and the result stored in an accumulator tensor. The accumulators are

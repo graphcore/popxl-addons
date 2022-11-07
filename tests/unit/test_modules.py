@@ -274,3 +274,40 @@ def test_from_variable_factories():
         layer.call(x)
 
     assert len(ir._pb_ir.getAllGraphs()) == 2
+
+
+class SubModuleWithMerge(Module):
+    def build(self, x):
+        lin_facts, lin_graph = Linear(10).create_graph(x)
+
+        lin_vars = self.add_variable_inputs("fwd.linear", lin_facts)
+
+        self.offset = self.add_variable_input(
+            "fwd.offset",
+            lambda: np.array([1.0]),
+            popxl.float32,
+            overwrite=True,  # You have to merge the DotTrees as both are in the `fwd` namespace
+        )
+
+        y, = lin_graph.bind(lin_vars).call(x)
+        z = y + self.offset
+
+        return z
+
+
+def test_merging_variables():
+    ir = popxl.Ir()
+    main = ir.main_graph
+
+    with main:
+        x = popxl.variable(np.random.normal(0, 0.02, (10, 10)), popxl.float32)
+
+        facts, graph = SubModuleWithMerge().create_graph(x)
+        vars = facts.init()
+        z = graph.bind(vars).call(x)
+
+        assert vars.fwd.linear.w
+        assert vars.fwd.linear.b
+        assert vars.fwd.offset
+
+    assert len(ir._pb_ir.getAllGraphs()) == 3

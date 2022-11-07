@@ -17,6 +17,8 @@ from popxl_addons.named_tensors import NamedTensors
 if TYPE_CHECKING:
     from popxl_addons.remote import NamedRemoteBuffers
 
+host_scalar_tensor_types = tuple([float, int, bool, np.number, np.bool_, *host_tensor_types])
+
 
 class VariableFactory:
     def __init__(self,
@@ -74,7 +76,7 @@ class VariableFactory:
         self.replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
 
         data_peek = self.data_iter.peek()
-        if not isinstance(data_peek, tuple(host_tensor_types)):
+        if not isinstance(data_peek, tuple(host_scalar_tensor_types)):
             raise ValueError(f"`data_iter` must be of a numpy array, torch tensor or iterable. "
                              f"It provided: {data_peek}.")
 
@@ -229,9 +231,8 @@ class NamedVariableFactories(DotTree[VariableFactory]):
 
     @property
     def replica_groupings(self) -> NamedReplicaGrouping:
-        groups = {}
-        for name, f in self.to_dict().items():
-            groups[name] = f.replica_grouping
+        """DotTree that maps tensor to replica grouping"""
+        groups = {name: t.replica_grouping for name, t in self.to_dict().items()}
         return NamedReplicaGrouping.from_dict(groups)
 
 

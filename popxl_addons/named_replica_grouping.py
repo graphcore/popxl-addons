@@ -34,6 +34,14 @@ def get_instance_replica_grouping(replica_grouping: Optional[popxl.ReplicaGroupi
     """
     ir = popxl.gcg().ir
     replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
+
+    if replica_grouping.is_const:
+        local_assignment_0 = replica_grouping.assignment[:ir.instance_replication_factor]
+        num_instances = ir.replication_factor // ir.instance_replication_factor
+        if local_assignment_0 * num_instances != replica_grouping.assignment:
+            raise ValueError("Assignment pattern is different across instances")
+        return replica_grouping.const_rg
+
     if replica_grouping.stride > ir.instance_replication_factor:
         raise ValueError("replica grouping stride must be < ir.instance_replication_factor")
 

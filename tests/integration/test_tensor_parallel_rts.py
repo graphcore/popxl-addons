@@ -1,28 +1,9 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-from popxl_addons.ops.replicated_strided_collectives.replicated_reduce_scatter_strided import replicated_reduce_scatter_strided
-import pytest
 import numpy as np
 import popxl
 from popxl import ops
 from popxl_addons.ops.replicated_strided_collectives import replicated_all_gather_strided
-
-
-def shard(x: np.ndarray, n_shards: int, axis: int) -> np.ndarray:
-    """Shard array along a given axis"""
-    if axis < 0:
-        axis = len(x.shape) + axis
-
-    return np.ascontiguousarray(np.concatenate(np.split(x[np.newaxis, ...], n_shards, axis=axis + 1)))
-
-
-def unshard(x: np.ndarray, axis: int) -> np.ndarray:
-    x = np.concatenate(np.split(x, x.shape[0], axis=0), axis=axis + 1)
-    return np.ascontiguousarray(x.reshape(x.shape[1:]))
-
-
-def repeat(x: np.ndarray, n: int, axis: int = 0) -> np.ndarray:
-    """Repeat array along new axis inserted at position `axis`"""
-    return np.repeat(np.expand_dims(x, axis), n, axis=axis)
+from popxl_addons.array_munging import shard, unshard, repeat
 
 
 def test_tensor_parallel_rts():

@@ -5,6 +5,7 @@ import numpy as np
 import popxl
 from popxl import ops
 
+import popxl_addons.array_munging
 from popxl_addons import (Module, host_load, NamedTensors, named_variable_buffers, load_remote_graph,
                           store_remote_graph)
 from popxl_addons.rts import (all_gather_replica_sharded_graph, reduce_replica_sharded_graph)
@@ -84,7 +85,7 @@ def test_phased_rts():
         add1 = NamedTensors.pack(names, reduce_.bind(add1).call())
         store.bind(add1).call(1)
 
-    replicated_data = data[np.newaxis].repeat(ir.replication_factor, axis=0)
+    replicated_data = popxl_addons.tensor_munging.repeat(data[np.newaxis], ir.replication_factor, axis=0)
 
     sess = popxl.Session(ir, "ipu_hw")
     before = {t: np_t.copy() for t, np_t in sess.get_tensors_data(variables.tensors).items()}

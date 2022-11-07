@@ -1,8 +1,11 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
-
+import collections
 import re
 import logging
 import time
+import typing
+import collections
+import typing_extensions
 from contextlib import contextmanager
 
 WANDB_IMPORTED = False
@@ -44,3 +47,25 @@ def timer(title=None, log_to_wandb=True):
         # `wandb.run` is not None when `wandb.init` been called
         title_ = title.lower().replace(' ', '_') + '_mins'
         wandb.run.summary[title_] = duration_in_mins
+
+
+_KT = typing.TypeVar("_KT")  # key type
+_VT = typing.TypeVar("_VT")  # value type
+
+
+class OrderedDict(collections.OrderedDict, typing.MutableMapping[_KT, _VT]):
+    """An OrderedDict with a nicer string representation and access via index."""
+
+    def idx(self, idx: int) -> _VT:
+        """Return value at index `idx`"""
+        return list(self.values())[idx]
+
+    def __repr__(self):
+        if len(self):
+            out = '{\n'
+        else:
+            out = '{'
+        for k, v in self.items():
+            out += f'{k}: {v},\n'
+        out += '}'
+        return out

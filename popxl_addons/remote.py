@@ -42,7 +42,7 @@ def named_buffers(tensors: NamedTensors, entries: int = 1) -> NamedRemoteBuffers
 
 def named_variable_buffers(factories: NamedVariableFactories,
                            entries: int = 1,
-                           shard_over_dict: Optional[Dict[str, int]] = None):
+                           shard_over_dict: Optional[Dict[str, int]] = None) -> NamedRemoteBuffers:
     """Create a buffer for each VariableFactory in `factories`. The buffers will have `entries` set.
 
     Args:
@@ -54,22 +54,20 @@ def named_variable_buffers(factories: NamedVariableFactories,
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
+    shard_over_dict = shard_over_dict if shard_over_dict else {}
     for name, f in factories.to_dict().items():
         tensor_spec = popxl.TensorSpec(shape=f.shape, dtype=f.dtype, meta_shape=f.meta_shape)
-        shard_over = None
-        if shard_over_dict and name in shard_over_dict:
-            shard_over = shard_over_dict[name]
         buffers[name] = create_remote_buffer(tensor_spec,
                                              entries=entries,
                                              replica_group=f.replica_grouping,
-                                             shard_over=shard_over)
+                                             shard_over=shard_over_dict.get(name))
     return NamedRemoteBuffers.from_dict(buffers)
 
 
 def create_remote_buffer(spec: popxl.TensorSpec,
                          entries: int = 1,
                          replica_group: Optional[ReplicaGrouping] = None,
-                         shard_over: Optional[int] = None):
+                         shard_over: Optional[int] = None) -> popxl.RemoteBuffer:
     """Create a buffer given a TensorSpec and a replica grouping.
 
     Args:
@@ -85,7 +83,7 @@ def create_remote_buffer(spec: popxl.TensorSpec,
     ir = popxl.gcg().ir
     nelms = np.prod(spec.shape)
     replica_group = replica_group or ir.replica_grouping()
-    shard_over = shard_over or 1
+    shard_over = shard_over or replica_group.group_size
     # buffer for sharded tensor
     if spec.meta_shape:
         buffer = popxl.remote_buffer(spec.shape, spec.dtype, entries)

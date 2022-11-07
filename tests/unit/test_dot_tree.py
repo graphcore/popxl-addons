@@ -94,3 +94,15 @@ def test_nested_insert():
     tree.insert('foo.bar.goo', 'c', overwrite=True)
     assert tree.foo.bar.goo == 'c'
     assert tree.foo.bar.hee == 'a'
+
+
+def test_filter():
+    tree = DotTree()
+    tree.insert('foo.bar.hee', 'a')
+    tree.insert('foo.bar.foo', 'b', overwrite=True)
+    tree.insert('tee.0.hee', 'c')
+
+    new_tree = tree.filter_keys(['foo.bar.hee', 'tee'])
+    assert new_tree.len() == 2
+    assert new_tree.foo.bar.hee == 'a'
+    assert new_tree.tee[0].hee == 'c'

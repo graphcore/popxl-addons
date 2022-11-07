@@ -93,7 +93,7 @@ def all_gather_replica_sharded_graph(
             sg_t = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name, meta_shape=tensor.meta_shape)
             args[name] = sg_t
             names.append(name)
-            replica_group = replica_groups[name]
+            replica_group = replica_groups[name].const_rg
             sg_t = gather_replica_sharded_tensor(sg_t, use_io_tiles=use_io_tiles, replica_group=replica_group)
             popxl.graph_output(sg_t)
 
@@ -167,13 +167,15 @@ def reduce_replica_sharded_graph(
 
     Args:
         tensors (NamedTensors): Input Tensors to replica reduced.
-        op (CollectiveOps): Operation to use for reduction.
-        use_io_tiles (bool, optional): If True, tensors will be copied to IO tiles before reducing. Defaults to False.
-        shard_groups (NamedReplicaGrouping, optional): shard groups (rts) for each tensor in tensors. The result of the single instance reduction will be scattered
-                                                       in this group.
-        replica_group (ReplicaGrouping, optional): full group to perform the reduction on (data parallel group). If the single instance restriction of this group
-                                                   is equal to the shard group of a tensor, a reduce_scatter collective will be used.
-                                                   Otherwise, the tensor will be reduced over the replica group (single instance) and then sliced in the shard group (rts).
+        op (CollectiveOps): Operation to use for  reduction.
+        use_io_tiles (bool, optional): If True, tensors will be copied to IO tiles before reducing. Defaults
+            to False.
+        shard_groups (NamedReplicaGrouping, optional): shard groups (rts) for each tensor in tensors. The
+            result of the single instance reduction will be scattered in this group.
+        replica_group (ReplicaGrouping, optional): full group to perform the reduction on (data parallel group). If the
+            single instance restriction of this group is equal to the shard group of a tensor, a reduce_scatter
+            collective will be used. Otherwise,  the tensor will be reduced over the replica group (single instance) and
+            then sliced in the shard group (rts).
     Returns:
         Tuple[GraphWithNamedArgs, List[str]]: Created Graph, names of outputs from calling the graph.
     """

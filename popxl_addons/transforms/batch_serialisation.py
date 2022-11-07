@@ -26,7 +26,7 @@ class RemoteHandle:
     The RemoteHandle class gathers necessary info to deal with remote tensors.
     @param buffer (popxl.RemoteBuffer): the remote buffer for the tensor
     @param row_offset (int): the row offset index to access the tensor in the buffer. See batch_serialise for more on that. Default is 0.
-    @param shard_group (Optional[popxl.ReplicaGrouping]): shard group for rts, used to create the buffer (see remote.create_remote_buffer)
+    @param shard_group (Optional[popxl.ReplicaGrouping]): shard group for rts, used to create the buffer. None indicates no-RTS (see remote.create_remote_buffer)
     """
     buffer: popxl.RemoteBuffer
     row_offset: int = 0
@@ -258,7 +258,7 @@ class BatchSerialResult:
 
 
 def batch_serial_buffer(t: popxl.Tensor, steps: int = 1, rows: int = 1,
-                        shard_group: Optional[ReplicaGrouping] = None) -> popxl.remote_buffer:
+                        shard_group: Optional[ReplicaGrouping] = None) -> popxl.RemoteBuffer:
     """Create a RemoteBuffer for the Tensor `t`, with a matrix layout.
     The returned buffer can be seen as a matrix with `steps` columns and `rows` rows.
     Each column corresponds to the tensor at a different serial step.

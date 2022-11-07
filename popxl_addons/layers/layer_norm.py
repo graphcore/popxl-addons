@@ -1,13 +1,9 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from functools import partial
-from math import ceil
 
 import numpy as np
-from scipy.stats import truncnorm
 import popxl
-from popxl import ops, ReplicaGrouping
-from typing import Optional
-
+from popxl import ops
 import popxl_addons as addons
 
 
@@ -23,6 +19,6 @@ class LayerNorm(addons.Module):
     """
 
     def build(self, x: popxl.Tensor, eps: float = 1e-5) -> popxl.Tensor:
-        w = self.add_variable_input("weight", partial(np.ones, x.shape[1]), x.dtype)
-        b = self.add_variable_input("bias", partial(np.zeros, x.shape[1]), x.dtype)
+        w = self.add_variable_input("weight", partial(np.ones, x.shape[-1]), x.dtype)
+        b = self.add_variable_input("bias", partial(np.zeros, x.shape[-1]), x.dtype)
         return ops.layer_norm(x, w, b, eps=eps)
