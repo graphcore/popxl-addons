@@ -2,3 +2,4 @@
 from .embedding import *
 from .layer_norm import *
 from .linear import *
+from .conv import *
