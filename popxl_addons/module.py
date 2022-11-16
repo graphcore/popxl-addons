@@ -180,7 +180,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             tensors[tensor_name] = factory.create_input()
         tensors = NamedTensors.from_dict(tensors)
         self._variable_factories.insert(name, variable_f.copy(), overwrite=overwrite)
-        self._named_inputs.insert(name, tensors)
+        self._named_inputs.insert(name, tensors, overwrite=overwrite)
         return tensors
 
     @classmethod
