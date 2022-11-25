@@ -51,7 +51,7 @@ setup(
     ],
     install_requires=read_requirements("requirements.txt"),
     extras_require={"dev": read_requirements("requirements-dev.txt")},
-    python_requires=">=3.6, <3.9",
+    python_requires=">=3.6",
     packages=['popxl_addons'],
     package_data={
         'popxl_addons':
