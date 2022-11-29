@@ -53,9 +53,9 @@ void RotaryPosEmbedOp::setup() {
     throw error(
         "RotaryPosEmbedOp::setup x should have rank 4 (batch, heads, seq, hh)");
   }
-  if (cosInfo.rank() != 2 || sinInfo.rank() != 2) {
-    throw error("RotaryPosEmbedOp::setup trig functions should have rank 2 "
-                "(seq_length, hh_dim/2)");
+  if (cosInfo.rank() != 3 || sinInfo.rank() != 3) {
+    throw error("RotaryPosEmbedOp::setup trig functions should have rank 3 "
+                "(1 or batch, seq, hh/2)");
   }
   if ((rotary_dim % 2) != 0) {
     throw error("RotaryPosEmbedOp::setup rotary dim must be a multiple of 2");

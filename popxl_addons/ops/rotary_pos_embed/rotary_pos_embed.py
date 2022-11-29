@@ -81,6 +81,12 @@ def rotary_pos_embed(t: popxl.Tensor, sin: popxl.Tensor, cos: popxl.Tensor,
         rotary_dim = t.shape[-1]
 
     assert t.rank == 4
+    if sin.rank == 2:
+        sin = sin.reshape((1, *sin.shape))
+    if cos.rank == 2:
+        cos = cos.reshape((1, *cos.shape))
+    assert sin.rank == 3
+    assert cos.rank == 3
 
     check_in_graph(g, t=t, sin=sin, cos=cos)
     check_tensor_ipu_and_tile_set(t=t, sin=sin, cos=cos)

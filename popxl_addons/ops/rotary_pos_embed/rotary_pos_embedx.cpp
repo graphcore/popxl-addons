@@ -59,8 +59,8 @@ poplar::Tensor rotateTensor(poplar::Graph &graph,
   auto x_real     = x_reshaped.slice({0, 1}, 4);
   auto x_img      = x_reshaped.slice({1, 2}, 4);
   // Include broadcast dims
-  sin = sin.expand({0, 1, 2});
-  cos = cos.expand({0, 1, 2});
+  sin = sin.expand({2, 3});
+  cos = cos.expand({2, 3});
   // y_real = x_real * cos - x_img * sin;
   auto y_real = popops::map(graph,
                             (pe::_1 * pe::_4) - (pe::_2 * pe::_3),
@@ -87,8 +87,8 @@ poplar::Tensor rotateGradTensor(poplar::Graph &graph,
   auto x_real     = x_reshaped.slice({0, 1}, 4);
   auto x_img      = x_reshaped.slice({1, 2}, 4);
   // Include broadcast dims
-  sin = sin.expand({0, 1, 2});
-  cos = cos.expand({0, 1, 2});
+  sin = sin.expand({2, 3});
+  cos = cos.expand({2, 3});
   // y_real = x_real * cos_reshape + x_img * sin_reshape;
   auto y_real = popops::map(graph,
                             (pe::_1 * pe::_4) + (pe::_2 * pe::_3),
