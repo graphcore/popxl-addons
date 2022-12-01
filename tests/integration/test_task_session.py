@@ -12,7 +12,7 @@ import glob
 import shutil
 
 
-class TestModel(Module):
+class MockModel(Module):
     def __init__(self):
         super().__init__()
         self.l1_baz = Linear(30)
@@ -31,7 +31,7 @@ def build_session():
 
     with ir.main_graph:
         x = popxl.constant(np.random.rand(100))
-        facts, g = TestModel().create_graph(x)
+        facts, g = MockModel().create_graph(x)
         vars = facts.init()
         x, = g.bind(vars).call(x)
 
