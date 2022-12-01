@@ -263,7 +263,7 @@ class TaskSession(popxl.Session):
         self.write_variables_data({src_dst[src_t]: t for src_t, t in loaded.items() if src_t in src_dst.keys()})
 
     def __report_missing(self, ckpt_keys: Iterable[str], state_keys: Iterable[str], method: ReportMissingMethods):
-        if method is not 'none':
+        if method != 'none':
             ckpt_keys = set(ckpt_keys)
             state_keys = set(state_keys)
 

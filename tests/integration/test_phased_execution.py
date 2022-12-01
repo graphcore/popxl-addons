@@ -85,7 +85,7 @@ def test_phased_rts():
         add1 = NamedTensors.pack(names, reduce_.bind(add1).call())
         store.bind(add1).call(1)
 
-    replicated_data = popxl_addons.tensor_munging.repeat(data[np.newaxis], ir.replication_factor, axis=0)
+    replicated_data = popxl_addons.array_munging.repeat(data, ir.replication_factor, axis=0)
 
     sess = popxl.Session(ir, "ipu_hw")
     before = {t: np_t.copy() for t, np_t in sess.get_tensors_data(variables.tensors).items()}
