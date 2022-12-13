@@ -57,7 +57,6 @@ def named_variable_buffers(factories: NamedVariableFactories,
         NamedRemoteBuffers: A buffer for each factory with names matching the NamedVariableFactories' names.
     """
     buffers = {}
-    shard_over_dict = shard_over_dict if shard_over_dict else {}
     for name, f in factories.to_dict().items():
         tensor_spec = popxl.TensorSpec(shape=f.shape, dtype=f.dtype, meta_shape=f.meta_shape)
         if isinstance(shard_over_dict, Mapping):
