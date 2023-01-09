@@ -120,24 +120,21 @@ def reduce_replica_sharded_tensor(t: popxl.Tensor,
     replica_group = replica_group or ir.replica_grouping()  # defaults to all replicas
     shard_group = shard_group or replica_group  # defaults to replica_group
 
-    if replica_group.group_size == 1:
-        # No reduction required at all
-        return t
-
     # RTS
     if shard_group.group_size > 1 and t.nelms % shard_group.group_size == 0:
         # A multi stage collective is required to keep the RTS behaviour within an ild
         second_stage = ir.replica_grouping(stride=get_ild_size_from_popdist()) if is_cross_ild(replica_group) else None
         reduce_group = get_ild_replica_grouping(replica_group)
         # RTS reduction
-        if reduce_group == shard_group:
+        if reduce_group == shard_group and reduce_group.group_size > 1:
             t = replicated_reduce_scatter_strided(t,
                                                   op=op,
                                                   group=reduce_group,
                                                   configure_output_for_replicated_tensor_sharding=True)
         else:
-            t = replicated_all_reduce_strided(t, group=reduce_group,
-                                              op=op)  # all reduce across single ild reduce group only
+            if reduce_group.group_size > 1:
+                t = replicated_all_reduce_strided(t, group=reduce_group,
+                                                  op=op)  # all reduce across single ild reduce group only
             t = ops.collectives.replica_sharded_slice(t, group=shard_group)  # slice in rts group
 
         # if the replica group spans across multiple ilds, complete the reduction
