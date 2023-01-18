@@ -12,8 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -24,8 +24,8 @@ sudo apt install libpython3.6-dev
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
@@ -192,17 +192,16 @@ public:
     }
   }
 
-  void grow(snap::program::Sequence &prog) const {
+  void grow(poplar::program::Sequence &prog) const {
     const auto &rarOp = getOp<ReplicatedAllReduceStridedOp>();
 
-    poplar::Tensor toReduce =
-        getInTensor(ReplicatedAllReduceOp::getInIndex()).getPoplarTensor();
+    poplar::Tensor toReduce = getInTensor(ReplicatedAllReduceOp::getInIndex());
     const poplar::OptionFlags &allReduceOptions = dv_p->lowering().gclOptions;
 
     poplar::Tensor output =
-        allReduceStrided(graph().getPoplarGraph(),
+        allReduceStrided(graph(),
                          toReduce,
-                         prog.getPoplarSequence(),
+                         prog,
                          getPoplarCollectiveOperator(rarOp.getCollectiveOp()),
                          rarOp.getStride(),
                          rarOp.getCommSize(),
@@ -222,8 +221,7 @@ public:
           ReplicatedAllReduceOp::getOutIndex(),
           getInViewChangers(ReplicatedAllReduceOp::getInIndex()));
     }
-    setOutTensor(ReplicatedAllReduceOp::getOutIndex(),
-                 snap::Tensor{output, graph()});
+    setOutTensor(ReplicatedAllReduceOp::getOutIndex(), output);
   }
 };
 

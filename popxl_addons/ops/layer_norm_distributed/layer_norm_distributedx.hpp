@@ -5,11 +5,11 @@
 #include <popart/popx/op/collectives/collectivesx.hpp>
 #include <popart/popx/op/normx.hpp>
 
-namespace snap {
+namespace poplar {
 namespace program {
 class Sequence;
 } // namespace program
-} // namespace snap
+} // namespace poplar
 
 namespace popart {
 class Op;
@@ -21,7 +21,7 @@ class Devicex;
 class LayerNormDistributedOpx : public CollectivesBaseOpx {
 public:
   LayerNormDistributedOpx(Op *, Devicex *);
-  void grow(snap::program::Sequence &) const final;
+  void grow(poplar::program::Sequence &) const final;
 
 private:
 };
@@ -30,7 +30,7 @@ private:
 class LayerNormDistributedGradOpx : public CollectivesBaseOpx {
 public:
   LayerNormDistributedGradOpx(Op *, Devicex *);
-  void grow(snap::program::Sequence &) const final;
+  void grow(poplar::program::Sequence &) const final;
 
 private:
 };

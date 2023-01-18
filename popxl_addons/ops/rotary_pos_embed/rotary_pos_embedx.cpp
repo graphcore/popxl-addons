@@ -1,10 +1,10 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-#include <snap/Tensor.hpp>
+#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/util.hpp>
 
 #include <poplar/Graph.hpp>
@@ -109,24 +109,23 @@ poplar::Tensor rotateGradTensor(poplar::Graph &graph,
 /// Forwards opx
 
 RotaryPosEmbedOpx::RotaryPosEmbedOpx(Op *op, Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<RotaryPosEmbedOp>(op, {RotaryPosEmbed});
 }
 
-void RotaryPosEmbedOpx::grow(snap::program::Sequence &prog) const {
+void RotaryPosEmbedOpx::grow(poplar::program::Sequence &prog) const {
   auto rotary_dim = getOp<RotaryPosEmbedOp>().rotary_dim;
 
-  auto x   = getInTensor(0).getPoplarTensor();
-  auto sin = getInTensor(1).getPoplarTensor();
-  auto cos = getInTensor(2).getPoplarTensor();
+  auto x   = getInTensor(0);
+  auto sin = getInTensor(1);
+  auto cos = getInTensor(2);
 
   auto x_rotated = x;
   if (rotary_dim < x.dim(3)) {
     x_rotated = x_rotated.slice(0, rotary_dim, 3);
   }
 
-  x_rotated = rotateTensor(
-      graph().getPoplarGraph(), x_rotated, sin, cos, prog.getPoplarSequence());
+  x_rotated = rotateTensor(graph(), x_rotated, sin, cos, prog);
 
   if (rotary_dim < x.dim(3)) {
     x_rotated =
@@ -134,33 +133,32 @@ void RotaryPosEmbedOpx::grow(snap::program::Sequence &prog) const {
   }
 
   // Copy back to original layout
-  auto result = graph().getPoplarGraph().clone(x);
-  prog.getPoplarSequence().add(poplar::program::Copy(x_rotated, result));
-  setOutTensor(0, snap::Tensor{result, graph()});
+  auto result = graph().clone(x);
+  prog.add(poplar::program::Copy(x_rotated, result));
+  setOutTensor(0, result);
 }
 
 /////////////////////////////////////////////////////////////
 ///// Grad opx
 
 RotaryPosEmbedGradOpx::RotaryPosEmbedGradOpx(Op *op, Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<RotaryPosEmbedGradOp>(op, {RotaryPosEmbedGrad});
 }
 
-void RotaryPosEmbedGradOpx::grow(snap::program::Sequence &prog) const {
+void RotaryPosEmbedGradOpx::grow(poplar::program::Sequence &prog) const {
   auto rotary_dim = getOp<RotaryPosEmbedGradOp>().rotary_dim;
 
-  auto dx_rotated = getInTensor(0).getPoplarTensor();
-  auto sin        = getInTensor(1).getPoplarTensor();
-  auto cos        = getInTensor(2).getPoplarTensor();
+  auto dx_rotated = getInTensor(0);
+  auto sin        = getInTensor(1);
+  auto cos        = getInTensor(2);
 
   auto dx = dx_rotated;
   if (rotary_dim < dx_rotated.dim(3)) {
     dx = dx.slice(0, rotary_dim, 3);
   }
 
-  dx = rotateGradTensor(
-      graph().getPoplarGraph(), dx, sin, cos, prog.getPoplarSequence());
+  dx = rotateGradTensor(graph(), dx, sin, cos, prog);
 
   if (rotary_dim < dx_rotated.dim(3)) {
     dx = poplar::concat(
@@ -168,9 +166,9 @@ void RotaryPosEmbedGradOpx::grow(snap::program::Sequence &prog) const {
   }
 
   // Copy back to original layout
-  auto result = graph().getPoplarGraph().clone(dx_rotated);
-  prog.getPoplarSequence().add(poplar::program::Copy(dx, result));
-  setOutTensor(0, snap::Tensor{result, graph()});
+  auto result = graph().clone(dx_rotated);
+  prog.add(poplar::program::Copy(dx, result));
+  setOutTensor(0, result);
 }
 
 /////////////////////////////////////////////////////////////

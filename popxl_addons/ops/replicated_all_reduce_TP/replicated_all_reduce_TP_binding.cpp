@@ -12,8 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -24,8 +24,8 @@ sudo apt install libpython3.6-dev
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>

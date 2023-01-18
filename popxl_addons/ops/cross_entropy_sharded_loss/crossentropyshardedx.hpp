@@ -4,17 +4,17 @@
 
 #include <vector>
 #include <popart/names.hpp>
-#include <popart/popx/popopx.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/replicagrouping.hpp>
 
 namespace popart {
 namespace popx {
 
-class CrossEntropyShardedOpx : public PopOpx {
+class CrossEntropyShardedOpx : public Opx {
 public:
   CrossEntropyShardedOpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 
   poplar::Tensor negLogSoftmax(poplar::Graph &graph,
                                poplar::program::Sequence &prog,
@@ -29,11 +29,11 @@ protected:
   float availableMemoryProportion;
 };
 
-class CrossEntropyShardedGradOpx : public PopOpx {
+class CrossEntropyShardedGradOpx : public Opx {
 public:
   CrossEntropyShardedGradOpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 
 protected:
   int logSoftmaxIndex;

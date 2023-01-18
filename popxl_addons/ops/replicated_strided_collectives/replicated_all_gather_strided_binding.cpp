@@ -12,8 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -24,8 +24,8 @@ sudo apt install libpython3.6-dev
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
@@ -166,17 +166,16 @@ public:
     inputCreatorPriority = -1.0;
   }
 
-  void grow(snap::program::Sequence &prog) const {
+  void grow(poplar::program::Sequence &prog) const {
     auto &op = getOp<ReplicatedAllGatherStridedOp>();
     poplar::Tensor toGather =
-        getInTensor(ReplicatedAllGatherStridedOp::getInIndex())
-            .getPoplarTensor();
+        getInTensor(ReplicatedAllGatherStridedOp::getInIndex());
     const poplar::OptionFlags &allGatherOptions = dv_p->lowering().gclOptions;
 
     poplar::Tensor gathered =
-        allGatherStrided(graph().getPoplarGraph(),
+        allGatherStrided(graph(),
                          toGather,
-                         prog.getPoplarSequence(),
+                         prog,
                          op.getStride(),
                          op.getCommSize(),
                          debugContext("replicatedAllGatherStrided"),
@@ -197,10 +196,8 @@ public:
 
     setOutTensor(
         ReplicatedAllGatherStridedOp::getOutIndex(),
-        snap::Tensor{gathered.reshape(
-                         op.outInfo(ReplicatedAllGatherStridedOp::getOutIndex())
-                             .shape_szt()),
-                     graph()});
+        gathered.reshape(op.outInfo(ReplicatedAllGatherStridedOp::getOutIndex())
+                             .shape_szt()));
   }
 
   InputCreatorType getInputCreatorType(InIndex index) const {
@@ -208,14 +205,14 @@ public:
                    getOp<ReplicatedAllGatherStridedOp>()
                        .isConfigureOutputForReplicatedTensorSharding()
                ? InputCreatorType::CanCreateOrUnwind
-               : PopOpx::getInputCreatorType(index);
+               : Opx::getInputCreatorType(index);
   }
 
-  snap::Tensor
-  unwindTensorLayout(snap::Tensor tensor, InIndex, OutIndex) const {
+  poplar::Tensor
+  unwindTensorLayout(poplar::Tensor tensor, InIndex, OutIndex) const {
     auto cbr = createCollectiveBalancedReorder(
         tensor, CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
-    return snap::Tensor{cbr->createReplicaSlice(tensor.elementType()), graph()};
+    return cbr->createReplicaSlice(tensor.elementType());
   }
 
   view::RegMap unwindRegion(InIndex, OutIndex) const {
@@ -227,8 +224,8 @@ public:
 
   std::set<TensorId> mustExistBeforeCreate(InIndex) const { return {}; }
 
-  snap::Tensor createInputTensor(InIndex index,
-                                 const poplar::DebugNameAndId &dnai) const {
+  poplar::Tensor createInputTensor(InIndex index,
+                                   const poplar::DebugNameAndId &dnai) const {
     auto &op = getOp<ReplicatedAllGatherStridedOp>();
 
     if (index == ReplicatedAllGatherStridedOp::getInIndex()) {
@@ -238,7 +235,7 @@ public:
       dv_p->lowering().getLinearMapper().mapTensor(graph(), outTensor);
       auto cbr = createCollectiveBalancedReorder(
           outTensor, CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
-      return snap::Tensor{cbr->createReplicaSlice(popType(outInfo)), graph()};
+      return cbr->createReplicaSlice(popType(outInfo));
     }
 
     throw error("createInput: Invalid index = " + std::to_string(index));

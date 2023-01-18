@@ -7,14 +7,13 @@
 #include <iostream>
 #include <layer_norm_distributed.hpp>
 #include <layer_norm_distributedx.hpp>
-#include <snap/Graph.hpp>
-#include <snap/Program.hpp>
-#include <snap/Tensor.hpp>
 #include <tuple>
 #include <utility>
 #include <vector>
 #include <poplar/DebugContext.hpp>
+#include <poplar/Graph.hpp>
 #include <poplar/OptionFlags.hpp>
+#include <poplar/Program.hpp>
 #include <poplar/Tensor.hpp>
 #include <poplar/Type.hpp>
 #include <poplin/Norms.hpp>
@@ -76,7 +75,7 @@ LayerNormDistributedOpx::LayerNormDistributedOpx(Op *op, Devicex *devicex)
   verifyOp<LayerNormDistributedOp>(op, LayerNormDistributed);
 }
 
-void LayerNormDistributedOpx::grow(snap::program::Sequence &prog) const {
+void LayerNormDistributedOpx::grow(poplar::program::Sequence &prog) const {
 
   auto &op = getOp<LayerNormDistributedOp>();
 
@@ -86,11 +85,9 @@ void LayerNormDistributedOpx::grow(snap::program::Sequence &prog) const {
   bool stable_algo = op.getIr().getSessionOptions().enableStableNorm;
 
   // Get the inputs
-  auto input =
-      getInTensor(LayerNormDistributedOp::getXInIndex()).getPoplarTensor();
-  auto scale =
-      getInTensor(LayerNormDistributedOp::getScaleInIndex()).getPoplarTensor();
-  auto b = getInTensor(LayerNormDistributedOp::getBInIndex()).getPoplarTensor();
+  auto input = getInTensor(LayerNormDistributedOp::getXInIndex());
+  auto scale = getInTensor(LayerNormDistributedOp::getScaleInIndex());
+  auto b     = getInTensor(LayerNormDistributedOp::getBInIndex());
 
   // Get hidden dimension size
   auto hiddenSize = input.shape()[1] * op.getReplicaGrouping().getGroupSize();
@@ -102,10 +99,10 @@ void LayerNormDistributedOpx::grow(snap::program::Sequence &prog) const {
   // Swap axis to make batch norm behave like LayerNorm
   auto input_T              = input.transpose();
   std::tie(mean, invStdDev) = poplin::distributedNormStatistics(
-      graph().getPoplarGraph(),
+      graph(),
       input_T,
       epsilon,
-      prog.getPoplarSequence(),
+      prog,
       false,
       GetDistributedNormReduceCallback(op.getReplicaGrouping(),
                                        "groupNormAllReduce"),
@@ -115,22 +112,19 @@ void LayerNormDistributedOpx::grow(snap::program::Sequence &prog) const {
       debugContext("groupNormStatistics"));
 
   // Use original input tensor when applying group normalisation
-  auto result = popnn::ln::layerNormalise(graph().getPoplarGraph(),
+  auto result = popnn::ln::layerNormalise(graph(),
                                           input,
                                           scale,
                                           b,
                                           mean,
                                           invStdDev,
-                                          prog.getPoplarSequence(),
+                                          prog,
                                           debugContext("layerNorm"))
                     .first;
 
-  setOutTensor(LayerNormDistributedOp::getYOutIndex(),
-               snap::Tensor{result, graph()});
-  setOutTensor(LayerNormDistributedOp::getMeanOutIndex(),
-               snap::Tensor{mean, graph()});
-  setOutTensor(LayerNormDistributedOp::getInvStdDevOutIndex(),
-               snap::Tensor{invStdDev, graph()});
+  setOutTensor(LayerNormDistributedOp::getYOutIndex(), result);
+  setOutTensor(LayerNormDistributedOp::getMeanOutIndex(), mean);
+  setOutTensor(LayerNormDistributedOp::getInvStdDevOutIndex(), invStdDev);
 }
 
 LayerNormDistributedGradOpx::LayerNormDistributedGradOpx(Op *op,
@@ -139,19 +133,14 @@ LayerNormDistributedGradOpx::LayerNormDistributedGradOpx(Op *op,
   verifyOp<LayerNormDistributedGradOp>(op, LayerNormDistributedGrad);
 }
 
-void LayerNormDistributedGradOpx::grow(snap::program::Sequence &prog) const {
+void LayerNormDistributedGradOpx::grow(poplar::program::Sequence &prog) const {
 
-  auto x =
-      getInTensor(LayerNormDistributedGradOp::getXInIndex()).getPoplarTensor();
-  auto yGrad = getInTensor(LayerNormDistributedGradOp::getYGradInIndex())
-                   .getPoplarTensor();
-  auto scale = getInTensor(LayerNormDistributedGradOp::getScaleInIndex())
-                   .getPoplarTensor();
-  auto mean = getInTensor(LayerNormDistributedGradOp::getMeanInIndex())
-                  .getPoplarTensor();
+  auto x     = getInTensor(LayerNormDistributedGradOp::getXInIndex());
+  auto yGrad = getInTensor(LayerNormDistributedGradOp::getYGradInIndex());
+  auto scale = getInTensor(LayerNormDistributedGradOp::getScaleInIndex());
+  auto mean  = getInTensor(LayerNormDistributedGradOp::getMeanInIndex());
   auto invStdDev =
-      getInTensor(LayerNormDistributedGradOp::getInvStdDevInIndex())
-          .getPoplarTensor();
+      getInTensor(LayerNormDistributedGradOp::getInvStdDevInIndex());
 
   auto &op = getOp<LayerNormDistributedGradOp>();
 
@@ -159,23 +148,18 @@ void LayerNormDistributedGradOpx::grow(snap::program::Sequence &prog) const {
   auto hiddenSize = x.shape()[1] * op.getReplicaGrouping().getGroupSize();
 
   // Using GroupNorm as it behaves like LayerNorm when num_groups == 1
-  poplar::Tensor xWhitened =
-      popnn::gn::groupNormWhiten(graph().getPoplarGraph(),
-                                 x,
-                                 mean,
-                                 invStdDev,
-                                 prog.getPoplarSequence(),
-                                 debugContext("whitenedActs"));
+  poplar::Tensor xWhitened = popnn::gn::groupNormWhiten(
+      graph(), x, mean, invStdDev, prog, debugContext("whitenedActs"));
 
   // Compute the delta for the operand
   // Transpose input to make BatchNorm statistic calculation behave like
   // LayerNorm would.
   poplar::Tensor xGrad = poplin::distributedNormStatisticsGradients(
-      graph().getPoplarGraph(),
+      graph(),
       xWhitened.transpose(),
       yGrad.transpose(),
       invStdDev,
-      prog.getPoplarSequence(),
+      prog,
       GetDistributedNormReduceCallback(op.getReplicaGrouping(),
                                        "groupNormAllReduce"),
       hiddenSize,
@@ -187,20 +171,18 @@ void LayerNormDistributedGradOpx::grow(snap::program::Sequence &prog) const {
   poplar::Tensor scaleGrad;
   poplar::Tensor bGrad;
   std::tie(scaleGrad, bGrad) =
-      popnn::gn::groupNormParamGradients(graph().getPoplarGraph(),
+      popnn::gn::groupNormParamGradients(graph(),
                                          xWhitened,
                                          yGrad,
-                                         prog.getPoplarSequence(),
+                                         prog,
                                          poplar::FLOAT,
                                          debugContext("scaleOffsetGrads"));
 
   // Return the result
   setOutTensor(LayerNormDistributedGradOp::getXGradOutIndex(),
-               snap::Tensor{xGrad.transpose(), graph()});
-  setOutTensor(LayerNormDistributedGradOp::getScaleOutIndex(),
-               snap::Tensor{scaleGrad, graph()});
-  setOutTensor(LayerNormDistributedGradOp::getBOutIndex(),
-               snap::Tensor{bGrad, graph()});
+               xGrad.transpose());
+  setOutTensor(LayerNormDistributedGradOp::getScaleOutIndex(), scaleGrad);
+  setOutTensor(LayerNormDistributedGradOp::getBOutIndex(), bGrad);
 }
 
 namespace {

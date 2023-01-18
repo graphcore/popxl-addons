@@ -4,16 +4,16 @@
 
 #include <vector>
 #include <popart/names.hpp>
-#include <popart/popx/popopx.hpp>
+#include <popart/popx/opx.hpp>
 
 namespace popart {
 namespace popx {
 
-class CrossEntropyShardedWROpx : public PopOpx {
+class CrossEntropyShardedWROpx : public Opx {
 public:
   CrossEntropyShardedWROpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 
   std::vector<std::reference_wrapper<poplar::Graph>> getVGraphs() const;
 
@@ -34,11 +34,11 @@ protected:
   int numShards;
 };
 
-class CrossEntropyShardedGradWROpx : public PopOpx {
+class CrossEntropyShardedGradWROpx : public Opx {
 public:
   CrossEntropyShardedGradWROpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 
   std::vector<std::reference_wrapper<poplar::Graph>> getVGraphs() const;
 

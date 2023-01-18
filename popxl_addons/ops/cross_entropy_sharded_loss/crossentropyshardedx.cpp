@@ -1,11 +1,11 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-#include <snap/Tensor.hpp>
+#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
 #include <popart/popx/op/collectives/collectivesx.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/replicagrouping.hpp>
 #include <popart/util.hpp>
 
@@ -69,7 +69,7 @@ std::size_t getFirstTile(poplar::Graph &g, poplar::Tensor t) {
 /// Forwards opx
 
 CrossEntropyShardedOpx::CrossEntropyShardedOpx(Op *op, Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<CrossEntropyShardedOp>(op, {CrossEntropySharded});
 
   availableMemoryProportion =
@@ -231,27 +231,27 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
   return loss;
 }
 
-void CrossEntropyShardedOpx::grow(snap::program::Sequence &prog) const {
+void CrossEntropyShardedOpx::grow(poplar::program::Sequence &prog) const {
 
-  auto &graphPop = graph().getPoplarGraph();
-  auto &progPop  = prog.getPoplarSequence();
+  auto &graphPop = graph();
+  auto &progPop  = prog;
 
-  poplar::Tensor logits  = getInTensor(0).getPoplarTensor();
-  poplar::Tensor indices = getInTensor(1).getPoplarTensor();
+  poplar::Tensor logits  = getInTensor(0);
+  poplar::Tensor indices = getInTensor(1);
 
   auto negLogSoftmax_ = negLogSoftmax(graphPop, progPop, logits);
   auto loss           = takeTrue(graphPop, progPop, negLogSoftmax_, indices);
 
   // Outputs: loss, negLogSoftmax
-  setOutTensor(0, snap::Tensor{loss, graph()});
-  setOutTensor(1, snap::Tensor{negLogSoftmax_, graph()});
+  setOutTensor(0, loss);
+  setOutTensor(1, negLogSoftmax_);
 }
 
 /////////////////////////////////////////////////////////////
 ///// Grad opx
 
 CrossEntropyShardedGradOpx::CrossEntropyShardedGradOpx(Op *op, Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<CrossEntropyShardedGradOp>(op, {CrossEntropyShardedGrad});
   auto op_ = getOp<CrossEntropyShardedGradOp>();
 
@@ -274,14 +274,14 @@ CrossEntropyShardedGradOpx::CrossEntropyShardedGradOpx(Op *op, Devicex *devicex)
  * - `loss_logits` are sharded across devices (corresponding to different
  * classes)
  */
-void CrossEntropyShardedGradOpx::grow(snap::program::Sequence &prog) const {
-  auto &graphPop = graph().getPoplarGraph();
-  auto &progPop  = prog.getPoplarSequence();
+void CrossEntropyShardedGradOpx::grow(poplar::program::Sequence &prog) const {
+  auto &graphPop = graph();
+  auto &progPop  = prog;
 
-  auto loss_grad     = getInTensor(0).getPoplarTensor();
-  auto negLogSoftmax = getInTensor(2).getPoplarTensor();
-  auto logits        = getInTensor(3).getPoplarTensor();
-  auto labels        = getInTensor(4).getPoplarTensor();
+  auto loss_grad     = getInTensor(0);
+  auto negLogSoftmax = getInTensor(2);
+  auto logits        = getInTensor(3);
+  auto labels        = getInTensor(4);
 
   auto nSamples = negLogSoftmax.shape()[0];
   auto nClasses = negLogSoftmax.shape()[1]; // sharded number of classes
@@ -331,7 +331,7 @@ void CrossEntropyShardedGradOpx::grow(snap::program::Sequence &prog) const {
                                 sliceOptions,
                                 debugContext("groupedMultiUpdateAdd"));
 
-  setOutTensor(0, snap::Tensor{logits_grad, graph()});
+  setOutTensor(0, logits_grad);
 }
 
 /////////////////////////////////////////////////////////////

@@ -12,8 +12,8 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -24,8 +24,8 @@ sudo apt install libpython3.6-dev
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
@@ -193,7 +193,7 @@ public:
         op, {ReplicatedReduceScatterStridedOp::defaultOperatorId()});
   }
 
-  void grow(snap::program::Sequence &prog) const {
+  void grow(poplar::program::Sequence &prog) const {
     const auto &rrsOp = getOp<ReplicatedReduceScatterStridedOp>();
 
     const auto inIndex   = ReplicatedReduceScatterStridedOp::getInIndex();
@@ -221,19 +221,13 @@ public:
         auto cbr = createCollectiveBalancedReorder(
             toReduceScatter,
             CollectivesBaseOp::getDefaultTensorShardingGroupIndex());
-        auto c = snap::Tensor{
-            cbr->createCollectivesTensor(
-                toReduceScatter.elementType(),
-                inId(ReplicatedReduceScatterStridedOp::getInIndex())),
-            graph()};
-        popops::zero(graph().getPoplarGraph(),
-                     c.getPoplarTensor(),
-                     prog.getPoplarSequence(),
-                     {"zeroScatter"});
-        auto ref = snap::Tensor{
-            cbr->undoRearrangeForCollective(c.getPoplarTensor()), graph()};
+        auto c = cbr->createCollectivesTensor(
+            toReduceScatter.elementType(),
+            inId(ReplicatedReduceScatterStridedOp::getInIndex()));
+        popops::zero(graph(), c, prog, {"zeroScatter"});
+        auto ref = cbr->undoRearrangeForCollective(c);
         if (hasInViewChangers(ReplicatedReduceScatterStridedOp::getInIndex())) {
-          prog.add(snap::program::Copy(
+          prog.add(poplar::program::Copy(
               getInViewChangers(ReplicatedReduceScatterStridedOp::getInIndex())
                   .apply(toReduceScatter)
                   .flatten(),
@@ -241,7 +235,7 @@ public:
               false,
               debugContext()));
         } else {
-          prog.add(snap::program::Copy(
+          prog.add(poplar::program::Copy(
               toReduceScatter.flatten(), ref.flatten(), false, debugContext()));
         }
         toReduceScatter = c;
@@ -251,9 +245,9 @@ public:
         dv_p->lowering().gclOptions;
 
     poplar::Tensor reducedScattered = reduceScatterStrided(
-        graph().getPoplarGraph(),
-        toReduceScatter.flatten().getPoplarTensor(),
-        prog.getPoplarSequence(),
+        graph(),
+        toReduceScatter.flatten(),
+        prog,
         getPoplarCollectiveOperator(rrsOp.getCollectiveOp()),
         rrsOp.getStride(),
         rrsOp.getCommSize(),
@@ -261,7 +255,7 @@ public:
         reduceScatterOptions);
 
     setOutTensor(ReplicatedReduceScatterStridedOp::getOutIndex(),
-                 snap::Tensor{reducedScattered, graph()});
+                 reducedScattered);
   }
 };
 

@@ -4,8 +4,8 @@
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/graph.hpp>
 #include <popart/ir.hpp>
@@ -14,8 +14,8 @@
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
@@ -72,25 +72,25 @@ public:
 // -------------- OpX --------------
 namespace popx {
 
-class GradReduceSquareAddOpx : public PopOpx {
+class GradReduceSquareAddOpx : public Opx {
 public:
-  GradReduceSquareAddOpx(Op *op, Devicex *devicex) : PopOpx(op, devicex) {
+  GradReduceSquareAddOpx(Op *op, Devicex *devicex) : Opx(op, devicex) {
     verifyOp<GradReduceSquareAddOp>(
         op, {GradReduceSquareAddOp::defaultOperatorId()});
   }
 
-  void grow(snap::program::Sequence &prog) const {
-    auto to_reduce = getInTensor(0).flatten().getPoplarTensor();
-    auto scale     = getInTensor(1).getPoplarTensor();
-    auto rsq       = popops::reduce(graph().getPoplarGraph(),
+  void grow(poplar::program::Sequence &prog) const {
+    auto to_reduce = getInTensor(0).flatten();
+    auto scale     = getInTensor(1);
+    auto rsq       = popops::reduce(graph(),
                               to_reduce,
                               poplar::FLOAT,
                               {0},
                               {popops::Operation::SQUARE_ADD, false, scale},
-                              prog.getPoplarSequence(),
+                              prog,
                               debugContext("GradReduceSquareAddOpx"));
 
-    setOutTensor(0, snap::Tensor{rsq, graph()});
+    setOutTensor(0, rsq);
   }
 };
 

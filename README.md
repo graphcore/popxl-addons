@@ -47,7 +47,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 
 The Module extends popxl's create_graph to help with managing variables.
 
-First we define a Module class. 
+First we define a Module class.
 ```
 class Scale(addons.Module):
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
@@ -61,7 +61,7 @@ args, graph = Scale().create_graph(x)
 A tuple is returned from `Module.create_graph`.
 
 The first value is a `NamedVariableFactories` object. This contains all inputs to the graph that are created using `Module.add_variable_input`
-during the construction of the graph. In most cases these can be considered the constructors of variables of your modules. 
+during the construction of the graph. In most cases these can be considered the constructors of variables of your modules.
 If we want an instance of these variables we can initialise one:
 ```
 scale_vars = args.init()

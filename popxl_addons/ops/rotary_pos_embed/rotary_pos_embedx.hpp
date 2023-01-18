@@ -4,23 +4,23 @@
 
 #include <vector>
 #include <popart/names.hpp>
-#include <popart/popx/popopx.hpp>
+#include <popart/popx/opx.hpp>
 
 namespace popart {
 namespace popx {
 
-class RotaryPosEmbedOpx : public PopOpx {
+class RotaryPosEmbedOpx : public Opx {
 public:
   RotaryPosEmbedOpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 };
 
-class RotaryPosEmbedGradOpx : public PopOpx {
+class RotaryPosEmbedGradOpx : public Opx {
 public:
   RotaryPosEmbedGradOpx(Op *, Devicex *);
 
-  void grow(snap::program::Sequence &) const;
+  void grow(poplar::program::Sequence &) const;
 };
 
 } // namespace popx

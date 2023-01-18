@@ -4,8 +4,8 @@
 
 #include <map>
 #include <memory>
-#include <snap/Tensor.hpp>
 #include <vector>
+#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -16,8 +16,8 @@
 #include <popart/opserialiser.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/region.hpp>
 #include <popart/replicagrouping.hpp>
 #include <popart/tensor.hpp>

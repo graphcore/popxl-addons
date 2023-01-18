@@ -1,11 +1,11 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 #include <iostream>
-#include <snap/Tensor.hpp>
+#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
+#include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
-#include <popart/popx/popopx.hpp>
 #include <popart/util.hpp>
 
 #include <poplar/Graph.hpp>
@@ -163,10 +163,8 @@ CrossEntropyShardedWROpx::getVGraphs() const {
   for (auto i = 0; i < numShards; i++) {
     auto emptySet         = std::set<OpId>();
     auto vGraphAndTileSet = op.getIntrospectionInVirtualGraphId(i, emptySet);
-    auto &vGraph =
-        dv_p->lowering()
-            .getVirtualGraph(vGraphAndTileSet.first, vGraphAndTileSet.second)
-            .getPoplarGraph();
+    auto &vGraph = dv_p->lowering().getVirtualGraph(vGraphAndTileSet.first,
+                                                    vGraphAndTileSet.second);
     vGraphs.push_back(vGraph);
   }
   return vGraphs;
@@ -180,10 +178,8 @@ CrossEntropyShardedGradWROpx::getVGraphs() const {
   for (auto i = logitsStartIndex; i < numShards + logitsStartIndex; i++) {
     auto emptySet         = std::set<OpId>();
     auto vGraphAndTileSet = op.getIntrospectionInVirtualGraphId(i, emptySet);
-    auto &vGraph =
-        dv_p->lowering()
-            .getVirtualGraph(vGraphAndTileSet.first, vGraphAndTileSet.second)
-            .getPoplarGraph();
+    auto &vGraph = dv_p->lowering().getVirtualGraph(vGraphAndTileSet.first,
+                                                    vGraphAndTileSet.second);
     vGraphs.push_back(vGraph);
   }
   return vGraphs;
@@ -193,7 +189,7 @@ CrossEntropyShardedGradWROpx::getVGraphs() const {
 /// Forwards opx
 
 CrossEntropyShardedWROpx::CrossEntropyShardedWROpx(Op *op, Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<CrossEntropyShardedWROp>(op, {CrossEntropyShardedWR});
 
   numShards = getOp<CrossEntropyShardedWROp>().getIpus().size();
@@ -374,17 +370,17 @@ poplar::Tensor CrossEntropyShardedWROpx::sharded_take_last(
   return result_flat;
 }
 
-void CrossEntropyShardedWROpx::grow(snap::program::Sequence &prog) const {
+void CrossEntropyShardedWROpx::grow(poplar::program::Sequence &prog) const {
 
-  auto &graphTop = topLevelGraph().getPoplarGraph();
+  auto &graphTop = topLevelGraph();
   auto vGraphs   = getVGraphs();
-  auto &progPop  = prog.getPoplarSequence();
+  auto &progPop  = prog;
 
   std::vector<poplar::Tensor> logits;
   std::vector<poplar::Tensor> indices;
   for (auto i = 0; i < numShards; i++) {
-    logits.push_back(getInTensor(i).getPoplarTensor());
-    indices.push_back(getInTensor(i + numShards).getPoplarTensor().expand({0}));
+    logits.push_back(getInTensor(i));
+    indices.push_back(getInTensor(i + numShards).expand({0}));
   }
 
   auto indiciesConcat = poplar::concat(indices, 0);
@@ -401,9 +397,9 @@ void CrossEntropyShardedWROpx::grow(snap::program::Sequence &prog) const {
   auto loss = sharded_take_last(
       graphTop, vGraphs, progPop, logSoftmaxSharded, indiciesConcat);
 
-  setOutTensor(0, snap::Tensor{loss, dstVirtualGraph(0)});
+  setOutTensor(0, loss);
   for (int i = 0; i < numShards; i++) {
-    setOutTensor(1 + i, snap::Tensor{logSoftmaxSharded[i], dstVirtualGraph(i)});
+    setOutTensor(1 + i, logSoftmaxSharded[i]);
   }
 }
 
@@ -412,7 +408,7 @@ void CrossEntropyShardedWROpx::grow(snap::program::Sequence &prog) const {
 
 CrossEntropyShardedGradWROpx::CrossEntropyShardedGradWROpx(Op *op,
                                                            Devicex *devicex)
-    : PopOpx(op, devicex) {
+    : Opx(op, devicex) {
   verifyOp<CrossEntropyShardedGradWROp>(op, {CrossEntropyShardedGradWR});
 
   ipus      = getOp<CrossEntropyShardedGradWROp>().getIpus();
@@ -424,21 +420,20 @@ CrossEntropyShardedGradWROpx::CrossEntropyShardedGradWROpx(Op *op,
 }
 
 // Fused backwards pass is much simpler and more efficient:
-void CrossEntropyShardedGradWROpx::grow(snap::program::Sequence &prog) const {
+void CrossEntropyShardedGradWROpx::grow(poplar::program::Sequence &prog) const {
   // gradient on IPU0
   // log_softmax_output is sharded across IPUs
-  auto &graphTop = topLevelGraph().getPoplarGraph();
+  auto &graphTop = topLevelGraph();
   auto vGraphs   = getVGraphs();
-  auto &progPop  = prog.getPoplarSequence();
+  auto &progPop  = prog;
 
   // The fwd_inputs for sharded_take_last were -log(softmax()) forwards outputs
   // which we stashed additionally:
-  auto gradient = getInTensor(0).getPoplarTensor(); // gradient input (on IPU0)
+  auto gradient = getInTensor(0); // gradient input (on IPU0)
 
   std::vector<poplar::Tensor> indicesSharded;
   for (int i = 0; i < numShards; i++) {
-    indicesSharded.push_back(
-        getInTensor(labelsStartIndex + i).getPoplarTensor().expand({0}));
+    indicesSharded.push_back(getInTensor(labelsStartIndex + i).expand({0}));
   }
   auto indices = poplar::concat(indicesSharded, 0).expand({2});
 
@@ -463,7 +458,7 @@ void CrossEntropyShardedGradWROpx::grow(snap::program::Sequence &prog) const {
   for (auto i = 0u; i < numShards; ++i) {
     // In the forward op we negated the sharded_log_softmax_grad result
     // but we saved the +ve activations so negate the activations:
-    auto logSoftmax = getInTensor(logSoftmaxStartIndex + i).getPoplarTensor();
+    auto logSoftmax = getInTensor(logSoftmaxStartIndex + i);
     auto softmax    = popops::neg(vGraphs[i], logSoftmax, progPop);
     popops::expInPlace(vGraphs[i], softmax, progPop, "/recover_softmax_acts");
 
@@ -522,7 +517,7 @@ void CrossEntropyShardedGradWROpx::grow(snap::program::Sequence &prog) const {
 
   for (int i = 0; i < numShards; i++) {
     auto t = activationsSharded[i];
-    setOutTensor(i, snap::Tensor{t, dstVirtualGraph(i)});
+    setOutTensor(i, t);
   }
 }
 
