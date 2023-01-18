@@ -24,7 +24,7 @@ def test_cross_entropy():
         with ir.main_graph:
             logits = popxl.variable(logits.detach().numpy().astype(np.float32))
             target = popxl.variable(target.detach().numpy().astype(np.uint32))
-            loss = addons.ops.cross_entropy(logits, target, 64)
+            loss = addons.cross_entropy(logits, target, 64)
             loss_d2h = addons.host_store(loss)
 
         ir.num_host_transfers = 1
@@ -54,7 +54,7 @@ def test_cross_entropy_with_grad():
         with ir.main_graph:
             logits = popxl.variable(logits.detach().numpy().astype(np.float32))
             target = popxl.variable(target.detach().numpy().astype(np.uint32))
-            loss, dlogits = addons.ops.cross_entropy_with_grad(logits, target, 64)
+            loss, dlogits = addons.cross_entropy_with_grad(logits, target, 64)
             loss_d2h = addons.host_store(loss)
             dlogits_d2h = addons.host_store(dlogits)
 

@@ -10,6 +10,8 @@ from .streams import *
 from .utils import *
 from .task_session import *
 from .performance_utils import *
+from .debugging import *
+from .array_munging import *
 
 import git
 try:

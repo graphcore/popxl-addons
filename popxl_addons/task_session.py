@@ -100,19 +100,19 @@ class TaskSession(popxl.Session):
         loaded = src.get_tensors_data(src.state.tensors)
         self.__load_from_tensors(src.state, loaded, report_missing)
 
+    def wandb_histogram(self, name: str, step: int, data: np.ndarray):
+        """Histogram data using Weights & Biases"""
+        import wandb
+        data = data.flatten().astype(np.float32)
+        finite_mask = np.isfinite(data)
+        finite_data = data[finite_mask]
+        n_non_finite = np.sum(~finite_mask)
+        wandb.log({f'{name}:histogram': wandb.Histogram(finite_data), f'{name}:not_finite': n_non_finite}, step=step)
+
     def wandb_variable_histograms(self, step: int = 0):
         """Track all variables as a histogram in Weights & Biases"""
-        import wandb
         for t, np_t in self.get_tensors_data(self.ir.main_graph.variables).items():
-            np_t = np_t.flatten().astype(np.float32)
-            finite_mask = np.isfinite(np_t)
-            finite_data = np_t[finite_mask]
-            n_non_finite = np.sum(~finite_mask)
-            wandb.log({
-                f'{t.name}:histogram': wandb.Histogram(finite_data),
-                f'{t.name}:not_finite': n_non_finite
-            },
-                      step=step)
+            self.wandb_histogram(t.name, step, np_t)
 
     def save_checkpoint(self, checkpoint_dir: str):
         """
@@ -160,7 +160,10 @@ class TaskSession(popxl.Session):
                     self.__save_checkpoint_to_file(checkpoint_dir, state)
                     self.__checkpoints.append(checkpoint_dir)
 
-    def load_checkpoint(self, checkpoint_dir: str, report_missing: ReportMissingMethods = 'warn'):
+    def load_checkpoint(self,
+                        checkpoint_dir: str,
+                        report_missing: ReportMissingMethods = 'warn',
+                        skip_memmap: bool = False):
         """
         Load a checkpoint for the task, consisting of the model state (weights), the optimiser state, the dataloader state and
         the session state (always containing the step) which can be customised with application-specific requirements.
@@ -178,16 +181,19 @@ class TaskSession(popxl.Session):
                 checkpoint_dir = checkpoint_dir.replace("wandb://", "")
                 artifact = wandb.use_artifact(checkpoint_dir, type='checkpoints')
                 artifact_dir = artifact.download()
-                self.__load_checkpoint_from_file(artifact_dir, report_missing)
+                self.__load_checkpoint_from_file(artifact_dir, report_missing, skip_memmap)
             else:
-                self.__load_checkpoint_from_file(checkpoint_dir, report_missing)
+                self.__load_checkpoint_from_file(checkpoint_dir, report_missing, skip_memmap)
 
     def __save_checkpoint_to_file(self, checkpoint_dir: str, state: Dict):
         # save model state
         logging.info("\t Saving model state...")
         for name, var in state.items():
-            filename = name.replace(".", "_")
-            np.savez(os.path.join(checkpoint_dir, "model", f"{filename}.npz"), **{name: var})
+            if isinstance(var.base, np.memmap):
+                mmap_path: str = var.base.filename
+                shutil.copyfile(mmap_path, os.path.join(checkpoint_dir, "model", os.path.basename(mmap_path)))
+            else:
+                np.savez(os.path.join(checkpoint_dir, "model", f"{name}.npz"), **{name: var})
 
         # save dataloader state
         if self.dataloader:
@@ -199,7 +205,10 @@ class TaskSession(popxl.Session):
             logging.info(f"\t Saving session state...")
             json.dump(self.session_state, f)
 
-    def __load_checkpoint_from_file(self, checkpoint_dir: str, report_missing: ReportMissingMethods = 'warn'):
+    def __load_checkpoint_from_file(self,
+                                    checkpoint_dir: str,
+                                    report_missing: ReportMissingMethods = 'warn',
+                                    skip_memmap: bool = False):
         """
         Load checkpoint from a file in .npz format or from wandb.
         Data is read from the checkpoint and written to the ipu to the corresponding `state` variables.
@@ -213,8 +222,7 @@ class TaskSession(popxl.Session):
         ckpt = {}
         files = glob.glob(os.path.join(checkpoint_dir, "model", '*.npz'))
 
-        def filename_from_var_name(x: str):
-            name = x.replace(".", "_")
+        def filename_from_var_name(name: str):
             return os.path.join(checkpoint_dir, "model", f"{name}.npz")
 
         expected = map(filename_from_var_name, variables.keys())
@@ -225,7 +233,6 @@ class TaskSession(popxl.Session):
 
         # load existing keys
         for filename in existing_keys:
-            name = os.path.basename(filename).replace(".npz", "")
             loaded = np.load(filename, allow_pickle=True)
             assert loaded is not None
             ckpt.update({name: loaded[name] for name in loaded.files})
@@ -286,7 +293,14 @@ class TaskSession(popxl.Session):
             downcast_inputs: bool = True,
     ) -> d2hStreamBufferMaps:
         """
-        Run the program and keep track of the times `session.run` is called. 
+        Run the program and keep track of the times `session.run` is called.
         """
         self.session_state['steps'] += 1
         return super().run(inputs, downcast_inputs)
+
+
+def initialise_memmap_dir_from_checkpoint(checkpoint_dir, memmap_dir):
+    """Copy memmap variable data from a checkpoint to a memmap_dir"""
+    files = glob.glob(os.path.join(checkpoint_dir, "model", '*.npy'))
+    for f in files:
+        shutil.copyfile(f, os.path.join(memmap_dir, os.path.basename(f)))

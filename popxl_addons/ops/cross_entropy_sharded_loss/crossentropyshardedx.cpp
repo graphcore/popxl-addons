@@ -92,25 +92,24 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
   ReplicaGrouping group = getOp<CrossEntropyShardedOp>().getGroup();
   auto elementType      = logits.elementType();
 
-  std::vector<poplar::Tensor> maxs;
-  auto maxPartial =
+  auto maxLogitsPartial =
       popops::reduce(graph,
                      logits,
                      {1},
                      popops::ReduceParams(popops::Operation::MAX, false),
                      prog,
-                     debugContext("max_reduce_logits"));
+                     debugContext("reduce_max_logits"));
 
-  // TODO: replace allreduces with inplace varients
   // Obtain max from partial results
-  auto max = gcl::allReduceCrossReplica(graph,
-                                        maxPartial,
-                                        gcl::CollectiveOperator::MAX,
-                                        prog,
-                                        toGclCommGroup(group),
-                                        debugContext("all_reduce_max"));
+  auto maxLogits =
+      gcl::allReduceCrossReplica(graph,
+                                 maxLogitsPartial,
+                                 gcl::CollectiveOperator::MAX,
+                                 prog,
+                                 toGclCommGroup(group),
+                                 debugContext("all_reduce_max_logits_partial"));
 
-  auto maxBroadcasted = max.expand({1}).broadcast(logits.dim(1), 1);
+  auto maxBroadcasted = maxLogits.expand({1}).broadcast(logits.dim(1), 1);
 
   // Sub off the max for stable softmax
   auto translated = popops::sub(
@@ -158,7 +157,7 @@ CrossEntropyShardedOpx::negLogSoftmax(poplar::Graph &graph,
 }
 
 /**
- *
+ * Select values that correspond with the "true" class
  *
  * @param graph
  * @param prog
@@ -175,9 +174,11 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
   ReplicaGrouping group = getOp<CrossEntropyShardedOp>().getGroup();
 
   assert(negLogSoftmax.shape()[0] == indices.shape()[0]);
-  auto nSamples = negLogSoftmax.shape()[0];
-  auto nClasses = negLogSoftmax.shape()[1]; // sharded number of classes
+  auto nSamples        = negLogSoftmax.shape()[0];
+  auto nClassesSharded = negLogSoftmax.shape()[1]; // sharded number of classes
 
+  // Negative numbers get wrapped around in cast e.g. -1 -> 2^32 - 1
+  // Doesn't matter as we zero OOR indices after
   auto uIndices = popops::cast(
       graph, indices, poplar::UNSIGNED_INT, prog, debugContext("uIndices"));
 
@@ -191,7 +192,7 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
   auto slicePlan = popops::embedding::plan(graph,
                                            negLogSoftmax.elementType(),
                                            nSamples,
-                                           nClasses,
+                                           nClassesSharded,
                                            1,
                                            {1},
                                            sliceOptions);
@@ -211,7 +212,7 @@ poplar::Tensor CrossEntropyShardedOpx::takeTrue(poplar::Graph &graph,
   // Zero losses that correspond to out of range (OOR) indices
   namespace pe            = popops::expr;
   auto inRangeIndicesExpr = pe::And(pe::Gte(pe::_2, pe::Const(0)),
-                                    pe::Lt(pe::_2, pe::Const(nClasses)));
+                                    pe::Lt(pe::_2, pe::Const(nClassesSharded)));
   auto outputExpr         = pe::TernaryOp(
       pe::TernaryOpType::SELECT, pe::_1, pe::Const(0), inRangeIndicesExpr);
   auto operands = {lossPartial, indices};
@@ -263,6 +264,15 @@ CrossEntropyShardedGradOpx::CrossEntropyShardedGradOpx(Op *op, Devicex *devicex)
 }
 
 /**
+ * Calculate loss w.r.t. logits. If:
+ * y: logits
+ * a = softmax(y)
+ * z = crossentropy(a)
+ * We are provided dL/dz and we want dL/dy:
+ * dL/dy = dL/dz . dz/dy
+ *       = dL/dz . (a - I_t)
+ * Where I_t is a zero matrix except for each sample and true label index == 1
+ *
  * Input:
  * - `loss_grad` should be identical across devices
  * - `negLogSoftmax` should be identical across devices
@@ -283,12 +293,15 @@ void CrossEntropyShardedGradOpx::grow(poplar::program::Sequence &prog) const {
   auto logits        = getInTensor(3);
   auto labels        = getInTensor(4);
 
-  auto nSamples = negLogSoftmax.shape()[0];
-  auto nClasses = negLogSoftmax.shape()[1]; // sharded number of classes
+  auto nSamples        = negLogSoftmax.shape()[0];
+  auto nClassesSharded = negLogSoftmax.shape()[1]; // sharded number of classes
 
+  // negLogSoftmax -> Softmax (a)
   auto logits_grad = popops::neg(
       graphPop, negLogSoftmax, progPop, debugContext("neg_negLogSoftmax"));
   popops::expInPlace(graphPop, logits_grad, progPop, debugContext("softmax"));
+
+  // dL/dz * a
   popops::mulInPlace(graphPop,
                      logits_grad,
                      loss_grad.expand({1}),
@@ -314,11 +327,13 @@ void CrossEntropyShardedGradOpx::grow(poplar::program::Sequence &prog) const {
   auto slicePlan = popops::embedding::plan(graphPop,
                                            logits_grad.elementType(),
                                            nSamples,
-                                           nClasses,
+                                           nClassesSharded,
                                            1,
                                            {1},
                                            sliceOptions);
 
+  // dL/dz * a - dL/dz * I_t    (I_t == 1 when corresponding element is true
+  // label)
   popops::groupedMultiUpdateAdd(graphPop,
                                 logits_grad.expand({2}),
                                 loss_grad.expand({1, 1, 1}),

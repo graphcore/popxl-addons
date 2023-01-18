@@ -1,9 +1,14 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Sequence, Union
 from typing_extensions import Literal
 
 import numpy as np
 from more_itertools import flatten, sliced
+
+__all__ = [
+    'shard', 'unshard_arrays', 'unshard', 'repeat', 'repeat_axis', 'split2D', 'shard2D', 'unshard2D', 'repeat_shard',
+    'tensor_parallel_input', 'pad_axis', 'squeeze_safe', 'handle_negative_axis'
+]
 
 
 def shard(x: np.ndarray, n: int, axis: int) -> np.ndarray:
@@ -38,20 +43,25 @@ def shard(x: np.ndarray, n: int, axis: int) -> np.ndarray:
         #   [5],
         #   [7]]]
     """
-    if axis < 0:
-        axis = len(x.shape) + axis
-
+    axis = handle_negative_axis(x, axis)
     return np.concatenate(np.split(x[np.newaxis, ...], n, axis=axis + 1))
 
 
 def unshard_arrays(xs: List[np.ndarray], axis: int) -> np.ndarray:
-    """Concat a list of arrays along a given axis+2 and squeeze the first axis."""
-    x = np.concatenate(xs, axis=axis + 1)
+    """Concat a list of arrays along a given axis and squeeze the first axis."""
+    if len(xs) > 1 and not all(xs[0].ndim == x.ndim for x in xs[1:]):
+        raise ValueError(f"All arrays must be of the same rank. Ranks: {','.join(x.ndim for x in xs)}")
+    if axis >= 0:
+        axis = axis + 1  # Disregard first dim which is split
+    else:
+        axis = handle_negative_axis(xs[0], axis)
+    x = np.concatenate(xs, axis=axis)
     return x.squeeze(0)
 
 
 def unshard(x: np.ndarray, axis: int) -> np.ndarray:
-    """Opposite to `shard`. Split along first dimension and concat on given axis.
+    """Opposite to `shard`. Split along first dimension and concat on given `axis`
+    (axis disregards the first dim which is split on).
 
     Example:
         .. code-block:: python
@@ -133,7 +143,7 @@ def split2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int) -> List
     return arrays2d
 
 
-def shard2D(x: np.ndarray, n_1, n_2, axis_1, axis_2) -> np.ndarray:
+def shard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int) -> np.ndarray:
     """Shard array along 2 given axes. Outputs one array concatenated on a newly created first dimension.
     Axis 1 is the outermost axis and axis 2 the innermost axis.
 
@@ -177,13 +187,14 @@ def shard2D(x: np.ndarray, n_1, n_2, axis_1, axis_2) -> np.ndarray:
 
 def unshard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int):
     """Opposite to shard2D. Split along first dimension and concat on given axes.
+    (axis_1 and axis_2 disregard the first dim which is split on).
 
     Example:
         .. code-block:: python
         data = np.random.random((10, 3, 4))   # Shape: (10, 3, 4)
 
         # creates 2 shards from axis 2
-        s2 = shard2d(data, 2, 4, 0, 2)        # Shape: (8, 5, 3, 1)
+        s2 = shard2D(data, 2, 4, 0, 2)        # Shape: (8, 5, 3, 1)
 
         # Undo 2D sharding
         unsharded = unshard2D(s2, 2, 4, 0, 2) # Shape: (10, 3, 4)
@@ -242,8 +253,8 @@ def tensor_parallel_input(input_data: np.ndarray,
     """Repeat the data in `input_data` such that consecutive replicas with groupSize tp get the same data
     (optionally modified by repeat_fn)
 
-    Take data of shape (host_loads, *data_shape)
-    Output (host_loads, replication_factor, *data_shape)
+    Take data of shape [host_loads, *data_shape]
+    Output [host_loads, replication_factor, *data_shape]
     Where host_loads = device_iterations * gradient_accumulation_step
 
     Examples:
@@ -252,31 +263,31 @@ def tensor_parallel_input(input_data: np.ndarray,
         shape: (4,)
 
         tensor_parallel_input(a, 1, 2)  # tp = 1, dp = 2
-        [[0, 1],
-         [2, 3]]
+        # [[0, 1],
+        #  [2, 3]]
         shape: (2, 2)
 
         tensor_parallel_input(a, 2, 2)  # tp = 2, dp = 1
-        [[0, 0],
-         [1, 1],
-         [2, 2],
-         [3, 3]]
+        # [[0, 0],
+        #  [1, 1],
+        #  [2, 2],
+        #  [3, 3]]
         shape: (4, 2)
 
         tensor_parallel_input(a, 2, 4)  # tp = 2, dp = 2
-        [[0, 0, 1, 1],
-         [2, 2, 3, 3]]
+        # [[0, 0, 1, 1],
+        #  [2, 2, 3, 3]]
         shape: (2, 4)
 
     Args:
-        input_data (np.ndarray): Data to repeat
+        input_data (np.ndarray): Data to repeat. Shape: [host_loads, *data_shape]
         tp (int): Tensor parallel replicas
         rf (int): Total Replicas
         repeat_fn (Optional[Callable[[np.ndarray, int], np.ndarray]], optional):
             Optional function to modify each repeat by. Defaults to None.
 
     Returns:
-        data: Data repeated for DP and TP
+        data: Data repeated for DP and TP. Shape: [host_loads, replication_factor, *data_shape]
     """
     assert tp <= rf
     assert (rf / tp).is_integer()
@@ -289,11 +300,13 @@ def tensor_parallel_input(input_data: np.ndarray,
             repeat = repeat_fn(repeat.copy(), i)
         repeats.append(repeat)
     data = np.concatenate(repeats, axis=1)
-    return data.reshape(-1, rf, *input_data.shape[1:])
+    data = data.reshape(-1, rf, *input_data.shape[1:])
+    data = squeeze_safe(data, [0, 1])  # Squeeze host loads or replica axis if 1
+    return data
 
 
-def pad_axis(x: np.ndarray, n: int, axis: int):
-    """Zero pad an axis until length n.
+def pad_axis(x: np.ndarray, n: int, axis: int, value: Union[int, float] = 0):
+    """Pad an axis until length `n` with value `value`.
 
     Example:
         .. code-block:: python
@@ -311,4 +324,32 @@ def pad_axis(x: np.ndarray, n: int, axis: int):
 
     padding = [[0, 0]] * len(x.shape)
     padding[axis] = [0, n - x.shape[axis]]
-    return np.pad(x, padding)
+    return np.pad(x, padding, constant_values=value)
+
+
+def squeeze_safe(x: np.ndarray, axis: Optional[Union[int, Sequence[int]]] = None):
+    """Squeeze axes that are 1 - same as np.squeeze but doesn't throw an error if you specify
+    axes that are not squeezable."""
+    if axis is None:
+        return np.squeeze(x)
+
+    if isinstance(axis, int):
+        axis = [axis]
+
+    axis = list(set(handle_negative_axis(x, ax) for ax in axis))  # Handle neg axis and remove dups
+    axis = sorted(axis)[::-1]  # Reverse sort. Squeeze innermost axes first
+
+    for ax in axis:
+        if x.shape[ax] == 1:
+            x = np.squeeze(x, axis=ax)
+
+    return x
+
+
+def handle_negative_axis(x: np.ndarray, axis: int) -> int:
+    """Convert negative axis value to positive equivalent"""
+    if x.ndim == 0:
+        raise IndexError("Array is 0-dimensional")
+    if axis > x.ndim - 1 or axis < -x.ndim:
+        raise IndexError(f"Axis is out of range. Axis: {axis}. Array Rank: {x.ndim}")
+    return x.ndim + axis if axis < 0 else axis
