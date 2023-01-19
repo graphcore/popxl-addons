@@ -8,7 +8,7 @@ from popart._internal import ir as _ir
 from popxl_addons.transforms.repeat_graph import repeat_graph
 
 
-@pytest.mark.parametrize('repeat_count', [1, 5])
+@pytest.mark.parametrize("repeat_count", [1, 5])
 def test_basic(repeat_count):
     ir = popxl.Ir()
 
@@ -19,7 +19,7 @@ def test_basic(repeat_count):
     repeat_graph(ir.main_graph, repeat_count)
 
     ir.num_host_transfers = repeat_count
-    with popxl.Session(ir, 'ipu_hw') as session:
+    with popxl.Session(ir, "ipu_hw") as session:
         output = session.run()
     assert np.sum(list(output.values())) == repeat_count
 
@@ -35,7 +35,7 @@ def test_variables():
     repeat_graph(ir.main_graph, repeat_count)
 
     ir.num_host_transfers = repeat_count
-    with popxl.Session(ir, 'ipu_hw') as sess:
+    with popxl.Session(ir, "ipu_hw") as sess:
         output = sess.run()
     assert np.sum(list(output.values())) == repeat_count
 
@@ -45,8 +45,8 @@ def test_topological_constraints():
     ir = popxl.Ir()
 
     with ir.main_graph:
-        small = popxl.variable(1, name='small')
-        big = popxl.variable(np.ones((2, 2), np.float32), name='big')
+        small = popxl.variable(1, name="small")
+        big = popxl.variable(np.ones((2, 2), np.float32), name="big")
 
         # From a liveness perspective,
         #   these two Ops are in the wrong order.

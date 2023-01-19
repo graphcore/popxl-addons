@@ -21,16 +21,20 @@ def test_tensor_parallel_rts():
         h2d = popxl.h2d_stream((4, 4), popxl.float32)
         x = ops.host_load(h2d)
 
-        ff1_v, ff1_shard = popxl.replica_sharded_variable(shard(input_ff1, tensor_parallel_grouping.group_size, axis=1),
-                                                          popxl.float32,
-                                                          "ff1",
-                                                          replica_grouping=data_parallel_grouping,
-                                                          shard_over=rts_grouping.group_size)
-        ff2_v, ff2_shard = popxl.replica_sharded_variable(shard(input_ff2, tensor_parallel_grouping.group_size, axis=0),
-                                                          popxl.float32,
-                                                          "ff2",
-                                                          replica_grouping=data_parallel_grouping,
-                                                          shard_over=rts_grouping.group_size)
+        ff1_v, ff1_shard = popxl.replica_sharded_variable(
+            shard(input_ff1, tensor_parallel_grouping.group_size, axis=1),
+            popxl.float32,
+            "ff1",
+            replica_grouping=data_parallel_grouping,
+            shard_over=rts_grouping.group_size,
+        )
+        ff2_v, ff2_shard = popxl.replica_sharded_variable(
+            shard(input_ff2, tensor_parallel_grouping.group_size, axis=0),
+            popxl.float32,
+            "ff2",
+            replica_grouping=data_parallel_grouping,
+            shard_over=rts_grouping.group_size,
+        )
 
         ff1 = replicated_all_gather_strided(ff1_shard, group=rts_grouping)
 

@@ -7,7 +7,7 @@ import popxl
 from popxl import ReplicaGrouping
 from popxl_addons.dot_tree import DotTree
 
-CLS = TypeVar("CLS", bound='NamedReplicaGrouping')
+CLS = TypeVar("CLS", bound="NamedReplicaGrouping")
 
 
 def fill_none_group(rg: ReplicaGrouping, none_value: ReplicaGrouping):
@@ -36,7 +36,7 @@ def get_instance_replica_grouping(replica_grouping: Optional[popxl.ReplicaGroupi
     replica_grouping = replica_grouping or popxl.gcg().ir.replica_grouping()
 
     if replica_grouping.is_const:
-        local_assignment_0 = replica_grouping.assignment[:ir.instance_replication_factor]
+        local_assignment_0 = replica_grouping.assignment[: ir.instance_replication_factor]
         num_instances = ir.replication_factor // ir.instance_replication_factor
         if local_assignment_0 * num_instances != replica_grouping.assignment:
             raise ValueError("Assignment pattern is different across instances")
@@ -46,8 +46,9 @@ def get_instance_replica_grouping(replica_grouping: Optional[popxl.ReplicaGroupi
         raise ValueError("replica grouping stride must be < ir.instance_replication_factor")
 
     if is_cross_instance(replica_grouping):
-        return ir.replica_grouping(stride=replica_grouping.stride,
-                                   group_size=ir.instance_replication_factor // replica_grouping.stride)
+        return ir.replica_grouping(
+            stride=replica_grouping.stride, group_size=ir.instance_replication_factor // replica_grouping.stride
+        )
     else:
         return replica_grouping
 
@@ -63,6 +64,7 @@ _SHOULD_WARN = True
 def _warn_assumed_ild_size(size):
     """Only warn once per process to avoid spamming the logs"""
     import popdist
+
     global _SHOULD_WARN
     if _SHOULD_WARN and popdist.isPopdistEnvSet():
         _SHOULD_WARN = False

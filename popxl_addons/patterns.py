@@ -6,14 +6,14 @@ import popart._internal.ir as _ir
 from popxl import Ir
 
 patterns_level = {
-    'no_patterns': _ir.patterns.PatternsLevel.NoPatterns,
-    'minimal': _ir.patterns.PatternsLevel.Minimal,
-    'default': _ir.patterns.PatternsLevel.Default,
-    'all': _ir.patterns.PatternsLevel.All
+    "no_patterns": _ir.patterns.PatternsLevel.NoPatterns,
+    "minimal": _ir.patterns.PatternsLevel.Minimal,
+    "default": _ir.patterns.PatternsLevel.Default,
+    "all": _ir.patterns.PatternsLevel.All,
 }
 
 
-def apply_pre_alias_patterns(ir: Ir, level: Literal['no_patterns', 'minimal', 'default', 'all'] = 'default'):
+def apply_pre_alias_patterns(ir: Ir, level: Literal["no_patterns", "minimal", "default", "all"] = "default"):
     """Apply pre-alias patterns to all graphs in the Ir inplace
 
     Args:

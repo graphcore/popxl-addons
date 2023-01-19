@@ -35,7 +35,7 @@ def evaluate_ir_FLOPs(ir: popxl.Graph) -> Dict[str, int]:
 
     Args:
         graph (popxl.Graph): the graph for which you want to estimate FLOPs.
-    Returns: 
+    Returns:
         Dict[str,int]: A dictionary representing the FLOPs breakdown of the IR.
                        You can then print the breakdown in different ways using print_FLOPs(breakdown).
                        Key "TOT" contains the total FLOPs of the IR
@@ -51,7 +51,7 @@ def evaluate_FLOPs(graph: popxl.Graph) -> Dict[str, int]:
 
     Args:
         graph (popxl.Graph): the graph for which you want to estimate FLOPs.
-    Returns: 
+    Returns:
         Dict[str,int]: A dictionary representing the FLOPs breakdown of the graph.
                        You can then print the breakdown in different ways using print_FLOPs(breakdown).
                        Key "TOT" contains the total FLOPs of the Graph
@@ -61,30 +61,32 @@ def evaluate_FLOPs(graph: popxl.Graph) -> Dict[str, int]:
     return flops_breakdown
 
 
-def print_FLOPs(flops_breakdown: Dict[str, int],
-                mode: Literal['type', 'flat'] = 'type',
-                numerical_format: Literal['K', 'M', 'G', 'T', 'nearest3'] = 'nearest3'):
+def print_FLOPs(
+    flops_breakdown: Dict[str, int],
+    mode: Literal["type", "flat"] = "type",
+    numerical_format: Literal["K", "M", "G", "T", "nearest3"] = "nearest3",
+):
     """
     Print the FLOPs breakdown of a graph.
     If `mode` is `type`, the breakdown is printed per operation type, summing all FLOPs of ops of the same type.
-        Op Type            | FLOPs    
+        Op Type            | FLOPs
         -------------------------------
         TOT                | 9.072E+03
         MatMul             | 9.072E+03
         Add                | 0.000E+00
         Sub                | 0.000E+00
         GroupNormalization | 0.000E+00
-        
+
     If `mode` is `flat`, the breakdown keys are flattened and you get a flat view of each op FLOPs.
-        Op Type | FLOPs      | Op Name   
+        Op Type | FLOPs      | Op Name
         ----------------------------------
-        TOT     | 9.072E+03  |           
+        TOT     | 9.072E+03  |
         MatMul  | 8.100E+03  | MatMul.104
         MatMul  | 0.900E+03  | MatMul.103
         MatMul  | 64.000E+00 | MatMul.100
         MatMul  | 8.000E+00  | MatMul.102
 
-    Breakdown is sorted in descending order.  
+    Breakdown is sorted in descending order.
     """
 
     def _flatten(dict, new_dict, key=""):
@@ -110,12 +112,12 @@ def print_FLOPs(flops_breakdown: Dict[str, int],
             pcent = 100 * v / grouped["TOT"]
             rows.append([k, format_flops_scientific(v, numerical_format), f"{pcent:.1f}"])
 
-    elif mode == 'flat':
+    elif mode == "flat":
         rows = [["Op Type", "FLOPs", "Op Name"]]
         flattened_breakdown = {}
         _flatten(flops_breakdown, flattened_breakdown)
         for k, v in sorted(flattened_breakdown.items(), key=lambda item: item[1], reverse=True):
-            tokens = k.split('.')
+            tokens = k.split(".")
             op_type = k
             if len(tokens) > 0:
                 op_type = tokens[0]
@@ -179,7 +181,7 @@ FLOPS_FNS = {
     "Div": elementwise_binary_flops,
     "Mul": elementwise_binary_flops,
     "MatMul": matmul_flops,
-    "GroupNormalization": group_norm_flops
+    "GroupNormalization": group_norm_flops,
 }
 
 
@@ -229,27 +231,27 @@ def _evaluate_FLOPs(pb_graph, visited_graphs: Dict[popxl.Graph, Tuple[int, Dict[
     return flops_breakdown
 
 
-def format_flops_scientific(val, format: Literal['K', 'M', 'G', 'T', 'nearest3'] = 'nearest3') -> str:
-    if format not in ['K', 'M', 'G', 'T', 'nearest3']:
+def format_flops_scientific(val, format: Literal["K", "M", "G", "T", "nearest3"] = "nearest3") -> str:
+    if format not in ["K", "M", "G", "T", "nearest3"]:
         raise ValueError("unknown format specified")
 
     decimals = 3
     exponent_template = "{:0>%d}" % 2  # 03, 09
     mantissa_template = "{:.%df}" % decimals
 
-    if format == 'nearest3':
+    if format == "nearest3":
         val_power = floor(log10(abs(val))) if val > 0.0 else 0
         lowest_three_power = val_power // 3
         # the remainder of the division by three can be 1 or 2. If it's 2, we are closer to the next power.
         extra_power = int(val_power % 3 == 2)
         nearest_third = 3 * (lowest_three_power + extra_power)
-        adjusted_mantissa = val * 10**(-nearest_third)
+        adjusted_mantissa = val * 10 ** (-nearest_third)
         adjusted_mantissa_string = mantissa_template.format(adjusted_mantissa)
-        adjusted_exponent_string = "+-" [nearest_third < 0] + exponent_template.format(abs(nearest_third))
+        adjusted_exponent_string = "+-"[nearest_third < 0] + exponent_template.format(abs(nearest_third))
         return adjusted_mantissa_string + "E" + adjusted_exponent_string
     else:
-        label_to_exp = {'K': 3, 'M': 6, 'G': 9, 'T': 12}
-        adjusted_mantissa = val * 10**(-label_to_exp[format])
+        label_to_exp = {"K": 3, "M": 6, "G": 9, "T": 12}
+        adjusted_mantissa = val * 10 ** (-label_to_exp[format])
         adjusted_mantissa_string = mantissa_template.format(adjusted_mantissa)
         adjusted_exponent_string = "+" + exponent_template.format(abs(label_to_exp[format]))
         return adjusted_mantissa_string + "E" + adjusted_exponent_string

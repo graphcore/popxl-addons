@@ -13,7 +13,7 @@ from popxl_addons.graph import BoundGraph, GraphWithNamedArgs
 
 def bound_arguments(fn, *args, **kwargs):
     """Return complete arguments from calling `fn` with `*args, **kwargs`.
-        Including any bound and default arguments."""
+    Including any bound and default arguments."""
     if hasattr(fn, "__call__"):
         fn = fn.__call__
     if inspect.ismethod(fn):
@@ -31,7 +31,7 @@ def tensor_hash(t: popxl.Tensor):
 
 def argument_hash(arg):
     """Hash an argument to a function. With special handling for Tensors.
-        Recursively handles tuple/list/dict arguments."""
+    Recursively handles tuple/list/dict arguments."""
     if isinstance(arg, popxl.Tensor):
         return tensor_hash(arg)
     elif isinstance(arg, BoundGraph):
@@ -62,12 +62,12 @@ def get_function_hash(fn, *args, **kwargs):
 
 class GraphCache:
     """Cache to reuse graphs when the function and arguments to `create_graph` are compatible.
-        Usage, replace `ir.create_graph(...)` with:
-        ```
-            cache = GraphCache()
-            with main:
-                graph = cache.create_graph(...)
-        ```
+    Usage, replace `ir.create_graph(...)` with:
+    ```
+        cache = GraphCache()
+        with main:
+            graph = cache.create_graph(...)
+    ```
     """
 
     def __init__(self):
@@ -80,10 +80,10 @@ class GraphCache:
 
     def create_graph(self, fn, *args, **kwargs) -> popxl.Graph:
         """Returns a popxl.Graph for `fn` in the current IR.
-            If a graph has already been constructed for this function and it's associated arguments
-            a cached version is returned.
+        If a graph has already been constructed for this function and it's associated arguments
+        a cached version is returned.
 
-            Warning: Graphs are not immutable and can be changed after construction.
+        Warning: Graphs are not immutable and can be changed after construction.
         """
         ir = popxl.gcg().ir
         cache = self._get_graph_cache(ir)
@@ -94,8 +94,8 @@ class GraphCache:
 
 
 def function(fn: Callable):
-    """Outline the execution of a function. 
-        When it is called, a `popxl.Graph` will be constructed for the function and `ops.call`. 
+    """Outline the execution of a function.
+        When it is called, a `popxl.Graph` will be constructed for the function and `ops.call`.
         A GraphCache will be used to ensure graphs are reused where possible.
         Intended for use as a decorator:
         ```

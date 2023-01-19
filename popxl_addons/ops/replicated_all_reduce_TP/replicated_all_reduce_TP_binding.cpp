@@ -12,8 +12,6 @@ sudo apt install libpython3.6-dev
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -29,6 +27,8 @@ sudo apt install libpython3.6-dev
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <popart/op/collectives/collectives.hpp>
 #include <popart/op/collectives/replicatedallreduce.hpp>
@@ -46,9 +46,9 @@ sudo apt install libpython3.6-dev
 
 namespace py = pybind11;
 
-using InMapType  = std::map<popart::InIndex, popart::TensorId>;
+using InMapType = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex   = int;
+using OutIndex = int;
 
 namespace popart {
 
@@ -83,12 +83,8 @@ public:
     std::vector<std::unique_ptr<Op>> result;
     // Reverse identicalInputs <-> identicalGradInputs
     result.push_back(std::make_unique<ReplicatedAllReduceTPOp>(
-        ReplicatedAllReduceTPOp::defaultOperatorId(),
-        op,
-        getReplicaGrouping(),
-        identicalGradInputs,
-        identicalInputs,
-        settings));
+        ReplicatedAllReduceTPOp::defaultOperatorId(), op, getReplicaGrouping(),
+        identicalGradInputs, identicalInputs, settings));
     return result;
   }
 
@@ -125,27 +121,18 @@ public:
   }
 
   static ReplicatedAllReduceTPOp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  const CollectiveOperator &op,
-                  const ReplicaGrouping &group,
-                  const bool identicalInputs,
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, const CollectiveOperator &op,
+                  const ReplicaGrouping &group, const bool identicalInputs,
                   const bool identicalGradInputs,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<ReplicatedAllReduceTPOp>(
-        in,
-        out,
-        ReplicatedAllReduceTPOp::defaultOperatorId(),
-        op,
-        group,
-        identicalInputs,
-        identicalGradInputs,
-        settings);
+        in, out, ReplicatedAllReduceTPOp::defaultOperatorId(), op, group,
+        identicalInputs, identicalGradInputs, settings);
   }
 
 protected:
-  bool identicalInputs     = false;
+  bool identicalInputs = false;
   bool identicalGradInputs = false;
 };
 
@@ -179,41 +166,27 @@ popx::OpxCreator<ReplicatedAllReduceTPOpx>
 // `replicated_all_reduce_TP_binding` must equal filename
 PYBIND11_MODULE(replicated_all_reduce_TP_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::ReplicatedAllReduceTPOp,
-             popart::Op,
+  py::class_<popart::ReplicatedAllReduceTPOp, popart::Op,
              std::shared_ptr<popart::ReplicatedAllReduceTPOp>>
       binding(m, "ReplicatedAllReduceTPOp");
   binding.def(py::init<const popart::OperatorIdentifier &,
                        const popart::CollectiveOperator &,
-                       const popart::ReplicaGrouping &,
-                       const bool,
-                       const bool,
+                       const popart::ReplicaGrouping &, const bool, const bool,
                        const popart::Op::Settings &>(),
-              py::arg("opid"),
-              py::arg("op"),
-              py::arg("group"),
-              py::arg("identicalInputs"),
-              py::arg("identicalGradInputs"),
+              py::arg("opid"), py::arg("op"), py::arg("group"),
+              py::arg("identicalInputs"), py::arg("identicalGradInputs"),
               py::arg("settings"));
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       const popart::CollectiveOperator &,
-                                       const popart::ReplicaGrouping &,
-                                       const bool,
-                                       const bool,
-                                       const popart::Op::Settings &>(
-                         &popart::ReplicatedAllReduceTPOp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("op"),
-                     py::arg("group"),
-                     py::arg("identicalInputs"),
-                     py::arg("identicalGradInputs"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        const popart::CollectiveOperator &,
+                        const popart::ReplicaGrouping &, const bool, const bool,
+                        const popart::Op::Settings &>(
+          &popart::ReplicatedAllReduceTPOp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"), py::arg("op"),
+      py::arg("group"), py::arg("identicalInputs"),
+      py::arg("identicalGradInputs"), py::arg("settings"),
+      py::return_value_policy::reference);
   binding.def(
       "outTensor",
       py::overload_cast<OutIndex>(&popart::ReplicatedAllReduceTPOp::outTensor),

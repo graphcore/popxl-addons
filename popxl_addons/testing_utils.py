@@ -30,10 +30,9 @@ class TensorInput:
         self.dtype = dtype
 
 
-def run_module(module: Module,
-               *args,
-               weights: Optional[Callable[[NamedTensors], Dict[Variable, np.ndarray]]] = None,
-               **kwargs) -> List[np.ndarray]:
+def run_module(
+    module: Module, *args, weights: Optional[Callable[[NamedTensors], Dict[Variable, np.ndarray]]] = None, **kwargs
+) -> List[np.ndarray]:
     """
     Run a module with provided args and return graph output data (numpy arrays)
 

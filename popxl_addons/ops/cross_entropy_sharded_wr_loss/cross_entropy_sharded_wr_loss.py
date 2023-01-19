@@ -8,10 +8,11 @@ from popxl.ops.utils import check_in_graph
 
 # Auto compile cpp files
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import crossentropysharded_wr_binding
 
-__all__ = ['cross_entropy_sharded_wr_loss']
+__all__ = ["cross_entropy_sharded_wr_loss"]
 
 
 def handle_ipus(ts: List[Tensor], ipus: Optional[Iterable[int]]) -> List[int]:
@@ -20,21 +21,25 @@ def handle_ipus(ts: List[Tensor], ipus: Optional[Iterable[int]]) -> List[int]:
         try:
             ipus = [t.ipu for t in ts]
         except UndefinedValue as e:
-            raise ValueError("Could not automatically infer the IPU of all input Tensors. "
-                             "Please specify the IPUs via the `ipus` parameter.") from e
+            raise ValueError(
+                "Could not automatically infer the IPU of all input Tensors. "
+                "Please specify the IPUs via the `ipus` parameter."
+            ) from e
     else:
         ipus = list(ipus)
 
     if len(ts) != len(ipus):
-        raise ValueError(f"Number of specified tensor does not equal number of specified IPUs. "
-                         f"{len(ts)} != {len(ipus)}")
+        raise ValueError(
+            f"Number of specified tensor does not equal number of specified IPUs. " f"{len(ts)} != {len(ipus)}"
+        )
 
     return ipus
 
 
 @op_debug_context
-def cross_entropy_sharded_wr_loss(logits: List[Tensor], indices: List[Tensor],
-                                  ipus: Optional[Iterable[int]] = None) -> Tensor:
+def cross_entropy_sharded_wr_loss(
+    logits: List[Tensor], indices: List[Tensor], ipus: Optional[Iterable[int]] = None
+) -> Tensor:
     """
     Tensor Model Parallelism (TP) within replica sharded cross-entropy loss.
 
@@ -53,9 +58,9 @@ def cross_entropy_sharded_wr_loss(logits: List[Tensor], indices: List[Tensor],
     g = ctx.graph
     pb_g = g._pb_graph
 
-    check_in_graph(g, **{f'logits_{i}': t
-                         for i, t in enumerate(logits)}, **{f'indices_{i}': t
-                                                            for i, t in enumerate(indices)})
+    check_in_graph(
+        g, **{f"logits_{i}": t for i, t in enumerate(logits)}, **{f"indices_{i}": t for i, t in enumerate(indices)}
+    )
 
     n_shards = len(logits)
 
@@ -68,18 +73,17 @@ def cross_entropy_sharded_wr_loss(logits: List[Tensor], indices: List[Tensor],
     if not all(ipu_l == ipu_i for ipu_l, ipu_i in zip(ipus, ipus_indices)):
         raise ValueError("The logits and indices IPUs do not match.")
 
-    settings = ctx._get_op_settings('cross_entropy_sharded')
+    settings = ctx._get_op_settings("cross_entropy_sharded")
 
     op = crossentropysharded_wr_binding.CrossEntropyShardedOp.createOpInGraph(
-        pb_g, {i: t.id
-               for i, t in enumerate(logits + indices)}, {
-                   **{
-                       0: g._create_tensor_id(f"cross_entropy_sharded_out")
-                   },
-                   **{i + 1: g._create_tensor_id(f"cross_entropy_sharded_soft_max_out_{i}")
-                      for i in range(n_shards)}
-               },
+        pb_g,
+        {i: t.id for i, t in enumerate(logits + indices)},
+        {
+            **{0: g._create_tensor_id(f"cross_entropy_sharded_out")},
+            **{i + 1: g._create_tensor_id(f"cross_entropy_sharded_soft_max_out_{i}") for i in range(n_shards)},
+        },
         ipus,
-        settings=settings)
+        settings=settings,
+    )
 
     return Tensor._from_pb_tensor(op.outTensor(0))

@@ -6,7 +6,7 @@ import numpy as np
 import popart._internal.ir as _ir
 import popxl
 from popxl import ops
-from popxl.transforms.autodiff import (autodiff as _autodiff, GradGraphInfo)
+from popxl.transforms.autodiff import autodiff as _autodiff, GradGraphInfo
 from popxl_addons.dot_tree import sanitise
 
 from popxl_addons.variable_factory import VariableFactory, NamedVariableFactories, add_variable_input
@@ -18,10 +18,11 @@ __all__ = ["autodiff", "autodiff_with_accumulation"]
 
 
 def _autodiff_with_patterns(
-        graph: popxl.Graph,
-        grads_provided: Optional[Iterable[popxl.Tensor]] = None,
-        grads_required: Optional[Iterable[popxl.Tensor]] = None,
-        called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None) -> GradGraphInfo:
+    graph: popxl.Graph,
+    grads_provided: Optional[Iterable[popxl.Tensor]] = None,
+    grads_required: Optional[Iterable[popxl.Tensor]] = None,
+    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+) -> GradGraphInfo:
     """
     Extension Autodiff.
     This method calls `popxl.transforms.autodiff` and then some required patterns after to ensure the returned
@@ -36,11 +37,13 @@ def _autodiff_with_patterns(
     Returns:
         GradGraphInfo: grad graph of `graph`
     """
-    grad_info_all: Dict[popxl.Graph, GradGraphInfo] = _autodiff(graph,
-                                                                grads_provided=grads_provided,
-                                                                grads_required=grads_required,
-                                                                called_graphs_grad_info=called_graphs_grad_info,
-                                                                return_all_grad_graphs=True)  # type: ignore
+    grad_info_all: Dict[popxl.Graph, GradGraphInfo] = _autodiff(
+        graph,
+        grads_provided=grads_provided,
+        grads_required=grads_required,
+        called_graphs_grad_info=called_graphs_grad_info,
+        return_all_grad_graphs=True,
+    )  # type: ignore
     grad_info = grad_info_all[graph]
 
     ir = grad_info.graph.ir._pb_ir
@@ -56,10 +59,12 @@ def _autodiff_with_patterns(
     return grad_info
 
 
-def autodiff(graph: GraphWithNamedArgs,
-             grads_provided: Optional[Iterable[popxl.Tensor]] = None,
-             grads_required: Optional[Iterable[popxl.Tensor]] = None,
-             called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None) -> GraphWithNamedArgs:
+def autodiff(
+    graph: GraphWithNamedArgs,
+    grads_provided: Optional[Iterable[popxl.Tensor]] = None,
+    grads_required: Optional[Iterable[popxl.Tensor]] = None,
+    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+) -> GraphWithNamedArgs:
     """
     Extension Autodiff.
     This method calls `popxl.transforms.autodiff` and then some required patterns after to ensure the returned
@@ -74,20 +79,22 @@ def autodiff(graph: GraphWithNamedArgs,
     Returns:
         GraphWithNamedArgs: grad graph of `graph` wrapped in a GraphWithNamedArgs with grad graph info
     """
-    grad_info = _autodiff_with_patterns(graph.graph,
-                                        grads_provided=grads_provided,
-                                        grads_required=grads_required,
-                                        called_graphs_grad_info=called_graphs_grad_info)
+    grad_info = _autodiff_with_patterns(
+        graph.graph,
+        grads_provided=grads_provided,
+        grads_required=grads_required,
+        called_graphs_grad_info=called_graphs_grad_info,
+    )
     return GraphWithNamedArgs.from_grad_graph(grad_info)
 
 
 def autodiff_with_accumulation(
-        graph: GraphWithNamedArgs,
-        tensors_to_accumulate_grads: Iterable[popxl.Tensor],
-        grads_provided: Optional[Iterable[popxl.Tensor]] = None,
-        grads_required: Optional[Iterable[popxl.Tensor]] = None,
-        called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
-        replica_groupings: Optional[NamedReplicaGrouping] = None,
+    graph: GraphWithNamedArgs,
+    tensors_to_accumulate_grads: Iterable[popxl.Tensor],
+    grads_provided: Optional[Iterable[popxl.Tensor]] = None,
+    grads_required: Optional[Iterable[popxl.Tensor]] = None,
+    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+    replica_groupings: Optional[NamedReplicaGrouping] = None,
 ) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
     """
     Calls autodiff and then for each tensor in `tensors_to_accumulate_grads` adds an operation to the output gradient
@@ -112,17 +119,20 @@ def autodiff_with_accumulation(
         GraphWithNamedArgs: grad graph of `graph` with NamedArgs
         GradGraphInfo: grad graph of `graph`
     """
-    replica_groupings = replica_groupings or NamedReplicaGrouping.build_groups(graph.args.named_tensors.keys(),
-                                                                               popxl.gcg().ir.replica_grouping())
+    replica_groupings = replica_groupings or NamedReplicaGrouping.build_groups(
+        graph.args.named_tensors.keys(), popxl.gcg().ir.replica_grouping()
+    )
     replica_groupings = replica_groupings.to_dict()
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads
 
     # Autodiff the graph.
-    grad_info = _autodiff_with_patterns(graph.graph,
-                                        grads_provided=grads_provided,
-                                        grads_required=grads_required,
-                                        called_graphs_grad_info=called_graphs_grad_info)
+    grad_info = _autodiff_with_patterns(
+        graph.graph,
+        grads_provided=grads_provided,
+        grads_required=grads_required,
+        called_graphs_grad_info=called_graphs_grad_info,
+    )
 
     expected_outputs = grad_info.outputs
 
@@ -150,11 +160,13 @@ def autodiff_with_accumulation(
                 subgraph_tensor = popxl.Tensor._from_pb_tensor(grad_info.graph._pb_graph.getOutputTensor(idx))
 
                 name = names.get(tensor, sanitise(tensor.name))
-                accum = add_input("accum." + name,
-                                  partial(np.zeros, shape=tensor.shape),
-                                  tensor.dtype,
-                                  by_ref=True,
-                                  replica_grouping=replica_groupings.get(name, None))
+                accum = add_input(
+                    "accum." + name,
+                    partial(np.zeros, shape=tensor.shape),
+                    tensor.dtype,
+                    by_ref=True,
+                    replica_grouping=replica_groupings.get(name, None),
+                )
                 ops.var_updates.accumulate_mean_(accum, subgraph_tensor, counter)
 
         ops.var_updates.accumulate_(counter, popxl.constant(1, popxl.float32))
@@ -162,13 +174,15 @@ def autodiff_with_accumulation(
     for idx in indices_to_remove:
         grad_info.graph._pb_graph.removeOutput(idx)
 
-    return (NamedVariableFactories.from_dict(variable_factories),
-            GraphWithNamedArgs.from_grad_graph(grad_info, NamedTensors.from_dict(named_inputs)))
+    return (
+        NamedVariableFactories.from_dict(variable_factories),
+        GraphWithNamedArgs.from_grad_graph(grad_info, NamedTensors.from_dict(named_inputs)),
+    )
 
 
 def remap_grad_info(grad_info: GradGraphInfo, forward_graph: popxl.Graph, backward_graph: popxl.Graph) -> GradGraphInfo:
     """Remaps GradGraphInfo to expected connections from a different forward graph.
-        The input/output index of the original connection will be used for the connections from the new graph.
+    The input/output index of the original connection will be used for the connections from the new graph.
     """
     ir = forward_graph.ir._pb_ir
     old_fwd = grad_info.forward_graph

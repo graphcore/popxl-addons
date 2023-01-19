@@ -3,6 +3,7 @@
 # Auto compile cpp files
 from typing import Optional
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_reduce_scatter_strided_binding
 
@@ -18,10 +19,10 @@ __all__ = [
 
 @op_debug_context
 def replicated_reduce_scatter_strided(
-        t: Tensor,
-        op: CollectiveOps = "add",
-        group: Optional[ReplicaGrouping] = None,
-        configure_output_for_replicated_tensor_sharding: bool = False,
+    t: Tensor,
+    op: CollectiveOps = "add",
+    group: Optional[ReplicaGrouping] = None,
+    configure_output_for_replicated_tensor_sharding: bool = False,
 ) -> Tensor:
     """
     Replicated reduce scatter.

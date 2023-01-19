@@ -40,9 +40,9 @@ def named_buffers(tensors: NamedTensors, entries: int = 1) -> NamedRemoteBuffers
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def named_variable_buffers(factories: NamedVariableFactories,
-                           entries: int = 1,
-                           shard_over_dict: Union[Mapping[str, int], int, bool] = True) -> NamedRemoteBuffers:
+def named_variable_buffers(
+    factories: NamedVariableFactories, entries: int = 1, shard_over_dict: Union[Mapping[str, int], int, bool] = True
+) -> NamedRemoteBuffers:
     """Create a buffer for each VariableFactory in `factories`. The buffers will have `entries` set.
 
     Args:
@@ -70,24 +70,25 @@ def named_variable_buffers(factories: NamedVariableFactories,
         else:
             raise ValueError("shard_over_dict must be a dictionary, an integer or a boolean")
 
-        buffers[name] = create_remote_buffer(tensor_spec,
-                                             entries=entries,
-                                             replica_group=f.replica_grouping,
-                                             shard_over=shard_over)
+        buffers[name] = create_remote_buffer(
+            tensor_spec, entries=entries, replica_group=f.replica_grouping, shard_over=shard_over
+        )
     return NamedRemoteBuffers.from_dict(buffers)
 
 
-def create_remote_buffer(spec: popxl.TensorSpec,
-                         entries: int = 1,
-                         replica_group: Optional[ReplicaGrouping] = None,
-                         shard_over: Optional[int] = None) -> popxl.RemoteBuffer:
+def create_remote_buffer(
+    spec: popxl.TensorSpec,
+    entries: int = 1,
+    replica_group: Optional[ReplicaGrouping] = None,
+    shard_over: Optional[int] = None,
+) -> popxl.RemoteBuffer:
     """Create a buffer given a TensorSpec and a replica grouping.
 
     Args:
         spec (popxl.TensorSpec): tensor spec to create buffers for.
         entries (int, optional): Number of entries of the buffer. Defaults to 1.
         replica_group (ReplicaGrouping, optional): replica group for the tensor. Represent the devices where the tensor is equal, and the largest possible
-                                                   set of devices for replicated tensor sharding. 
+                                                   set of devices for replicated tensor sharding.
         shard_over (int, optional): number of replicas used to shard the tensor inside the provided replica group.
                                     See also `popxl.replica_sharded_buffer` documentation.
     Returns:
@@ -115,8 +116,9 @@ def create_remote_buffer(spec: popxl.TensorSpec,
     return buffer
 
 
-def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1,
-                      use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
+def load_remote_graph(
+    buffers: NamedRemoteBuffers, entries: int = 1, use_io_tiles: bool = False
+) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that loads `buffers`.
     The graph will take one input that is the offset into each buffer to load.
     `entries` argument can be provided to resize each buffer as needed.
@@ -154,8 +156,9 @@ def load_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1,
     return GraphWithNamedArgs(graph), names
 
 
-def load_remote(buffers: NamedRemoteBuffers, entry: Union[int, popxl.Tensor] = 0,
-                use_io_tiles: bool = False) -> NamedTensors:
+def load_remote(
+    buffers: NamedRemoteBuffers, entry: Union[int, popxl.Tensor] = 0, use_io_tiles: bool = False
+) -> NamedTensors:
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()
 
     loaded_ts = {}
@@ -209,10 +212,9 @@ def store_remote_graph(buffers: NamedRemoteBuffers, entries: int = 1, use_io_til
     return GraphWithNamedArgs(graph, NamedTensors.from_dict(args))
 
 
-def store_remote(buffers: NamedRemoteBuffers,
-                 tensors: NamedTensors,
-                 entry: Union[int, popxl.Tensor] = 0,
-                 use_io_tiles: bool = False):
+def store_remote(
+    buffers: NamedRemoteBuffers, tensors: NamedTensors, entry: Union[int, popxl.Tensor] = 0, use_io_tiles: bool = False
+):
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()
 
     with popxl.transforms.merge_exchange(), popxl.in_sequence(False), tile_context:

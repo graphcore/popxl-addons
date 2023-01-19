@@ -7,7 +7,7 @@ import logging
 import popxl
 from popxl import ops
 
-__all__ = ['print_tensor', 'print_text']
+__all__ = ["print_tensor", "print_text"]
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +18,14 @@ LEVELS = {
     "INFO": 2,
     "WARN": 3,
 }
-MODEL_LOG_LEVEL = os.environ.get('MODEL_LOG_LEVEL', 'INFO')
+MODEL_LOG_LEVEL = os.environ.get("MODEL_LOG_LEVEL", "INFO")
 MODEL_LOG_LEVEL_VAL = LEVELS[MODEL_LOG_LEVEL]
 
-if MODEL_LOG_LEVEL_VAL <= LEVELS['DEBUG']:
+if MODEL_LOG_LEVEL_VAL <= LEVELS["DEBUG"]:
     logger.info(f"MODEL_LOG_LEVEL set to: {MODEL_LOG_LEVEL}")
 
 
-def print_tensor(t: popxl.Tensor, *args, level: LEVELS_TYPE = 'DEBUG', **kwargs):
+def print_tensor(t: popxl.Tensor, *args, level: LEVELS_TYPE = "DEBUG", **kwargs):
     """Equivalent to `popxl.ops.print_tensor` but can be switched on/off using
     the `MODEL_LOG_LEVEL` environment variable in a similar manner to Python logging.
     """
@@ -36,7 +36,7 @@ def print_tensor(t: popxl.Tensor, *args, level: LEVELS_TYPE = 'DEBUG', **kwargs)
         return t
 
 
-def print_text(text: str, num: Optional[popxl.Tensor] = None, level: LEVELS_TYPE = 'DEBUG'):
+def print_text(text: str, num: Optional[popxl.Tensor] = None, level: LEVELS_TYPE = "DEBUG"):
     """Print `text` during runtime. Does not work on auto-diff grad graph. Need to be in `in_sequence(True)` to ensure position.
     Use `num` to include a tensor with the text."""
     level_val = LEVELS[level]

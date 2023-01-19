@@ -25,7 +25,7 @@ def _set_available_memory_for_op(op: _ir.Op, ipu_to_prop: Dict[int, float]):
 def set_available_memory_proportion_by_ipu(ir: popxl.Ir, proportions: Iterable[float]):
     """For all ops in the `ir`, if `availableMemoryProportion` can be set, set it as
         specified by `proportions`.
-        
+
         If the available memory proportion has been set on a op site it will be overridden.
 
     Args:
@@ -42,7 +42,7 @@ def set_available_memory_proportion_by_ipu(ir: popxl.Ir, proportions: Iterable[f
 def set_graph_available_memory_proportion_by_ipu(graph: popxl.Graph, proportions: Iterable[float]):
     """For all ops in the `graph`, if `availableMemoryProportion` can be set, set it as
         specified by `proportions`.
-        
+
         If the available memory proportion has been set on a op site it will be overridden.
 
     Args:

@@ -4,8 +4,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -22,6 +20,8 @@
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
 #include <popart/vendored/optional.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
@@ -38,23 +38,17 @@ namespace py = pybind11;
 // `rotary_pos_embed_binding` must equal filename
 PYBIND11_MODULE(rotary_pos_embed_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::RotaryPosEmbedOp,
-             popart::Op,
+  py::class_<popart::RotaryPosEmbedOp, popart::Op,
              std::shared_ptr<popart::RotaryPosEmbedOp>>
       binding(m, "RotaryPosEmbedOp");
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       uint32_t,
-                                       const popart::Op::Settings &>(
-                         &popart::RotaryPosEmbedOp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("rotaryDim"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        uint32_t, const popart::Op::Settings &>(
+          &popart::RotaryPosEmbedOp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"),
+      py::arg("rotaryDim"), py::arg("settings"),
+      py::return_value_policy::reference);
   binding.def("outTensor",
               py::overload_cast<OutIndex>(&popart::RotaryPosEmbedOp::outTensor),
               py::return_value_policy::reference);

@@ -1,10 +1,10 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 #include <algorithm>
 #include <cstdint>
-#include <string>
-#include <vector>
 #include <popart/graphcoreoperators.hpp>
 #include <popart/names.hpp>
+#include <string>
+#include <vector>
 
 #include <memory>
 #include <popart/op.hpp>
@@ -44,7 +44,7 @@ std::vector<std::unique_ptr<Op>> RotaryPosEmbedOp::getGradOps() {
 }
 
 void RotaryPosEmbedOp::setup() {
-  auto xInfo   = inInfo(0);
+  auto xInfo = inInfo(0);
   auto cosInfo = inInfo(1);
   auto sinInfo = inInfo(2);
 

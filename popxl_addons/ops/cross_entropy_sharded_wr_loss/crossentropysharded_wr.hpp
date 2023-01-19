@@ -42,10 +42,8 @@ public:
   std::vector<int64_t> getIpus() const { return ipus; }
 
   static CrossEntropyShardedWROp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  const std::vector<int64_t> ipus,
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, const std::vector<int64_t> ipus,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<CrossEntropyShardedWROp>(
         in, out, CrossEntropyShardedWR, ipus, settings);

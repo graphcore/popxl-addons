@@ -1,10 +1,10 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 #include <algorithm>
 #include <cstdint>
-#include <string>
-#include <vector>
 #include <popart/graphcoreoperators.hpp>
 #include <popart/names.hpp>
+#include <string>
+#include <vector>
 
 #include <memory>
 #include <popart/op.hpp>
@@ -42,7 +42,7 @@ std::vector<std::unique_ptr<Op>> CrossEntropyShardedOp::getGradOps() {
 }
 
 void CrossEntropyShardedOp::setup() {
-  auto logitsInfo  = inInfo(0);
+  auto logitsInfo = inInfo(0);
   auto indicesInfo = inInfo(1);
 
   if (logitsInfo.rank() != 2) {
@@ -80,15 +80,14 @@ void CrossEntropyShardedOp::appendOutlineAttributes(
 ////// Grad op
 
 CrossEntropyShardedGradOp::CrossEntropyShardedGradOp(
-    const CrossEntropyShardedOp &op,
-    float availableMemoryProportion_)
+    const CrossEntropyShardedOp &op, float availableMemoryProportion_)
     : Op(CrossEntropyShardedGrad, op.getSettings()),
       availableMemoryProportion(availableMemoryProportion_) {
 
   // Defines inputs
   logSoftmaxIndex_ = 2;
-  logitsIndex_     = 3;
-  labelsIndex_     = 4;
+  logitsIndex_ = 3;
+  labelsIndex_ = 4;
 
   inGradMap.push_back({0, 0, GradOpInType::GradOut}); // dE/dloss
   inGradMap.push_back({1, 0, GradOpInType::Out});     // loss

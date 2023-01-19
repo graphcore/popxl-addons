@@ -6,8 +6,12 @@ import popxl
 from popxl import dtypes, ReplicaGrouping
 from popxl_addons.graph_cache import GraphCache
 from popxl_addons.named_tensors import NamedTensors
-from popxl_addons.variable_factory import NamedVariableFactories, add_variable_input, add_replica_sharded_variable_input, \
-    VariableFactory
+from popxl_addons.variable_factory import (
+    NamedVariableFactories,
+    add_variable_input,
+    add_replica_sharded_variable_input,
+    VariableFactory,
+)
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl.tensor import HostTensor, host_tensor_types
 
@@ -33,7 +37,7 @@ class NameScopeMeta(type):
 
 class Module(popxl.Module, metaclass=NameScopeMeta):
     """Module class to allow construction of compute graphs that require state.
-        TODO: expand, usage
+    TODO: expand, usage
     """
 
     def __init__(self, cache: bool = False):
@@ -78,19 +82,19 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         return tensor
 
     def add_variable_input(
-            self,
-            name: str,
-            data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-            dtype: Optional[dtypes.dtype] = None,
-            by_ref: bool = False,
-            replica_grouping: Optional[ReplicaGrouping] = None,
-            overwrite: bool = False,
+        self,
+        name: str,
+        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+        dtype: Optional[dtypes.dtype] = None,
+        by_ref: bool = False,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+        overwrite: bool = False,
     ) -> popxl.Tensor:
         """Add an initialised input tensor.
 
         Args:
             name (str): named of the input Tensor. Used for both the Named VariableFactory/Arg and the Tensor debug name.
-            data_iter (Union[Callable[[None], np.ndarray], Iterable[np.ndarray]]): 
+            data_iter (Union[Callable[[None], np.ndarray], Iterable[np.ndarray]]):
                 Either a function or iterable that generates data for each instance of the input tensor. Each element of
                 data should be a HostTensor type (numpy, pytorch, ect.) with the same shape and data type (this is not
                 checked at runtime). If you want your data to be the same for all tensor instances wrap it in a
@@ -107,13 +111,15 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         self._named_inputs.insert(name, tensor, overwrite=overwrite)
         return tensor
 
-    def add_replica_sharded_variable_input(self,
-                                           name: str,
-                                           data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                                           dtype: Optional[dtypes.dtype] = None,
-                                           by_ref: bool = False,
-                                           replica_grouping: Optional[ReplicaGrouping] = None,
-                                           shard_over: Optional[int] = None) -> popxl.Tensor:
+    def add_replica_sharded_variable_input(
+        self,
+        name: str,
+        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+        dtype: Optional[dtypes.dtype] = None,
+        by_ref: bool = False,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+        shard_over: Optional[int] = None,
+    ) -> popxl.Tensor:
         """Add a replica sharded initialised input tensor. The graph input will be sharded, however the initialised Tensor will
             be constructed whole.
             `remote_replica_sharded_variable` or `ops.collectives.replicated_reduce_scatter(..., configure_output_for_replicated_tensor_sharding=True)`
@@ -131,8 +137,9 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             replica_grouping (popxl.ReplicaGrouping, optional): variable replica grouping
             shard_over (int, optional): number of replicas in the variable replica group to be used for sharding. If not provided, the variable will be sharded using all replicas.
         """
-        tensor, variable_f = add_replica_sharded_variable_input(name, data_iter, dtype, by_ref, replica_grouping,
-                                                                shard_over)
+        tensor, variable_f = add_replica_sharded_variable_input(
+            name, data_iter, dtype, by_ref, replica_grouping, shard_over
+        )
         self._variable_factories.insert(name, variable_f)
         self._named_inputs.insert(name, tensor)
         return tensor
@@ -149,8 +156,9 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             self._named_inputs.insert(__name, __value._named_inputs)
         return super().__setattr__(__name, __value)
 
-    def add_variable_inputs(self, name: Union[str, int], variable_f: NamedVariableFactories,
-                            overwrite: bool = False) -> NamedTensors:
+    def add_variable_inputs(
+        self, name: Union[str, int], variable_f: NamedVariableFactories, overwrite: bool = False
+    ) -> NamedTensors:
         """Add NamedVariableFactories as inputs tensors. Returns NamedTensors which can be used in the graph.
             This is useful for reusing a Module within another module. Usage:
             ```
@@ -173,7 +181,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         """
         if isinstance(name, int):
             if name < 0:
-                raise ValueError(f'Name of int type must be positive. Value: {name}')
+                raise ValueError(f"Name of int type must be positive. Value: {name}")
             name = str(name)
         tensors = {}
         for tensor_name, factory in variable_f.to_dict().items():
@@ -184,7 +192,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         return tensors
 
     @classmethod
-    def from_list(cls, sub_modules: List['Module']):
+    def from_list(cls, sub_modules: List["Module"]):
         """Create a module from a list of modules"""
         self = cls()
         for i, module in enumerate(sub_modules):

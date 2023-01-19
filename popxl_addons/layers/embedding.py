@@ -15,12 +15,14 @@ MULTISLICE_MAGIC_NUMBER = 16
 
 
 class Embedding(addons.Module):
-    def __init__(self,
-                 dtype: popxl.dtype,
-                 vocab_size: int,
-                 hidden_size: int,
-                 axis: int = 0,
-                 replica_grouping: Optional[ReplicaGrouping] = None):
+    def __init__(
+        self,
+        dtype: popxl.dtype,
+        vocab_size: int,
+        hidden_size: int,
+        axis: int = 0,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+    ):
         """
         Args:
             dtype: numerical type
@@ -68,13 +70,10 @@ class Embedding(addons.Module):
             Embedding corresponds to a table lookup: each index in `indices` selects a row in the embedding weights matrix.
             If using sharding, out of range indices will be automatically set to zero.
         """
-        self.weight = self.add_variable_input("weight",
-                                              partial(truncnorm.rvs,
-                                                      -2,
-                                                      2,
-                                                      loc=0,
-                                                      scale=0.02,
-                                                      size=(self.vocab_shard_size, self.hidden_size)),
-                                              self.dtype,
-                                              replica_grouping=self.replica_grouping)
+        self.weight = self.add_variable_input(
+            "weight",
+            partial(truncnorm.rvs, -2, 2, loc=0, scale=0.02, size=(self.vocab_shard_size, self.hidden_size)),
+            self.dtype,
+            replica_grouping=self.replica_grouping,
+        )
         return ops.gather(self.weight, indices, axis=self.axis, zero_OOR=self.n_shards > 1)

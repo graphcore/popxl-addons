@@ -14,8 +14,8 @@ def test_layer_norm_distributed():
         np.random.seed(42)
         ir = popxl.Ir()
         with ir.main_graph:
-            x = popxl.variable(x_np, name='x', dtype=popxl.float32)
-            dy = popxl.variable(dy_np, name='dy', dtype=popxl.float32)
+            x = popxl.variable(x_np, name="x", dtype=popxl.float32)
+            dy = popxl.variable(dy_np, name="dy", dtype=popxl.float32)
 
             facts, graph = LayerNorm().create_graph(x)
 
@@ -47,8 +47,8 @@ def test_layer_norm_distributed():
         dy_sharded = shard(dy_np, axis=1, n=shards)
 
         with ir.main_graph:
-            x = popxl.variable(x_sharded, name='x', dtype=popxl.float32, replica_grouping=rg.transpose())
-            dy = popxl.variable(dy_sharded, name='dy', dtype=popxl.float32, replica_grouping=rg.transpose())
+            x = popxl.variable(x_sharded, name="x", dtype=popxl.float32, replica_grouping=rg.transpose())
+            dy = popxl.variable(dy_sharded, name="dy", dtype=popxl.float32, replica_grouping=rg.transpose())
 
             facts, graph = LayerNormDistributed(replica_grouping=rg).create_graph(x)
 
@@ -68,12 +68,16 @@ def test_layer_norm_distributed():
         with popxl.Session(ir, "ipu_hw") as session:
             outputs = session.run()
 
-        return (unshard(outputs[y_d2h], 1), unshard(outputs[dx_x_d2h], 1), unshard(outputs[dx_w_d2h],
-                                                                                   0), unshard(outputs[dx_b_d2h], 0))
+        return (
+            unshard(outputs[y_d2h], 1),
+            unshard(outputs[dx_x_d2h], 1),
+            unshard(outputs[dx_w_d2h], 0),
+            unshard(outputs[dx_b_d2h], 0),
+        )
 
     np.random.seed(42)
-    x = np.random.random((100, 64)).astype('float32')
-    dy = np.random.random((100, 64)).astype('float32')
+    x = np.random.random((100, 64)).astype("float32")
+    dy = np.random.random((100, 64)).astype("float32")
 
     outputs_local = local(x, dy)
     outputs_distributed = distributed(x, dy)

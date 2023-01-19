@@ -12,8 +12,7 @@ namespace popart {
 
 class RotaryPosEmbedOp : public Op {
 public:
-  RotaryPosEmbedOp(const OperatorIdentifier &_opid,
-                   uint32_t rotary_dim_,
+  RotaryPosEmbedOp(const OperatorIdentifier &_opid, uint32_t rotary_dim_,
                    const Op::Settings &settings_);
 
   std::unique_ptr<Op> clone() const override;
@@ -23,13 +22,11 @@ public:
   float getSubgraphValue() const override { return getHighSubgraphValue(); }
 
   static RotaryPosEmbedOp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  uint32_t rotary_dim_,
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, uint32_t rotary_dim_,
                   const popart::Op::Settings &settings) {
-    return graph.createConnectedOp<RotaryPosEmbedOp>(
-        in, out, RotaryPosEmbed, rotary_dim_, settings);
+    return graph.createConnectedOp<RotaryPosEmbedOp>(in, out, RotaryPosEmbed,
+                                                     rotary_dim_, settings);
   }
 
   void appendOutlineAttributes(OpSerialiserBase &) const override;

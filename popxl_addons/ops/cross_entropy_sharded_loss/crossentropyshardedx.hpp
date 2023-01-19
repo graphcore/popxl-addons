@@ -2,10 +2,10 @@
 #ifndef GUARD_NEURALNET_CROSSENTROPYSHARDEDX_HPP
 #define GUARD_NEURALNET_CROSSENTROPYSHARDEDX_HPP
 
-#include <vector>
 #include <popart/names.hpp>
 #include <popart/popx/opx.hpp>
 #include <popart/replicagrouping.hpp>
+#include <vector>
 
 namespace popart {
 namespace popx {
@@ -20,8 +20,7 @@ public:
                                poplar::program::Sequence &prog,
                                const poplar::Tensor &logits) const;
 
-  poplar::Tensor takeTrue(poplar::Graph &graph,
-                          poplar::program::Sequence &prog,
+  poplar::Tensor takeTrue(poplar::Graph &graph, poplar::program::Sequence &prog,
                           poplar::Tensor &negLogSoftmax,
                           poplar::Tensor &indicesConcat) const;
 

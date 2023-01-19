@@ -21,7 +21,7 @@ import glob
 
 __all__ = ["TaskSession", "write_variables_pb"]
 
-ReportMissingMethods = Literal['none', 'warn', 'error']
+ReportMissingMethods = Literal["none", "warn", "error"]
 
 
 # TODO: remove this method once T61041 has landed and use normal `Session.write_variables_data`
@@ -40,20 +40,23 @@ class TaskSession(popxl.Session):
 
     """
 
-    def __init__(self,
-                 inputs: Union[InputStreams, Iterable[popxl.HostToDeviceStream]],
-                 outputs: Union[OutputStreams, Iterable[popxl.DeviceToHostStream]],
-                 state: NamedTensors,
-                 max_checkpoints: int = 1,
-                 *args,
-                 **kwargs):
-        with timer('PopXL compilation'):
+    def __init__(
+        self,
+        inputs: Union[InputStreams, Iterable[popxl.HostToDeviceStream]],
+        outputs: Union[OutputStreams, Iterable[popxl.DeviceToHostStream]],
+        state: NamedTensors,
+        max_checkpoints: int = 1,
+        *args,
+        **kwargs,
+    ):
+        with timer("PopXL compilation"):
             super().__init__(*args, **kwargs)
         self.inputs: InputStreams = inputs if isinstance(inputs, InputStreams) else InputStreams.from_streams(inputs)
-        self.outputs: OutputStreams = outputs if isinstance(outputs,
-                                                            OutputStreams) else OutputStreams.from_streams(outputs)
+        self.outputs: OutputStreams = (
+            outputs if isinstance(outputs, OutputStreams) else OutputStreams.from_streams(outputs)
+        )
         self.state = state
-        self.session_state = {'steps': 0}
+        self.session_state = {"steps": 0}
         self.__dataloader = None
         self.__session_filename = r"session_info.json"
         self.__dataloader_filename = r"dataloader.bin"
@@ -64,12 +67,13 @@ class TaskSession(popxl.Session):
     def dataloader(self):
         if self.__dataloader is None:
             logging.warning(
-                "No dataloader set. Checkpoint support is incomplete. You won't be able to resume training.")
+                "No dataloader set. Checkpoint support is incomplete. You won't be able to resume training."
+            )
         return self.__dataloader
 
     @dataloader.setter
     def dataloader(self, dl):
-        if hasattr(dl, 'save') and hasattr(dl, 'resume'):
+        if hasattr(dl, "save") and hasattr(dl, "resume"):
             self.__dataloader = dl
         else:
             raise ValueError("Dataloader must implement save and resume methods")
@@ -93,7 +97,7 @@ class TaskSession(popxl.Session):
             named_state_dict[name] = state_dict_t[t]
         return NamedTensorData.from_dict(named_state_dict)
 
-    def load_from_session(self, src: 'TaskSession', report_missing: ReportMissingMethods = 'none'):
+    def load_from_session(self, src: "TaskSession", report_missing: ReportMissingMethods = "none"):
         """
         Copy variables data from `src` session.
         """
@@ -103,11 +107,12 @@ class TaskSession(popxl.Session):
     def wandb_histogram(self, name: str, step: int, data: np.ndarray):
         """Histogram data using Weights & Biases"""
         import wandb
+
         data = data.flatten().astype(np.float32)
         finite_mask = np.isfinite(data)
         finite_data = data[finite_mask]
         n_non_finite = np.sum(~finite_mask)
-        wandb.log({f'{name}:histogram': wandb.Histogram(finite_data), f'{name}:not_finite': n_non_finite}, step=step)
+        wandb.log({f"{name}:histogram": wandb.Histogram(finite_data), f"{name}:not_finite": n_non_finite}, step=step)
 
     def wandb_variable_histograms(self, step: int = 0):
         """Track all variables as a histogram in Weights & Biases"""
@@ -136,6 +141,7 @@ class TaskSession(popxl.Session):
             with timer(f"Saving checkpoint {checkpoint_dir} ... "):
                 if checkpoint_dir.startswith("wandb://"):
                     import wandb
+
                     checkpoint_dir = checkpoint_dir.replace("wandb://", "")
                     artifact = wandb.Artifact(name=checkpoint_dir, type=f"checkpoints")
                     with tempfile.TemporaryDirectory() as td:
@@ -146,7 +152,7 @@ class TaskSession(popxl.Session):
                     # not able to delete artifacts
                 else:
                     checkpoint_dir = os.path.relpath(os.path.expanduser(checkpoint_dir))
-                    if checkpoint_dir != '':
+                    if checkpoint_dir != "":
                         os.makedirs(checkpoint_dir, exist_ok=True)
                         os.makedirs(os.path.join(checkpoint_dir, "model"), exist_ok=True)
                     if len(self.__checkpoints) >= self.__max_checkpoints:
@@ -160,10 +166,9 @@ class TaskSession(popxl.Session):
                     self.__save_checkpoint_to_file(checkpoint_dir, state)
                     self.__checkpoints.append(checkpoint_dir)
 
-    def load_checkpoint(self,
-                        checkpoint_dir: str,
-                        report_missing: ReportMissingMethods = 'warn',
-                        skip_memmap: bool = False):
+    def load_checkpoint(
+        self, checkpoint_dir: str, report_missing: ReportMissingMethods = "warn", skip_memmap: bool = False
+    ):
         """
         Load a checkpoint for the task, consisting of the model state (weights), the optimiser state, the dataloader state and
         the session state (always containing the step) which can be customised with application-specific requirements.
@@ -178,8 +183,9 @@ class TaskSession(popxl.Session):
         with timer(f"Loading checkpoint {checkpoint_dir} ... "):
             if checkpoint_dir.startswith("wandb://"):
                 import wandb
+
                 checkpoint_dir = checkpoint_dir.replace("wandb://", "")
-                artifact = wandb.use_artifact(checkpoint_dir, type='checkpoints')
+                artifact = wandb.use_artifact(checkpoint_dir, type="checkpoints")
                 artifact_dir = artifact.download()
                 self.__load_checkpoint_from_file(artifact_dir, report_missing, skip_memmap)
             else:
@@ -205,10 +211,9 @@ class TaskSession(popxl.Session):
             logging.info(f"\t Saving session state...")
             json.dump(self.session_state, f)
 
-    def __load_checkpoint_from_file(self,
-                                    checkpoint_dir: str,
-                                    report_missing: ReportMissingMethods = 'warn',
-                                    skip_memmap: bool = False):
+    def __load_checkpoint_from_file(
+        self, checkpoint_dir: str, report_missing: ReportMissingMethods = "warn", skip_memmap: bool = False
+    ):
         """
         Load checkpoint from a file in .npz format or from wandb.
         Data is read from the checkpoint and written to the ipu to the corresponding `state` variables.
@@ -220,7 +225,7 @@ class TaskSession(popxl.Session):
 
         # check missing keys
         ckpt = {}
-        files = glob.glob(os.path.join(checkpoint_dir, "model", '*.npz'))
+        files = glob.glob(os.path.join(checkpoint_dir, "model", "*.npz"))
 
         def filename_from_var_name(name: str):
             return os.path.join(checkpoint_dir, "model", f"{name}.npz")
@@ -250,7 +255,9 @@ class TaskSession(popxl.Session):
         # dataloader
         if self.dataloader:
             self.dataloader.resume(filename=os.path.join(checkpoint_dir, self.__dataloader_filename))
-            logging.info(f"\t Loaded dataloader state: {self.dataloader.get_state()}", )
+            logging.info(
+                f"\t Loaded dataloader state: {self.dataloader.get_state()}",
+            )
 
         # session info
         with open(os.path.join(checkpoint_dir, self.__session_filename), "r") as f:
@@ -259,10 +266,12 @@ class TaskSession(popxl.Session):
             self.session_state = loaded_state
         logging.info(f"\t Loaded session state: {self.session_state}")
 
-    def __load_from_tensors(self,
-                            src: NamedTensors,
-                            loaded: Mapping[popxl.Tensor, np.ndarray],
-                            report_missing: ReportMissingMethods = 'none'):
+    def __load_from_tensors(
+        self,
+        src: NamedTensors,
+        loaded: Mapping[popxl.Tensor, np.ndarray],
+        report_missing: ReportMissingMethods = "none",
+    ):
         self.__report_missing(src.to_dict().keys(), self.state.to_dict().keys(), report_missing)
 
         src_dst = src.to_mapping(self.state)
@@ -270,7 +279,7 @@ class TaskSession(popxl.Session):
         self.write_variables_data({src_dst[src_t]: t for src_t, t in loaded.items() if src_t in src_dst.keys()})
 
     def __report_missing(self, ckpt_keys: Iterable[str], state_keys: Iterable[str], method: ReportMissingMethods):
-        if method != 'none':
+        if method != "none":
             ckpt_keys = set(ckpt_keys)
             state_keys = set(state_keys)
 
@@ -282,25 +291,25 @@ class TaskSession(popxl.Session):
                     message += "\n"
                 message += f"state keys not in checkpoint: {state_keys - ckpt_keys}"
             if message:
-                if method == 'error':
+                if method == "error":
                     raise ValueError(message)
                 else:
                     logging.warning(message)
 
     def run(
-            self,
-            inputs: Optional[h2dStreamBufferMaps] = None,
-            downcast_inputs: bool = True,
+        self,
+        inputs: Optional[h2dStreamBufferMaps] = None,
+        downcast_inputs: bool = True,
     ) -> d2hStreamBufferMaps:
         """
         Run the program and keep track of the times `session.run` is called.
         """
-        self.session_state['steps'] += 1
+        self.session_state["steps"] += 1
         return super().run(inputs, downcast_inputs)
 
 
 def initialise_memmap_dir_from_checkpoint(checkpoint_dir, memmap_dir):
     """Copy memmap variable data from a checkpoint to a memmap_dir"""
-    files = glob.glob(os.path.join(checkpoint_dir, "model", '*.npy'))
+    files = glob.glob(os.path.join(checkpoint_dir, "model", "*.npy"))
     for f in files:
         shutil.copyfile(f, os.path.join(memmap_dir, os.path.basename(f)))

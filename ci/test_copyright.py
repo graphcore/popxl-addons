@@ -8,7 +8,7 @@ import re
 import sys
 import configparser
 
-C_FILE_EXTS = ['c', 'cpp', 'C', 'cxx', 'c++', 'h', 'hpp']
+C_FILE_EXTS = ["c", "cpp", "C", "cxx", "c++", "h", "hpp"]
 
 EXCLUDED = []
 
@@ -21,12 +21,12 @@ def check_file(path, language, amend):
     comment = "#" if language == "python" else "//"
     found_copyright = False
     first_line_index = 0
-    line = ''
+    line = ""
     with open(path, "r") as f:
         regexp = r"{} Copyright \(c\) \d+ Graphcore Ltd. All (r|R)ights (r|R)eserved.".format(comment)
 
         # Skip blank, comments and shebang
-        while (line == '' or line.startswith(comment) or line.startswith("#!")) and not re.match(regexp, line):
+        while (line == "" or line.startswith(comment) or line.startswith("#!")) and not re.match(regexp, line):
             if line.startswith("#!"):
                 first_line_index += 1
             line = f.readline()
@@ -39,7 +39,7 @@ def check_file(path, language, amend):
         if amend:
             now = datetime.datetime.now()
             year = now.year
-            copyright_msg = '{} Copyright (c) {} Graphcore Ltd. All rights reserved.\n'.format(comment, year)
+            copyright_msg = "{} Copyright (c) {} Graphcore Ltd. All rights reserved.\n".format(comment, year)
             index = 0
             for line in fileinput.FileInput(path, inplace=1):
                 if index == first_line_index:
@@ -55,8 +55,8 @@ def check_file(path, language, amend):
 def read_git_submodule_paths():
     try:
         config = configparser.ConfigParser()
-        config.read('.gitmodules')
-        module_paths = [config[k]['path'] for k in config.sections()]
+        config.read(".gitmodules")
+        module_paths = [config[k]["path"] for k in config.sections()]
         if len(module_paths):
             print(f"Git submodule paths: {module_paths}")
         return module_paths
@@ -82,18 +82,18 @@ def test_copyrights(root_path, amend=False):
 
             # CMake builds generate .c and .cpp files
             # so we need to exclude all those:
-            if '/CMakeFiles/' in file_path:
+            if "/CMakeFiles/" in file_path:
                 continue
 
             # Also exclude git submodules from copyright checks:
             if any(path in file_path for path in git_module_paths):
                 continue
 
-            if file_name.endswith('.py'):
+            if file_name.endswith(".py"):
                 if not check_file(file_path, "python", amend):
                     bad_files.append(file_path)
 
-            if file_name.split('.')[-1] in C_FILE_EXTS:
+            if file_name.split(".")[-1] in C_FILE_EXTS:
                 if not check_file(file_path, "c", amend):
                     bad_files.append(file_path)
 
@@ -108,11 +108,12 @@ def test_copyrights(root_path, amend=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Copyright header test")
-    parser.add_argument('path',
-                        nargs='?',
-                        default='.',
-                        help='Directory to start searching for files. '
-                        'Defaults to current working directory.')
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Directory to start searching for files. " "Defaults to current working directory.",
+    )
     parser.add_argument("--amend", action="store_true", help="Amend copyright headers in files.")
 
     opts = parser.parse_args()

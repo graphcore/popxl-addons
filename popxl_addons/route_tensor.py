@@ -8,7 +8,7 @@ from popxl.graph import Graph
 __all__ = ["route_tensor_into_graph", "is_subgraph"]
 
 
-def is_subgraph(parent: 'Graph', subgraph: 'Graph'):
+def is_subgraph(parent: "Graph", subgraph: "Graph"):
     """Is `parent` a subgraph of `subgraph`?"""
     graphs = [parent._pb_graph]
     while graphs:
@@ -26,7 +26,7 @@ def called_graph_paths(parent_graph: Graph, subgraph: Graph) -> Set[Tuple[_ir.Gr
 
     while len(search_graphs):
         g, path = search_graphs.pop()
-        path = path + (g.id, )
+        path = path + (g.id,)
         if g.id == subgraph._pb_graph.id:
             graph_paths.add(path)
         for sg in g.getCalledGraphs():
@@ -34,8 +34,9 @@ def called_graph_paths(parent_graph: Graph, subgraph: Graph) -> Set[Tuple[_ir.Gr
     return graph_paths
 
 
-def connect_call_op(op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.GraphId, Tensor],
-                    modified: Iterable[_ir.view.Region]):
+def connect_call_op(
+    op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.GraphId, Tensor], modified: Iterable[_ir.view.Region]
+):
     """Given a CallOp, add a new input to the callsite and called graph if not already present.
         Additionally set if the input is modified.
 
@@ -53,7 +54,8 @@ def connect_call_op(op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.G
     if sg_tensor is None:
         if op.hasInputTensor(tensor._pb_tensor):
             sg_tensor = Tensor._from_pb_tensor(
-                sg._pb_graph.getInputTensor(op.opInToSubgraphInIndex(op.inIndex(tensor._pb_tensor))))
+                sg._pb_graph.getInputTensor(op.opInToSubgraphInIndex(op.inIndex(tensor._pb_tensor)))
+            )
         else:
             with sg:
                 sg_tensor = graph_input(tensor.shape, tensor.dtype, tensor.name)
@@ -69,8 +71,9 @@ def connect_call_op(op: _ir.op.CallOp, tensor: Tensor, input_tensors: Dict[_ir.G
     input_tensors[sg._pb_graph.id] = sg_tensor
 
 
-def connect_loop_op(op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.GraphId, Tensor],
-                    modified: Iterable[_ir.view.Region]):
+def connect_loop_op(
+    op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.GraphId, Tensor], modified: Iterable[_ir.view.Region]
+):
     """Given a LoopOp, add a new input to the callsite and called graph if not already present.
         Additionally set if the input is modified.
 
@@ -87,7 +90,8 @@ def connect_loop_op(op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.G
     if sg_tensor is None:
         if op.hasInputTensor(tensor._pb_tensor):
             sg_tensor = Tensor._from_pb_tensor(
-                sg._pb_graph.getInputTensor(op.opInToSubgraphInIndex(op.inIndex(tensor._pb_tensor))))
+                sg._pb_graph.getInputTensor(op.opInToSubgraphInIndex(op.inIndex(tensor._pb_tensor)))
+            )
         else:
             op_idx = op.getNumExplicitInputs()
             sg_tensor_id = sg._create_tensor_id(tensor.name)
@@ -105,8 +109,12 @@ def connect_loop_op(op: _ir.op.LoopOp, tensor: Tensor, input_tensors: Dict[_ir.G
     input_tensors[sg._pb_graph.id] = sg_tensor
 
 
-def connect_tensor_to_ops_on_path(path: Tuple[_ir.GraphId, ...], from_tensor: Tensor,
-                                  input_tensors: Dict[_ir.GraphId, Tensor], modified: Iterable[_ir.view.Region]):
+def connect_tensor_to_ops_on_path(
+    path: Tuple[_ir.GraphId, ...],
+    from_tensor: Tensor,
+    input_tensors: Dict[_ir.GraphId, Tensor],
+    modified: Iterable[_ir.view.Region],
+):
     """For a path of graphs on a call tree, add an input tensor to all callsites and called graphs on the path.
         Example, we have the following call tree:
         ```
@@ -167,9 +175,9 @@ def _route_into_graph(to_graph: Graph, from_tensor: Tensor, modified: Iterable[_
     return subgraph_tensors[to_graph._pb_graph.id]
 
 
-def route_tensor_into_graph(tensor: Tensor,
-                            graph: Optional[Graph] = None,
-                            modified: Union[bool, Iterable[_ir.view.Region]] = False):
+def route_tensor_into_graph(
+    tensor: Tensor, graph: Optional[Graph] = None, modified: Union[bool, Iterable[_ir.view.Region]] = False
+):
     """Add graph inputs to access a Tensor from a parent graph to a graph if possible.
         This is achieved by recusively connecting `tensor` to callsites within `tensor`'s Graph.
         Example use case:
@@ -202,9 +210,11 @@ def route_tensor_into_graph(tensor: Tensor,
     if tensor not in graph:
         t_graph = Graph._from_pb(tensor._pb_tensor.getGraph())
         if not is_subgraph(t_graph, graph):
-            raise ValueError(f"{tensor} is not in the graph {graph.name}. "
-                             "Additionally, the tensor is not in a known parent graph so cannot "
-                             "be moved into the graph.")
+            raise ValueError(
+                f"{tensor} is not in the graph {graph.name}. "
+                "Additionally, the tensor is not in a known parent graph so cannot "
+                "be moved into the graph."
+            )
         if isinstance(modified, bool):
             modified = [_ir.view.Region.getFull(tensor.shape) if modified else _ir.view.Region.getEmpty(tensor.rank)]
         tensor = _route_into_graph(graph, tensor, modified)

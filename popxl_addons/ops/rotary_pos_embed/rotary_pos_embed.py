@@ -2,6 +2,7 @@
 
 # Auto compile cpp files
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import rotary_pos_embed_binding
 import numpy as np
@@ -12,17 +13,18 @@ import popxl
 from popxl.context import op_debug_context, get_current_context
 from popxl.ops.utils import check_in_graph, check_tensor_ipu_and_tile_set
 
-__all__ = ['rotary_pos_embed', 'trig_tables', 'trig_table_constants']
+__all__ = ["rotary_pos_embed", "trig_tables", "trig_table_constants"]
 
 
-def trig_tables(seq_len: int, rotary_dim: int, base: int = 10000,
-                np_dtype: Any = 'float32') -> Tuple[np.ndarray, np.ndarray]:
+def trig_tables(
+    seq_len: int, rotary_dim: int, base: int = 10000, np_dtype: Any = "float32"
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     Generate cosΦ, sinΦ np data of shape (seq_len, rotary_dim), where
     Φ = m * θ_i,
     θ_i = base^(-2i/rotary_dim), i = 0 ... rotary_dim
     """
-    theta = base**(-1 * np.arange(0, rotary_dim, 2).astype(np_dtype) / rotary_dim)  # θ_i
+    theta = base ** (-1 * np.arange(0, rotary_dim, 2).astype(np_dtype) / rotary_dim)  # θ_i
     seq_idx = np.arange(seq_len).astype(np_dtype)  # m (sequence index)
     phi = np.outer(seq_idx, theta)
     cos_np = np.cos(phi)  # [cos(mθ_0), cos(mθ_0), cos(mθ_1), cos(mθ_1), ...] (m is a vector)
@@ -41,8 +43,9 @@ def trig_table_constants(seq_len: int, rotary_dim: int, base: int = 10000, dtype
 
 
 @op_debug_context
-def rotary_pos_embed(t: popxl.Tensor, sin: popxl.Tensor, cos: popxl.Tensor,
-                     rotary_dim: Optional[int] = None) -> popxl.Tensor:
+def rotary_pos_embed(
+    t: popxl.Tensor, sin: popxl.Tensor, cos: popxl.Tensor, rotary_dim: Optional[int] = None
+) -> popxl.Tensor:
     """Rotary positional embeddings (RoPE) as described in "RoFormer: Enhanced Transformer with Rotary
         Position Embedding" https://arxiv.org/pdf/2104.09864.pdf
 
@@ -91,14 +94,10 @@ def rotary_pos_embed(t: popxl.Tensor, sin: popxl.Tensor, cos: popxl.Tensor,
     check_in_graph(g, t=t, sin=sin, cos=cos)
     check_tensor_ipu_and_tile_set(t=t, sin=sin, cos=cos)
 
-    settings = ctx._get_op_settings('RotaryPosEmbedOp')
+    settings = ctx._get_op_settings("RotaryPosEmbedOp")
     op = rotary_pos_embed_binding.RotaryPosEmbedOp.createOpInGraph(
         pb_g,
-        {
-            0: t.id,
-            1: sin.id,
-            2: cos.id
-        },
+        {0: t.id, 1: sin.id, 2: cos.id},
         {
             0: g._create_tensor_id("t_rotated"),
         },

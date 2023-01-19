@@ -4,8 +4,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -23,6 +21,8 @@
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
 #include <popart/vendored/optional.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
@@ -39,25 +39,18 @@ namespace py = pybind11;
 // `crossentropysharded_binding` must equal filename
 PYBIND11_MODULE(crossentropysharded_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::CrossEntropyShardedOp,
-             popart::Op,
+  py::class_<popart::CrossEntropyShardedOp, popart::Op,
              std::shared_ptr<popart::CrossEntropyShardedOp>>
       binding(m, "CrossEntropyShardedOp");
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       popart::ReplicaGrouping,
-                                       float,
-                                       const popart::Op::Settings &>(
-                         &popart::CrossEntropyShardedOp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("group"),
-                     py::arg("availableMemoryProportion"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        popart::ReplicaGrouping, float,
+                        const popart::Op::Settings &>(
+          &popart::CrossEntropyShardedOp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"), py::arg("group"),
+      py::arg("availableMemoryProportion"), py::arg("settings"),
+      py::return_value_policy::reference);
   binding.def(
       "outTensor",
       py::overload_cast<OutIndex>(&popart::CrossEntropyShardedOp::outTensor),

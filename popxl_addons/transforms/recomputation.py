@@ -9,7 +9,7 @@ from popxl_addons.utils import suffix_graph_name
 
 def add_recompute_inputs(grad_info: GradGraphInfo):
     """Adds inputs required for recompute to the current graph. Important that inputs
-        are added in the same order as they are placed in expected_inputs"""
+    are added in the same order as they are placed in expected_inputs"""
     fwd_input_mapping: Dict[popxl.Tensor, popxl.Tensor] = {}
     grad_input_mapping: Dict[popxl.Tensor, popxl.Tensor] = {}
 
@@ -34,8 +34,10 @@ def add_recompute_inputs(grad_info: GradGraphInfo):
     for tensor in sorted(diff, key=lambda t: t.name):
         fwd_input_mapping[tensor] = popxl.graph_input(tensor.shape, tensor.dtype, tensor.name)
         expected_inputs.append(
-            ExpectedConnection._from_pb(grad_info.forward_graph._pb_graph,
-                                        _ir.ExpectedConnection(tensor.id, _ir.ExpectedConnectionType.Fwd)))
+            ExpectedConnection._from_pb(
+                grad_info.forward_graph._pb_graph, _ir.ExpectedConnection(tensor.id, _ir.ExpectedConnectionType.Fwd)
+            )
+        )
 
     return fwd_input_mapping, grad_input_mapping, expected_inputs
 
@@ -51,7 +53,7 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         GraphWithNamedArgs: gradient graph with recomputation
     """
     ir = grad_graph.graph.ir
-    r_graph = ir.create_empty_graph(suffix_graph_name(grad_graph.graph.name, 'recomp'))
+    r_graph = ir.create_empty_graph(suffix_graph_name(grad_graph.graph.name, "recomp"))
 
     grad_info = grad_graph.grad_graph_info
 
@@ -70,10 +72,9 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         # These are inputs to the grad graph that aren't from `GradGraphInfo`. Such as gradient accumulators.
         diff = set(grad_graph.graph.inputs) - set(grad_inputs.keys())
         for tensor in sorted(diff, key=lambda t: t.name):
-            grad_inputs[tensor] = popxl.graph_input(tensor.shape,
-                                                    tensor.dtype,
-                                                    tensor.name,
-                                                    by_ref=tensor in grad_graph.graph._by_ref_inputs)
+            grad_inputs[tensor] = popxl.graph_input(
+                tensor.shape, tensor.dtype, tensor.name, by_ref=tensor in grad_graph.graph._by_ref_inputs
+            )
 
         ggraph = BoundGraph(grad_graph.graph, grad_inputs)
         # Call Gradient Graph
@@ -87,8 +88,11 @@ def recompute_graph(grad_graph: GraphWithNamedArgs) -> GraphWithNamedArgs:
         remapped_args = grad_graph.args.remap(grad_inputs)
 
         # Construct the new GradGraphInfo
-        _r_grad_info = _ir.BwdGraphInfo(r_graph._pb_graph.id, [ec._pb_ec for ec in expected_inputs],
-                                        [ec._pb_ec for ec in grad_info.expected_outputs])
+        _r_grad_info = _ir.BwdGraphInfo(
+            r_graph._pb_graph.id,
+            [ec._pb_ec for ec in expected_inputs],
+            [ec._pb_ec for ec in grad_info.expected_outputs],
+        )
         r_grad_info = GradGraphInfo._from_pb(ir._pb_ir, grad_info.forward_graph._pb_graph, _r_grad_info)
 
     return GraphWithNamedArgs(r_graph, remapped_args, r_grad_info)

@@ -23,7 +23,7 @@ class Linear(addons.Module):
 
     def build(self, x: popxl.Tensor):
         w = self.add_variable_input("w", partial(np.zeros, (x.shape[-1], self.features)), popxl.float32)
-        b = self.add_variable_input("b", partial(np.zeros, (self.features, )), popxl.float32)
+        b = self.add_variable_input("b", partial(np.zeros, (self.features,)), popxl.float32)
         return (x @ w) + b
 
 

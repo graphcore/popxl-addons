@@ -4,11 +4,11 @@
 #include <layer_norm_distributed.hpp>
 #include <map>
 #include <memory>
-#include <string>
-#include <vector>
 #include <popart/opmanager.hpp>
 #include <popart/opserialiser.hpp>
 #include <popart/tensor.hpp>
+#include <string>
+#include <vector>
 
 #include "popart/attributes.hpp"
 #include "popart/datatype.hpp"
@@ -49,8 +49,8 @@ void LayerNormDistributedOp::setup() {
   // single inverse standard deviation
   outInfo(getInvStdDevOutIndex()) = {inInfo(getXInIndex()).dataType(),
                                      {inInfo(getXInIndex()).dim(0)}};
-  outInfo(getMeanOutIndex())      = {inInfo(getXInIndex()).dataType(),
-                                     {inInfo(getXInIndex()).dim(0)}};
+  outInfo(getMeanOutIndex()) = {inInfo(getXInIndex()).dataType(),
+                                {inInfo(getXInIndex()).dim(0)}};
 }
 
 void LayerNormDistributedOp::appendOutlineAttributes(
@@ -62,8 +62,7 @@ void LayerNormDistributedOp::appendOutlineAttributes(
 
 LayerNormDistributedGradOp::LayerNormDistributedGradOp(
     const LayerNormDistributedOp &op_)
-    : CollectivesBaseOp(LayerNormDistributedGrad,
-                        op_.getReplicaGrouping(),
+    : CollectivesBaseOp(LayerNormDistributedGrad, op_.getReplicaGrouping(),
                         op_.getSettings()),
       epsilon(op_.getEpsilon()),
       fwdInInfo(op_.inInfo(LayerNormDistributedOp::getXInIndex())),
@@ -82,18 +81,14 @@ LayerNormDistributedGradOp::gradOutToNonGradIn() const {
 const std::vector<GradInOutMapper> &
 LayerNormDistributedGradOp::gradInputInfo() const {
   static const std::vector<GradInOutMapper> inInfo = {
-      {getYGradInIndex(),
-       LayerNormDistributedOp::getYOutIndex(),
+      {getYGradInIndex(), LayerNormDistributedOp::getYOutIndex(),
        GradOpInType::GradOut},
       {getXInIndex(), LayerNormDistributedOp::getXInIndex(), GradOpInType::In},
-      {getScaleInIndex(),
-       LayerNormDistributedOp::getScaleInIndex(),
+      {getScaleInIndex(), LayerNormDistributedOp::getScaleInIndex(),
        GradOpInType::In},
-      {getMeanInIndex(),
-       LayerNormDistributedOp::getMeanOutIndex(),
+      {getMeanInIndex(), LayerNormDistributedOp::getMeanOutIndex(),
        GradOpInType::Out},
-      {getInvStdDevInIndex(),
-       LayerNormDistributedOp::getInvStdDevOutIndex(),
+      {getInvStdDevInIndex(), LayerNormDistributedOp::getInvStdDevOutIndex(),
        GradOpInType::Out}};
   return inInfo;
 }
@@ -104,7 +99,7 @@ void LayerNormDistributedGradOp::setup() {
 
   outInfo(getXGradOutIndex()) = xOutInfo;
   outInfo(getScaleOutIndex()) = fwdScaleInInfo;
-  outInfo(getBOutIndex())     = fwdBInInfo;
+  outInfo(getBOutIndex()) = fwdBInInfo;
 }
 
 std::unique_ptr<Op> LayerNormDistributedGradOp::clone() const {

@@ -57,7 +57,7 @@ def repeat_graph(graph: popxl.Graph, repeat_count: int) -> Graph:
 
             old_to_new_ops[op] = [cloned_op]
 
-    with graph, popxl.in_sequence('pass'):
+    with graph, popxl.in_sequence("pass"):
         repeat_info = ops.repeat_with_info(repeat_graph, repeat_count, inputs_dict=new_to_old_inputs)
         repeat_Op = repeat_info._op
 
@@ -76,6 +76,6 @@ def repeat_graph(graph: popxl.Graph, repeat_count: int) -> Graph:
 
     # TODO: prevent it from removing IO tensors
     # Remove tensors that are now dangling with no connected ops in the old graph
-    #graph._pb_graph.removeIsolatedTensors(True, True, True, True)
+    # graph._pb_graph.removeIsolatedTensors(True, True, True, True)
 
     return repeat_graph

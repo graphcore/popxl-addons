@@ -6,7 +6,7 @@ import popxl
 
 __all__ = ["InputStreams", "OutputStreams"]
 
-StreamType = TypeVar('StreamType', bound=popxl.streams.Stream)
+StreamType = TypeVar("StreamType", bound=popxl.streams.Stream)
 
 
 class _StreamsBase(OrderedDict, Generic[StreamType]):
@@ -51,6 +51,7 @@ class InputStreams(_StreamsBase[HostToDeviceStream]):
         ...
         x = ops.host_load(inputs.x)
     """
+
     stream_init = staticmethod(popxl.h2d_stream)
 
 
@@ -64,4 +65,5 @@ class OutputStreams(_StreamsBase[DeviceToHostStream]):
         y = ...
         ops.host_store(outputs.y, y)
     """
+
     stream_init = staticmethod(popxl.d2h_stream)

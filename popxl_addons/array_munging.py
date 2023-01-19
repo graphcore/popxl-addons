@@ -6,8 +6,19 @@ import numpy as np
 from more_itertools import flatten, sliced
 
 __all__ = [
-    'shard', 'unshard_arrays', 'unshard', 'repeat', 'repeat_axis', 'split2D', 'shard2D', 'unshard2D', 'repeat_shard',
-    'tensor_parallel_input', 'pad_axis', 'squeeze_safe', 'handle_negative_axis'
+    "shard",
+    "unshard_arrays",
+    "unshard",
+    "repeat",
+    "repeat_axis",
+    "split2D",
+    "shard2D",
+    "unshard2D",
+    "repeat_shard",
+    "tensor_parallel_input",
+    "pad_axis",
+    "squeeze_safe",
+    "handle_negative_axis",
 ]
 
 
@@ -211,11 +222,9 @@ def unshard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int):
     return x
 
 
-def repeat_shard(x: np.ndarray,
-                 n_repeats,
-                 n_shards,
-                 shard_axis,
-                 sharded_tensor: Literal['contiguous', 'strided'] = 'contiguous') -> np.ndarray:
+def repeat_shard(
+    x: np.ndarray, n_repeats, n_shards, shard_axis, sharded_tensor: Literal["contiguous", "strided"] = "contiguous"
+) -> np.ndarray:
     """Shard `x` into `n_shards` along `shard_axis`, repeat the sharded tensor `n_repeats`.
 
     Example:
@@ -238,18 +247,17 @@ def repeat_shard(x: np.ndarray,
     y = shard(x, n_shards, shard_axis)
     z = repeat_axis(y, n_repeats, 0)
 
-    if sharded_tensor == 'contiguous':
+    if sharded_tensor == "contiguous":
         return z
-    elif sharded_tensor == 'strided':
+    elif sharded_tensor == "strided":
         return z.reshape(n_shards, n_repeats, *y.shape[1:]).swapaxes(0, 1).reshape(n_shards * n_repeats, *y.shape[1:])
     else:
         raise ValueError(f"sharded_tensor should be either 'contiguous' or 'strided'. Not: {sharded_tensor}")
 
 
-def tensor_parallel_input(input_data: np.ndarray,
-                          tp: int,
-                          rf: int,
-                          repeat_fn: Optional[Callable[[np.ndarray, int], np.ndarray]] = None):
+def tensor_parallel_input(
+    input_data: np.ndarray, tp: int, rf: int, repeat_fn: Optional[Callable[[np.ndarray, int], np.ndarray]] = None
+):
     """Repeat the data in `input_data` such that consecutive replicas with groupSize tp get the same data
     (optionally modified by repeat_fn)
 
@@ -336,7 +344,7 @@ def squeeze_safe(x: np.ndarray, axis: Optional[Union[int, Sequence[int]]] = None
     if isinstance(axis, int):
         axis = [axis]
 
-    axis = list(set(handle_negative_axis(x, ax) for ax in axis))  # Handle neg axis and remove dups
+    axis = list(set(handle_negative_axis(x, ax) for ax in axis))  # Handle neg axis and remove dups
     axis = sorted(axis)[::-1]  # Reverse sort. Squeeze innermost axes first
 
     for ax in axis:

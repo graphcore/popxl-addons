@@ -32,16 +32,18 @@ class PipelineBoundGraph(BoundGraph):
     def _moved_args(self, inputs_dict: Optional[Mapping[popxl.Tensor, popxl.Tensor]] = None):
         # Move inputs into the current graph.
         moved_inputs = {
-            sg_t: route_tensor_into_graph(v,
-                                          modified=sg_t._pb_tensor.modifiedRegionsByOps(self.graph._pb_graph.getOps()))
+            sg_t: route_tensor_into_graph(
+                v, modified=sg_t._pb_tensor.modifiedRegionsByOps(self.graph._pb_graph.getOps())
+            )
             for sg_t, v in self.args.items()
         }
         if inputs_dict:
             moved_inputs.update({**inputs_dict})
         return moved_inputs
 
-    def call(self, *args: popxl.Tensor,
-             inputs_dict: Optional[Mapping[popxl.Tensor, popxl.Tensor]] = None) -> Tuple[popxl.Tensor, ...]:
+    def call(
+        self, *args: popxl.Tensor, inputs_dict: Optional[Mapping[popxl.Tensor, popxl.Tensor]] = None
+    ) -> Tuple[popxl.Tensor, ...]:
         return super().call(*args, args=self._moved_args(inputs_dict))
 
     @property
@@ -90,8 +92,10 @@ class Pipelining:
         self.construct_graphs(include_ops)
         self.num_stages = len(self.stages.keys())
         if self.steps < 2 * self.num_stages:
-            raise ValueError("Pipelining requires the steps at least 2x the number of stages in the pipeline. "
-                             f"steps={self.steps} stages={self.num_stages}")
+            raise ValueError(
+                "Pipelining requires the steps at least 2x the number of stages in the pipeline. "
+                f"steps={self.steps} stages={self.num_stages}"
+            )
         self.build()
 
     def required_for_host_load(self, op: _ir.Op):
@@ -413,12 +417,13 @@ class StageContext:
 
         with self.stage(to_stage):
             args, graph = Restore().create_graph(stash_args.stash)
-            restored, = graph.bind(args.init()).call(stash_args.stash)
+            (restored,) = graph.bind(args.init()).call(stash_args.stash)
 
         return restored
 
-    def stash_and_restore_activations(self, call_info: CallSiteInfo,
-                                      grad_info: GradGraphInfo) -> Dict[popxl.Tensor, popxl.Tensor]:
+    def stash_and_restore_activations(
+        self, call_info: CallSiteInfo, grad_info: GradGraphInfo
+    ) -> Dict[popxl.Tensor, popxl.Tensor]:
         """Stash and restore activations.
 
 
@@ -470,12 +475,12 @@ def pipelined_execution(steps: int):
 class Stash(Module):
     @popxl.in_sequence()
     def build(self, t: popxl.Tensor, stash_size: int):
-        counter = self.add_variable_input("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
+        counter = self.add_variable_input("counter", partial(np.zeros, (1,)), popxl.uint32, by_ref=True)
 
         # Make `t` have the correct 0th dimension
         stashed_shape = t.shape
         if stashed_shape == ():
-            stashed_shape = (1, )
+            stashed_shape = (1,)
         t = t.reshape((1, *stashed_shape))
 
         if stash_size <= 1:
@@ -489,7 +494,7 @@ class Stash(Module):
 class Restore(Module):
     @popxl.in_sequence()
     def build(self, stash: popxl.TensorByRef):
-        counter = self.add_variable_input("counter", partial(np.zeros, (1, )), popxl.uint32, by_ref=True)
+        counter = self.add_variable_input("counter", partial(np.zeros, (1,)), popxl.uint32, by_ref=True)
         t = ops.dynamic_slice(stash, counter, axes=[0], sizes=[1], no_overlap=True)
         stash_size = stash.shape[0]
         ops.increment_mod_(counter, 1, stash_size)

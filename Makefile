@@ -1,13 +1,8 @@
 # Add to PHONY target list so cmds always run even when nothing has changed
-.PHONY: install docs lint test clean
+.PHONY: install test clean
 
 install:
 	pip3 install .
-
-lint:
-	yapf --recursive --in-place .
-	find -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i
-	python3 ci/test_copyright.py
 
 test:
 	pytest --forked -n 5

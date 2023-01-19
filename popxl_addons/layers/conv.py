@@ -47,23 +47,25 @@ class Conv2D(addons.Module):
             If true, then convolutions with different parameters will be laid out from different tiles
             in an effort to improve tile balance in models.
         replica_grouping (ReplicaGrouping, optional):
-            replica grouping for the variables. 
+            replica grouping for the variables.
     Returns:
         Tensor: The result of the convolution
     """
 
-    def __init__(self,
-                 out_channels: int,
-                 kernel_size: Union[Tuple[int], int],
-                 strides: Optional[Tuple[int]] = (1, 1),
-                 paddings: Optional[Union[str, Tuple[int]]] = (0, 0, 0, 0),
-                 dilations: Optional[Tuple[int]] = (1, 1),
-                 groups: Optional[int] = 1,
-                 bias: bool = True,
-                 available_memory_proportions: Optional[List[float]] = None,
-                 partials_types: Optional[List[str]] = None,
-                 enable_conv_dithering: Optional[List[int]] = None,
-                 replica_grouping: Optional[ReplicaGrouping] = None):
+    def __init__(
+        self,
+        out_channels: int,
+        kernel_size: Union[Tuple[int], int],
+        strides: Optional[Tuple[int]] = (1, 1),
+        paddings: Optional[Union[str, Tuple[int]]] = (0, 0, 0, 0),
+        dilations: Optional[Tuple[int]] = (1, 1),
+        groups: Optional[int] = 1,
+        bias: bool = True,
+        available_memory_proportions: Optional[List[float]] = None,
+        partials_types: Optional[List[str]] = None,
+        enable_conv_dithering: Optional[List[int]] = None,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+    ):
         super().__init__()
 
         self.out_channels = out_channels
@@ -96,28 +98,31 @@ class Conv2D(addons.Module):
         assert len(x.shape) == 4
         n, in_channel, h, w = x.shape
         kernel_shape = (self.out_channels, int(in_channel / self.groups), self.k_h, self.k_w)
-        self.weight = self.add_variable_input("weight",
-                                              partial(truncnorm.rvs, -2, 2, loc=0, scale=0.02, size=kernel_shape),
-                                              x.dtype,
-                                              replica_grouping=self.replica_grouping)
+        self.weight = self.add_variable_input(
+            "weight",
+            partial(truncnorm.rvs, -2, 2, loc=0, scale=0.02, size=kernel_shape),
+            x.dtype,
+            replica_grouping=self.replica_grouping,
+        )
 
-        x = ops.conv(t=x,
-                     weight=self.weight,
-                     stride=self.strides,
-                     padding=self.paddings,
-                     dilation=self.dilations,
-                     groups=self.groups,
-                     pad_type=self.pad_type,
-                     available_memory_proportions=self.available_memory_proportions,
-                     partials_types=self.partial_types,
-                     enable_conv_dithering=self.enable_conv_dithering)
+        x = ops.conv(
+            t=x,
+            weight=self.weight,
+            stride=self.strides,
+            padding=self.paddings,
+            dilation=self.dilations,
+            groups=self.groups,
+            pad_type=self.pad_type,
+            available_memory_proportions=self.available_memory_proportions,
+            partials_types=self.partial_types,
+            enable_conv_dithering=self.enable_conv_dithering,
+        )
 
         if self.bias:
             bias_shape = [1] * len(x.shape)
             bias_shape[1] = self.out_channels
-            self.bias = self.add_variable_input("bias",
-                                                partial(np.zeros, bias_shape),
-                                                x.dtype,
-                                                replica_grouping=self.replica_grouping)
+            self.bias = self.add_variable_input(
+                "bias", partial(np.zeros, bias_shape), x.dtype, replica_grouping=self.replica_grouping
+            )
             x = x + self.bias
         return x

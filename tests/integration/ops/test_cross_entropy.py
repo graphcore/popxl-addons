@@ -11,12 +11,12 @@ import popxl_addons as addons
 def test_cross_entropy():
     def inputs():
         torch.manual_seed(42)
-        return torch.rand((8, 100), requires_grad=True), torch.randint(0, 100, (8, ))
+        return torch.rand((8, 100), requires_grad=True), torch.randint(0, 100, (8,))
 
     def pytorch():
         logits, target = inputs()
         loss = F.cross_entropy(logits, target)
-        return (loss.detach().numpy(), )
+        return (loss.detach().numpy(),)
 
     def popxl_():
         logits, target = inputs()
@@ -30,7 +30,7 @@ def test_cross_entropy():
         ir.num_host_transfers = 1
         with popxl.Session(ir, "ipu_hw") as session:
             outputs = session.run()
-        return (outputs[loss_d2h], )
+        return (outputs[loss_d2h],)
 
     for _t, _p in zip(pytorch(), popxl_()):
         np.testing.assert_almost_equal(_t, _p, 5)
@@ -39,7 +39,7 @@ def test_cross_entropy():
 def test_cross_entropy_with_grad():
     def inputs():
         torch.manual_seed(42)
-        return torch.rand((8, 100), requires_grad=True), torch.randint(0, 100, (8, ))
+        return torch.rand((8, 100), requires_grad=True), torch.randint(0, 100, (8,))
 
     def pytorch():
         logits, target = inputs()

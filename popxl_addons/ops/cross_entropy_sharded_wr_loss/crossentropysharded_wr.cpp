@@ -1,10 +1,10 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 #include <algorithm>
 #include <cstdint>
-#include <string>
-#include <vector>
 #include <popart/graphcoreoperators.hpp>
 #include <popart/names.hpp>
+#include <string>
+#include <vector>
 
 #include <memory>
 #include <popart/op.hpp>
@@ -24,8 +24,7 @@ namespace popart {
 ////// Fwd op
 
 CrossEntropyShardedWROp::CrossEntropyShardedWROp(
-    const OperatorIdentifier &_opid,
-    const std::vector<int64_t> ipus_,
+    const OperatorIdentifier &_opid, const std::vector<int64_t> ipus_,
     const Op::Settings &settings_)
     : Op(_opid, settings_), ipus(ipus_) {}
 
@@ -41,8 +40,8 @@ std::vector<std::unique_ptr<Op>> CrossEntropyShardedWROp::getGradOps() {
 
 void CrossEntropyShardedWROp::setup() {
   int64_t numShards = ipus.size();
-  auto numInputs    = input->n();
-  auto numOutputs   = output->n();
+  auto numInputs = input->n();
+  auto numOutputs = output->n();
 
   if (numInputs == 0) {
     throw error(
@@ -125,15 +124,13 @@ void CrossEntropyShardedWROp::appendOutlineAttributes(
 bool CrossEntropyShardedWROp::canBeReplacedByIdentity() const { return false; }
 
 VGraphIdAndTileSet CrossEntropyShardedWROp::getIntrospectionInVirtualGraphId(
-    InIndex index,
-    std::set<OpId> &visited) const {
+    InIndex index, std::set<OpId> &visited) const {
   index %= ipus.size();
   return {ipus.at(index), settings.tileSet};
 }
 
 VGraphIdAndTileSet CrossEntropyShardedWROp::getIntrospectionOutVirtualGraphId(
-    OutIndex index,
-    std::set<OpId> &visited) const {
+    OutIndex index, std::set<OpId> &visited) const {
   if (index == 0) {
     return {ipus.at(0), settings.tileSet};
   }
@@ -145,16 +142,15 @@ VGraphIdAndTileSet CrossEntropyShardedWROp::getIntrospectionOutVirtualGraphId(
 ////// Grad op
 
 CrossEntropyShardedGradWROp::CrossEntropyShardedGradWROp(
-    const CrossEntropyShardedWROp &op,
-    std::vector<int64_t> ipus_)
+    const CrossEntropyShardedWROp &op, std::vector<int64_t> ipus_)
     : Op(CrossEntropyShardedGradWR, op.getSettings()), ipus(ipus_) {
 
   auto numShards = ipus_.size();
 
   // Defines inputs
   logSoftmaxIndex_ = 2;
-  logitsIndex_     = logSoftmaxIndex_ + numShards;
-  labelsIndex_     = logitsIndex_ + numShards;
+  logitsIndex_ = logSoftmaxIndex_ + numShards;
+  labelsIndex_ = logitsIndex_ + numShards;
 
   inGradMap.push_back({0, 0, GradOpInType::GradOut}); // dE/dloss
   inGradMap.push_back({1, 0, GradOpInType::Out});     // loss
@@ -207,8 +203,7 @@ bool CrossEntropyShardedGradWROp::canBeReplacedByIdentity() const {
 
 VGraphIdAndTileSet
 CrossEntropyShardedGradWROp::getIntrospectionInVirtualGraphId(
-    InIndex index,
-    std::set<OpId> &visited) const {
+    InIndex index, std::set<OpId> &visited) const {
   if (index < logSoftmaxIndex_) {
     return {ipus.at(0), settings.tileSet};
   }
@@ -219,8 +214,7 @@ CrossEntropyShardedGradWROp::getIntrospectionInVirtualGraphId(
 
 VGraphIdAndTileSet
 CrossEntropyShardedGradWROp::getIntrospectionOutVirtualGraphId(
-    OutIndex index,
-    std::set<OpId> &visited) const {
+    OutIndex index, std::set<OpId> &visited) const {
   index %= ipus.size();
   return {ipus.at(index), settings.tileSet};
 }

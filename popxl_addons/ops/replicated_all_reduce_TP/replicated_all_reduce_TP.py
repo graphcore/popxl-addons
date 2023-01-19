@@ -2,6 +2,7 @@
 
 # Auto compile cpp files
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_all_reduce_TP_binding
 
@@ -13,14 +14,16 @@ from popxl.ops.collectives.collectives import CollectiveOps, to_collective_op
 from popxl.ops.utils import check_in_graph
 
 __all__ = [
-    'replicated_all_reduce_identical_inputs', 'replicated_all_reduce_identical_grad_inputs', 'replicated_all_reduce'
+    "replicated_all_reduce_identical_inputs",
+    "replicated_all_reduce_identical_grad_inputs",
+    "replicated_all_reduce",
 ]
 
 
 @op_debug_context
-def replicated_all_reduce_identical_inputs(t: Tensor,
-                                           op: CollectiveOps = 'add',
-                                           group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce_identical_inputs(
+    t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None
+) -> Tensor:
     """
     Replicated all reduce but where the input tensors are identical.
 
@@ -42,9 +45,9 @@ def replicated_all_reduce_identical_inputs(t: Tensor,
 
 
 @op_debug_context
-def replicated_all_reduce_identical_grad_inputs(t: Tensor,
-                                                op: CollectiveOps = 'add',
-                                                group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce_identical_grad_inputs(
+    t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None
+) -> Tensor:
     """
     Replicated all reduce but where the grad tensors of the corresponding grad op are identical.
 
@@ -66,7 +69,7 @@ def replicated_all_reduce_identical_grad_inputs(t: Tensor,
 
 
 @op_debug_context
-def replicated_all_reduce(t: Tensor, op: CollectiveOps = 'add', group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce(t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None) -> Tensor:
     """
     Replicated all reduce that is differentiable.
 
@@ -82,11 +85,11 @@ def replicated_all_reduce(t: Tensor, op: CollectiveOps = 'add', group: Optional[
 
 
 def _replicated_all_reduce_TP(
-        t: Tensor,
-        op: CollectiveOps = 'add',
-        group: Optional[ReplicaGrouping] = None,
-        identical_inputs: bool = False,
-        identical_grad_inputs: bool = False,
+    t: Tensor,
+    op: CollectiveOps = "add",
+    group: Optional[ReplicaGrouping] = None,
+    identical_inputs: bool = False,
+    identical_grad_inputs: bool = False,
 ) -> Tensor:
 
     op_ = to_collective_op(op)  # Only add is currently supported
@@ -99,7 +102,7 @@ def _replicated_all_reduce_TP(
 
     check_in_graph(g, t=t)
 
-    settings = ctx._get_op_settings('ReplicatedAllReduceTP')
+    settings = ctx._get_op_settings("ReplicatedAllReduceTP")
     op = replicated_all_reduce_TP_binding.ReplicatedAllReduceTPOp.createOpInGraph(
         pb_g,
         {

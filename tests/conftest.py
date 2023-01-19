@@ -16,6 +16,8 @@ def pytest_collection_modifyitems(config, items):
         if "serial" in item.keywords and not run_only_serial:
             item.add_marker(
                 pytest.mark.skip(
-                    reason="This test requires running serially. Use option --serial to run only serial tests"))
+                    reason="This test requires running serially. Use option --serial to run only serial tests"
+                )
+            )
         elif "serial" not in item.keywords and run_only_serial:
             item.add_marker(pytest.mark.skip(reason="Only running serial tests."))

@@ -2,6 +2,7 @@
 
 # Auto compile cpp files
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import grad_reduce_square_add_binding
 
@@ -11,7 +12,7 @@ import popxl
 from popxl.context import op_debug_context, get_current_context
 from popxl.ops.utils import check_in_graph, check_tensor_ipu_and_tile_set
 
-__all__ = ['grad_reduce_square_add']
+__all__ = ["grad_reduce_square_add"]
 
 
 @op_debug_context
@@ -42,13 +43,10 @@ def grad_reduce_square_add(t: popxl.Tensor, loss_scaling: Union[int, float, popx
     check_in_graph(g, t=t, loss_scaling=scale)
     check_tensor_ipu_and_tile_set(t=t, loss_scaling=scale)
 
-    settings = ctx._get_op_settings('GradReduceSquareAdd')
+    settings = ctx._get_op_settings("GradReduceSquareAdd")
     op = grad_reduce_square_add_binding.GradReduceSquareAddOp.createOpInGraph(
         pb_g,
-        {
-            0: t.id,
-            1: scale.id
-        },
+        {0: t.id, 1: scale.id},
         {
             0: g._create_tensor_id("grad_reduced"),
         },

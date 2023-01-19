@@ -7,14 +7,25 @@ from popxl import ReplicaGrouping, ops
 from popxl.ops.collectives.collectives import CollectiveOps
 
 from popxl_addons import GraphWithNamedArgs, NamedTensors
-from popxl_addons.named_replica_grouping import NamedReplicaGrouping, get_ild_replica_grouping, get_ild_size_from_popdist, is_cross_ild
+from popxl_addons.named_replica_grouping import (
+    NamedReplicaGrouping,
+    get_ild_replica_grouping,
+    get_ild_size_from_popdist,
+    is_cross_ild,
+)
 from popxl_addons.utils import null_context
 from popxl_addons.ops.replicated_strided_collectives import (
-    replicated_all_gather_strided, replicated_all_reduce_strided, replicated_reduce_scatter_strided)
+    replicated_all_gather_strided,
+    replicated_all_reduce_strided,
+    replicated_reduce_scatter_strided,
+)
 
 __all__ = [
-    "all_gather_replica_sharded_graph", "reduce_replica_sharded_graph", "reduce_replica_sharded_tensor",
-    "gather_replica_sharded_tensor", "replica_sharded_spec"
+    "all_gather_replica_sharded_graph",
+    "reduce_replica_sharded_graph",
+    "reduce_replica_sharded_tensor",
+    "gather_replica_sharded_tensor",
+    "replica_sharded_spec",
 ]
 
 
@@ -26,13 +37,13 @@ def replica_sharded_spec(t: popxl.Tensor, shard_over: popxl.ReplicaGrouping) -> 
     if shard_over.group_size == 1 or t.nelms % shard_over.group_size != 0:
         return t.spec
     # Otherwise return a spec with the current shard over
-    shape = (int(np.prod(t.shape)) // shard_over.group_size, )
+    shape = (int(np.prod(t.shape)) // shard_over.group_size,)
     return popxl.TensorSpec(shape, t.dtype, t.shape)
 
 
-def gather_replica_sharded_tensor(t: popxl.Tensor,
-                                  use_io_tiles: bool = False,
-                                  replica_group: Optional[ReplicaGrouping] = None):
+def gather_replica_sharded_tensor(
+    t: popxl.Tensor, use_io_tiles: bool = False, replica_group: Optional[ReplicaGrouping] = None
+):
     """
     All gather a tensor using the provided replica_grouping. Optionally copy the result to IO Tiles.
     Args:
@@ -57,9 +68,9 @@ def gather_replica_sharded_tensor(t: popxl.Tensor,
 
 
 def all_gather_replica_sharded_graph(
-        tensors: NamedTensors,
-        use_io_tiles: bool = False,
-        replica_groups: Optional[NamedReplicaGrouping] = None,
+    tensors: NamedTensors,
+    use_io_tiles: bool = False,
+    replica_groups: Optional[NamedReplicaGrouping] = None,
 ) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that replicated_all_gathers each Tensor in `tensors`.
     The Graph with have a NamedArg for each the tensors in `tensors`.
@@ -84,8 +95,9 @@ def all_gather_replica_sharded_graph(
 
     names = []
     args = {}
-    replica_groups = replica_groups or NamedReplicaGrouping.build_groups(tensors.named_tensors.keys(),
-                                                                         value=get_ild_replica_grouping())
+    replica_groups = replica_groups or NamedReplicaGrouping.build_groups(
+        tensors.named_tensors.keys(), value=get_ild_replica_grouping()
+    )
     replica_groups = replica_groups.to_dict()
 
     with graph, popxl.in_sequence(False):
@@ -100,16 +112,18 @@ def all_gather_replica_sharded_graph(
     return GraphWithNamedArgs(graph, NamedTensors.from_dict(args)), names
 
 
-def reduce_replica_sharded_tensor(t: popxl.Tensor,
-                                  op: CollectiveOps = 'add',
-                                  replica_group: Optional[ReplicaGrouping] = None,
-                                  shard_group: Optional[ReplicaGrouping] = None):
+def reduce_replica_sharded_tensor(
+    t: popxl.Tensor,
+    op: CollectiveOps = "add",
+    replica_group: Optional[ReplicaGrouping] = None,
+    shard_group: Optional[ReplicaGrouping] = None,
+):
     """
     Reduce a tensor using op.
     Args:
         t (Tensor): Tensor to reduce.
         op (CollectiveOps): Operation to use for reduction.
-        replica_group (ReplicaGrouping): Replica group to reduce the tensor. Default to all replicas. 
+        replica_group (ReplicaGrouping): Replica group to reduce the tensor. Default to all replicas.
                                          If it spans across multiple instances, a two stage reduction is performed.
         shard_group (ReplicaGrouping): Replica group for rts. If not specified it will match replica_group
     Returns:
@@ -127,14 +141,14 @@ def reduce_replica_sharded_tensor(t: popxl.Tensor,
         reduce_group = get_ild_replica_grouping(replica_group)
         # RTS reduction
         if reduce_group == shard_group and reduce_group.group_size > 1:
-            t = replicated_reduce_scatter_strided(t,
-                                                  op=op,
-                                                  group=reduce_group,
-                                                  configure_output_for_replicated_tensor_sharding=True)
+            t = replicated_reduce_scatter_strided(
+                t, op=op, group=reduce_group, configure_output_for_replicated_tensor_sharding=True
+            )
         else:
             if reduce_group.group_size > 1:
-                t = replicated_all_reduce_strided(t, group=reduce_group,
-                                                  op=op)  # all reduce across single ild reduce group only
+                t = replicated_all_reduce_strided(
+                    t, group=reduce_group, op=op
+                )  # all reduce across single ild reduce group only
             t = ops.collectives.replica_sharded_slice(t, group=shard_group)  # slice in rts group
 
         # if the replica group spans across multiple ilds, complete the reduction
@@ -147,11 +161,12 @@ def reduce_replica_sharded_tensor(t: popxl.Tensor,
 
 
 def reduce_replica_sharded_graph(
-        tensors: NamedTensors,
-        op: CollectiveOps = 'add',
-        use_io_tiles: bool = False,
-        shard_groups: Optional[NamedReplicaGrouping] = None,
-        replica_group: Optional[ReplicaGrouping] = None) -> Tuple[GraphWithNamedArgs, List[str]]:
+    tensors: NamedTensors,
+    op: CollectiveOps = "add",
+    use_io_tiles: bool = False,
+    shard_groups: Optional[NamedReplicaGrouping] = None,
+    replica_group: Optional[ReplicaGrouping] = None,
+) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that reduces each Tensor in `tensors` using op.
     The Graph with have a NamedArg for each the tensors in `tensors`.
 
@@ -183,8 +198,9 @@ def reduce_replica_sharded_graph(
     args = {}
 
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()
-    shard_groups = shard_groups or NamedReplicaGrouping.build_groups(tensors.named_tensors.keys(),
-                                                                     value=get_ild_replica_grouping())
+    shard_groups = shard_groups or NamedReplicaGrouping.build_groups(
+        tensors.named_tensors.keys(), value=get_ild_replica_grouping()
+    )
     shard_groups = shard_groups.to_dict()
 
     with graph, popxl.in_sequence(False), tile_context:

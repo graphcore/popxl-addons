@@ -8,7 +8,7 @@ from popxl import ops
 from popxl_addons.ops.cross_entropy_sharded_loss import cross_entropy_sharded_loss
 
 
-@pytest.mark.parametrize('dtype_size', [16, 32])
+@pytest.mark.parametrize("dtype_size", [16, 32])
 def test_cross_entropy_loss_fwd_and_grad(dtype_size):
     np.random.seed(42)
 
@@ -30,37 +30,40 @@ def test_cross_entropy_loss_fwd_and_grad(dtype_size):
     replica_grouping = ir.replica_grouping(stride=1, group_size=1)
     assert vocab % n_shards == 0
 
-    logits_data = [np.random.rand(batch * sequence, vocab // n_shards).astype('float32') for i in range(n_shards)]
+    logits_data = [np.random.rand(batch * sequence, vocab // n_shards).astype("float32") for i in range(n_shards)]
     labels_data = np.random.randint(0, vocab, (batch * sequence))
     labels_data[-1] = 0  # Make sure at least one element that's offsetted has value 0
 
     offsets_data = [i * (vocab // n_shards) for i in range(n_shards)]
 
     logits_torch = torch.tensor(np.concatenate(logits_data, axis=-1), requires_grad=True)
-    loss_truth = torch.nn.functional.cross_entropy(logits_torch,
-                                                   torch.tensor(labels_data),
-                                                   ignore_index=0,
-                                                   reduction='mean')
+    loss_truth = torch.nn.functional.cross_entropy(
+        logits_torch, torch.tensor(labels_data), ignore_index=0, reduction="mean"
+    )
 
     loss_truth.backward(loss_truth.clone().detach())
     logits_grad_truth = logits_torch.grad
 
     class CrossEntropyLoss(addons.Module):
         def build(self, logits, labels, ignore_index):
-            return cross_entropy_sharded_loss(logits,
-                                              labels,
-                                              reduction='mean',
-                                              replica_grouping=replica_grouping.transpose(),
-                                              ignore_index=ignore_index)
+            return cross_entropy_sharded_loss(
+                logits,
+                labels,
+                reduction="mean",
+                replica_grouping=replica_grouping.transpose(),
+                ignore_index=ignore_index,
+            )
 
     with ir.main_graph:
-        _, inputs_host_steam, inputs_tensors = zip(*[
-            addons.host_load(logits_data[0].astype(np_float_dtype), float_dtype, name="logits"),
-            addons.host_load(labels_data, popxl.int32, name="labels"),
-        ])
+        _, inputs_host_steam, inputs_tensors = zip(
+            *[
+                addons.host_load(logits_data[0].astype(np_float_dtype), float_dtype, name="logits"),
+                addons.host_load(labels_data, popxl.int32, name="labels"),
+            ]
+        )
         logits, labels = inputs_tensors
 
-        offset = popxl.variable(offsets_data, popxl.int32, name='offsets', replica_grouping=replica_grouping)
+        offset = popxl.variable(offsets_data, popxl.int32, name="offsets", replica_grouping=replica_grouping)
         ignore_index = -1 * offset
 
         _, graph = CrossEntropyLoss().create_graph(logits, labels, ignore_index)
@@ -77,8 +80,9 @@ def test_cross_entropy_loss_fwd_and_grad(dtype_size):
     labels_data_adjusted = [labels_data - e for e in offsets_data]
 
     inputs_data = [
-        np.concatenate(logits_data, axis=0).reshape(
-            (n_shards, batch * sequence, vocab // n_shards)).astype(np_float_dtype),
+        np.concatenate(logits_data, axis=0)
+        .reshape((n_shards, batch * sequence, vocab // n_shards))
+        .astype(np_float_dtype),
         np.concatenate(labels_data_adjusted, axis=0).reshape((n_shards, batch * sequence)),
     ]
     inputs = dict(zip(inputs_host_steam, inputs_data))

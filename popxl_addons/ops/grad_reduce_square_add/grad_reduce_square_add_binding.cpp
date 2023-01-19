@@ -4,8 +4,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/graph.hpp>
 #include <popart/ir.hpp>
@@ -19,6 +17,8 @@
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <popops/Reduce.hpp>
 
@@ -29,9 +29,9 @@
 
 namespace py = pybind11;
 
-using InMapType  = std::map<popart::InIndex, popart::TensorId>;
+using InMapType = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex   = int;
+using OutIndex = int;
 
 namespace popart {
 
@@ -61,10 +61,8 @@ public:
   float getSubgraphValue() const override { return getHighSubgraphValue(); }
 
   static GradReduceSquareAddOp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  const popart::Op::Settings &settings) {
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, const popart::Op::Settings &settings) {
     return graph.createConnectedOp<GradReduceSquareAddOp>(in, out, settings);
   }
 };
@@ -81,14 +79,10 @@ public:
 
   void grow(poplar::program::Sequence &prog) const {
     auto to_reduce = getInTensor(0).flatten();
-    auto scale     = getInTensor(1);
-    auto rsq       = popops::reduce(graph(),
-                              to_reduce,
-                              poplar::FLOAT,
-                              {0},
+    auto scale = getInTensor(1);
+    auto rsq = popops::reduce(graph(), to_reduce, poplar::FLOAT, {0},
                               {popops::Operation::SQUARE_ADD, false, scale},
-                              prog,
-                              debugContext("GradReduceSquareAddOpx"));
+                              prog, debugContext("GradReduceSquareAddOpx"));
 
     setOutTensor(0, rsq);
   }
@@ -105,22 +99,17 @@ popx::OpxCreator<GradReduceSquareAddOpx>
 // `grad_reduce_square_add_binding` must equal filename
 PYBIND11_MODULE(grad_reduce_square_add_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::GradReduceSquareAddOp,
-             popart::Op,
+  py::class_<popart::GradReduceSquareAddOp, popart::Op,
              std::shared_ptr<popart::GradReduceSquareAddOp>>
       binding(m, "GradReduceSquareAddOp");
   binding.def(py::init<const popart::Op::Settings &>(), py::arg("settings"));
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       const popart::Op::Settings &>(
-                         &popart::GradReduceSquareAddOp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        const popart::Op::Settings &>(
+          &popart::GradReduceSquareAddOp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"),
+      py::arg("settings"), py::return_value_policy::reference);
   binding.def(
       "outTensor",
       py::overload_cast<OutIndex>(&popart::GradReduceSquareAddOp::outTensor),

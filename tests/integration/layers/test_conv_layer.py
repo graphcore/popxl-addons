@@ -31,11 +31,11 @@ def test_conv2D_layer():
     def weights_mapping(variables: NamedTensors):
         state_dict = {
             variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape))
+            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
         }
         return state_dict
 
-    popxl_out, = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
 
 
@@ -58,11 +58,11 @@ def test_conv2D_padding():
     def weights_mapping(variables: NamedTensors):
         state_dict = {
             variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape))
+            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
         }
         return state_dict
 
-    popxl_out, = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
 
     # test explicit paddng
@@ -74,14 +74,14 @@ def test_conv2D_padding():
     def weights_mapping(variables: NamedTensors):
         state_dict = {
             variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape))
+            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
         }
         return state_dict
 
-    popxl_out, = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_conv2D_layer()
     test_conv2D_padding()

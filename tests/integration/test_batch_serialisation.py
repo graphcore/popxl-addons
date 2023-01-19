@@ -9,12 +9,18 @@ from typing import List, Optional, Callable
 
 import popxl_addons as addons
 from popxl_addons.named_tensors import NamedTensors
-from popxl_addons.transforms.batch_serialisation import (batch_serial_buffer, batch_serialise,
-                                                         batch_serialise_fwd_and_grad, RemoteHandle)
+from popxl_addons.transforms.batch_serialisation import (
+    batch_serial_buffer,
+    batch_serialise,
+    batch_serialise_fwd_and_grad,
+    RemoteHandle,
+)
 
 from popxl_addons.layers import Linear, LayerNorm
-from popxl_addons.ops.replicated_all_reduce_TP import (replicated_all_reduce_identical_inputs,
-                                                       replicated_all_reduce_identical_grad_inputs)
+from popxl_addons.ops.replicated_all_reduce_TP import (
+    replicated_all_reduce_identical_inputs,
+    replicated_all_reduce_identical_grad_inputs,
+)
 from popxl_addons.patterns import apply_pre_alias_patterns
 import popart
 from popxl.transforms.autodiff import ExpectedConnectionType
@@ -27,7 +33,7 @@ class Scale(addons.Module):
         return x * scale
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_fwd_single(io_mode):
     ir = popxl.Ir()
     opts = ir._pb_ir.getSessionOptions()
@@ -48,9 +54,9 @@ def test_batch_serialisation_fwd_single(io_mode):
             bf,
             load_handles={graph.graph.inputs[0]: in_h2d},
             store_streams={},
-            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0)
-                           for t in graph.graph.outputs},
-            io_mode=io_mode)
+            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0) for t in graph.graph.outputs},
+            io_mode=io_mode,
+        )
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
@@ -73,7 +79,7 @@ def test_batch_serialisation_fwd_single(io_mode):
     np.testing.assert_equal(inputs * 2, outputs)
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_entries(io_mode):
     ir = popxl.Ir()
     opts = ir._pb_ir.getSessionOptions()
@@ -94,10 +100,10 @@ def test_batch_serialisation_entries(io_mode):
             bf,
             load_handles={graph.graph.inputs[0]: in_h2d},
             store_streams={},
-            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0)
-                           for t in graph.graph.outputs},
+            store_buffers={t: (batch_serial_buffer(t, steps=bf), 0) for t in graph.graph.outputs},
             rows=2,
-            io_mode=io_mode)
+            io_mode=io_mode,
+        )
 
         # Create variables and bind
         scale = bs_result.graph.bind(args.init())
@@ -120,7 +126,7 @@ def test_batch_serialisation_entries(io_mode):
     np.testing.assert_equal(inputs * 2, outputs)
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_sequence(io_mode):
     ir = popxl.Ir()
     opts = ir._pb_ir.getSessionOptions()
@@ -138,27 +144,33 @@ def test_batch_serialisation_sequence(io_mode):
 
         # Transform graphs
         buffer = batch_serial_buffer(graph.graph.outputs[0], steps=bf)
-        bs_load = batch_serialise(graph,
-                                  bf,
-                                  load_handles={graph.graph.inputs[0]: in_h2d},
-                                  store_streams={},
-                                  store_buffers={graph.graph.outputs[0]: (buffer, 0)},
-                                  io_mode=io_mode)
+        bs_load = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: in_h2d},
+            store_streams={},
+            store_buffers={graph.graph.outputs[0]: (buffer, 0)},
+            io_mode=io_mode,
+        )
 
-        bs_remote = batch_serialise(graph,
-                                    bf,
-                                    load_handles={graph.graph.inputs[0]: (buffer, 0)},
-                                    store_streams={},
-                                    store_buffers={graph.graph.outputs[0]: (buffer, 1)},
-                                    rows=2,
-                                    io_mode=io_mode)
+        bs_remote = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: (buffer, 0)},
+            store_streams={},
+            store_buffers={graph.graph.outputs[0]: (buffer, 1)},
+            rows=2,
+            io_mode=io_mode,
+        )
 
-        bs_store = batch_serialise(graph,
-                                   bf,
-                                   load_handles={graph.graph.inputs[0]: (buffer, 2)},
-                                   store_streams={graph.graph.outputs[0]: out_d2h},
-                                   store_buffers={},
-                                   io_mode=io_mode)
+        bs_store = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: (buffer, 2)},
+            store_streams={graph.graph.outputs[0]: out_d2h},
+            store_buffers={},
+            io_mode=io_mode,
+        )
 
         # Create variables and bind
         var = args.init()
@@ -183,7 +195,7 @@ def test_batch_serialisation_sequence(io_mode):
     np.testing.assert_equal(inputs * (2**4), outputs)
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_grad(io_mode):
     cb = 2
     bf = 4
@@ -202,9 +214,9 @@ def test_batch_serialisation_grad(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = Linear(2).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
 
             # --- Create variables and bind
             weights = args.init()
@@ -217,8 +229,9 @@ def test_batch_serialisation_grad(io_mode):
                 # Call forward
                 fwd_info = fwd.call_with_info(x)
                 # Call gradient
-                dx, = grad.call(popxl.constant(grad_inputs.reshape(-1, 2)),
-                                args=dgraph.grad_graph_info.inputs_dict(fwd_info))
+                (dx,) = grad.call(
+                    popxl.constant(grad_inputs.reshape(-1, 2)), args=dgraph.grad_graph_info.inputs_dict(fwd_info)
+                )
 
                 ops.host_store(out_d2h, dx)
 
@@ -240,24 +253,23 @@ def test_batch_serialisation_grad(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = Linear(2).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
 
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
             grad_buffer = batch_serial_buffer(input_grad, steps=bf)
-            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
-                                                           dgraph,
-                                                           graph.args,
-                                                           bf,
-                                                           load_handles={
-                                                               graph.graph.inputs[0]: in_h2d,
-                                                               input_grad: (grad_buffer, 0)
-                                                           },
-                                                           store_streams={dgraph.graph.outputs[0]: out_d2h},
-                                                           store_buffers={},
-                                                           io_mode=io_mode)
+            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(
+                graph,
+                dgraph,
+                graph.args,
+                bf,
+                load_handles={graph.graph.inputs[0]: in_h2d, input_grad: (grad_buffer, 0)},
+                store_streams={dgraph.graph.outputs[0]: out_d2h},
+                store_buffers={},
+                io_mode=io_mode,
+            )
 
             # --- Create variables and bind
             weights = args.init()
@@ -290,7 +302,7 @@ def test_batch_serialisation_grad(io_mode):
     np.testing.assert_almost_equal(norm.reshape(-1), bs.reshape(-1))
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_rb_only_grad(io_mode):
     cb = 2
     bf = 4
@@ -309,9 +321,9 @@ def test_batch_serialisation_rb_only_grad(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = Linear(2).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
 
             # --- Create variables and bind
             weights = args.init()
@@ -324,8 +336,9 @@ def test_batch_serialisation_rb_only_grad(io_mode):
                 # Call forward
                 fwd_info = fwd.call_with_info(x)
                 # Call gradient
-                dx, = grad.call(popxl.constant(grad_inputs.reshape(-1, 2)),
-                                args=dgraph.grad_graph_info.inputs_dict(fwd_info))
+                (dx,) = grad.call(
+                    popxl.constant(grad_inputs.reshape(-1, 2)), args=dgraph.grad_graph_info.inputs_dict(fwd_info)
+                )
 
                 ops.host_store(out_d2h, dx)
 
@@ -347,26 +360,25 @@ def test_batch_serialisation_rb_only_grad(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = Linear(2).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
 
             input_rb = popxl.remote_buffer(in_h2d.shape, in_h2d.dtype, bf)
 
             # --- Transform graphs
             input_grad = dgraph.graph.inputs[0]
             grad_buffer = batch_serial_buffer(input_grad, steps=bf)
-            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
-                                                           dgraph,
-                                                           graph.args,
-                                                           bf,
-                                                           load_handles={
-                                                               graph.graph.inputs[0]: (input_rb, 0),
-                                                               input_grad: (grad_buffer, 0)
-                                                           },
-                                                           store_streams={dgraph.graph.outputs[0]: out_d2h},
-                                                           store_buffers={},
-                                                           io_mode=io_mode)
+            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(
+                graph,
+                dgraph,
+                graph.args,
+                bf,
+                load_handles={graph.graph.inputs[0]: (input_rb, 0), input_grad: (grad_buffer, 0)},
+                store_streams={dgraph.graph.outputs[0]: out_d2h},
+                store_buffers={},
+                io_mode=io_mode,
+            )
 
             # --- Create variables and bind
             weights = args.init()
@@ -414,7 +426,7 @@ class FeedForwardTP(addons.Module):
     def build(self, x: popxl.Tensor) -> List[popxl.Tensor]:
         """Identical input (x, seed) and identical output across shards."""
         # ----- Identical computation -----
-        #z = self.ln_2(x)
+        # z = self.ln_2(x)
         z = x
         z = replicated_all_reduce_identical_inputs(z, group=self.replica_grouping.transpose())
 
@@ -425,13 +437,13 @@ class FeedForwardTP(addons.Module):
         z = replicated_all_reduce_identical_grad_inputs(z, group=self.replica_grouping.transpose())
 
         # ----- Identical computation -----
-        self.bias = self.add_variable_input('bias', lambda: np.zeros(z.shape[-1]), z.dtype)
+        self.bias = self.add_variable_input("bias", lambda: np.zeros(z.shape[-1]), z.dtype)
         z = z + self.bias
         z = ops.gelu(z)
         return z
 
 
-@pytest.mark.parametrize('io_mode', ['compute', 'io', 'io_overlapped'])
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_sharded_activations(io_mode):
     cb = 3
     bf = 4
@@ -448,7 +460,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
     grad_inputs = np.random.normal(0, 1, (bf, cb, 16)).astype(np.float32)
     w = np.random.normal(0, 1, (tp, input_size, fc1_shard_size)).astype(np.float32)
     b = np.ones((tp, fc1_shard_size)).astype(np.float32)
-    shared_bias = np.full((fc1_shard_size, ), 2).astype(np.float32)
+    shared_bias = np.full((fc1_shard_size,), 2).astype(np.float32)
 
     def normal():
         ir = popxl.Ir()
@@ -461,9 +473,9 @@ def test_batch_serialisation_sharded_activations(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = FeedForwardTP(tp, dp, tp * fc1_shard_size).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
             # --- Create variables and bind
             weights = args.init()
             fwd = graph.bind(weights)
@@ -475,11 +487,11 @@ def test_batch_serialisation_sharded_activations(io_mode):
                 # Call forward
                 fwd_info = fwd.call_with_info(x)
                 # Call gradient
-                dx, = grad.call(popxl.constant(grad_inputs), args=dgraph.grad_graph_info.inputs_dict(fwd_info))
+                (dx,) = grad.call(popxl.constant(grad_inputs), args=dgraph.grad_graph_info.inputs_dict(fwd_info))
                 ops.host_store(out_d2h, dx)
 
         # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-        apply_pre_alias_patterns(ir, level='default')
+        apply_pre_alias_patterns(ir, level="default")
 
         sess = popxl.Session(ir, "ipu_hw")
 
@@ -502,13 +514,15 @@ def test_batch_serialisation_sharded_activations(io_mode):
             out_d2h = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype, name="out_stream")
             # --- Create graphs
             args, graph = FeedForwardTP(tp, dp, tp * fc1_shard_size).create_graph(in_h2d.spec)
-            dargs, dgraph = addons.autodiff_with_accumulation(graph,
-                                                              graph.args.tensors,
-                                                              grads_required=graph.graph.inputs[:1])
+            dargs, dgraph = addons.autodiff_with_accumulation(
+                graph, graph.args.tensors, grads_required=graph.graph.inputs[:1]
+            )
 
             activations = [
-                i_ec[1].fwd_tensor for i_ec in enumerate(dgraph.grad_graph_info._expected_inputs) if
-                i_ec[1].connection_type == ExpectedConnectionType.Fwd and i_ec[1].fwd_tensor not in graph.args.tensors
+                i_ec[1].fwd_tensor
+                for i_ec in enumerate(dgraph.grad_graph_info._expected_inputs)
+                if i_ec[1].connection_type == ExpectedConnectionType.Fwd
+                and i_ec[1].fwd_tensor not in graph.args.tensors
             ]
             activations_shard_groups = {activations[0]: tp_group}
             # --- Transform graphs
@@ -516,17 +530,16 @@ def test_batch_serialisation_sharded_activations(io_mode):
 
             # all dp replicas will compute on the same data in this case
             grad_buffer = batch_serial_buffer(input_grad, steps=bf, shard_group=tp_group)
-            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(graph,
-                                                           dgraph,
-                                                           graph.args,
-                                                           bf,
-                                                           load_handles={
-                                                               graph.graph.inputs[0]: in_h2d,
-                                                               input_grad: (grad_buffer, 0, tp_group)
-                                                           },
-                                                           store_streams={dgraph.graph.outputs[0]: out_d2h},
-                                                           store_buffers=activations_shard_groups,
-                                                           io_mode=io_mode)
+            bs_fwd, bs_grad = batch_serialise_fwd_and_grad(
+                graph,
+                dgraph,
+                graph.args,
+                bf,
+                load_handles={graph.graph.inputs[0]: in_h2d, input_grad: (grad_buffer, 0, tp_group)},
+                store_streams={dgraph.graph.outputs[0]: out_d2h},
+                store_buffers=activations_shard_groups,
+                io_mode=io_mode,
+            )
             # --- Create variables and bind
             weights = args.init()
             fwd = bs_fwd.graph.bind(weights)
@@ -539,7 +552,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
             def null_context():
                 yield
 
-            tileset = popxl.io_tiles if io_mode == 'io_overlapped' or io_mode == 'io' else null_context
+            tileset = popxl.io_tiles if io_mode == "io_overlapped" or io_mode == "io" else null_context
 
             # --- Create Program
             with popxl.in_sequence():
@@ -547,7 +560,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
                 for i in range(bf):
                     v = popxl.variable(grad_inputs[i])
                     v = ops.collectives.replica_sharded_slice(v, group=tp_group)
-                    if io_mode == 'io_overlapped' or io_mode == 'io':
+                    if io_mode == "io_overlapped" or io_mode == "io":
                         v = ops.io_tile_copy(v)
 
                     with tileset():
@@ -560,7 +573,7 @@ def test_batch_serialisation_sharded_activations(io_mode):
 
         ir.num_host_transfers = bf
         # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-        apply_pre_alias_patterns(ir, level='default')
+        apply_pre_alias_patterns(ir, level="default")
 
         sess = popxl.Session(ir, "ipu_hw")
         with sess:
@@ -573,5 +586,5 @@ def test_batch_serialisation_sharded_activations(io_mode):
     np.testing.assert_almost_equal(norm.reshape(-1), bs.reshape(-1))
 
 
-if __name__ == '__main__':
-    test_batch_serialisation_sharded_activations('compute')
+if __name__ == "__main__":
+    test_batch_serialisation_sharded_activations("compute")

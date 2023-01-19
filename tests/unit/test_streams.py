@@ -7,7 +7,7 @@ import popxl_addons as addons
 def test_input_streams():
     ir = popxl.Ir()
     with ir.main_graph:
-        inputs = addons.InputStreams(x=((1, 4), popxl.float32), y=((4, ), popxl.int32))
+        inputs = addons.InputStreams(x=((1, 4), popxl.float32), y=((4,), popxl.int32))
 
     assert isinstance(inputs.x, popxl.HostToDeviceStream)
     assert isinstance(inputs.y, popxl.HostToDeviceStream)
@@ -22,7 +22,7 @@ def test_input_streams():
 def test_output_streams():
     ir = popxl.Ir()
     with ir.main_graph:
-        outputs = addons.OutputStreams(x=((1, 4), popxl.float32), y=((4, ), popxl.int32))
+        outputs = addons.OutputStreams(x=((1, 4), popxl.float32), y=((4,), popxl.int32))
 
     assert isinstance(outputs.x, popxl.DeviceToHostStream)
     assert isinstance(outputs.y, popxl.DeviceToHostStream)

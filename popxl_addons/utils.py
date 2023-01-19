@@ -11,6 +11,7 @@ from contextlib import contextmanager
 WANDB_IMPORTED = False
 try:
     import wandb
+
     WANDB_IMPORTED = True
 except ImportError:
     pass
@@ -41,11 +42,11 @@ def timer(title=None, log_to_wandb=True):
     logging.info(f'Starting {title or ""}')
     yield
     duration_in_mins = (time.perf_counter() - t) / 60
-    prefix = f'{title} duration' if title else 'Duration'
-    logging.info(f'{prefix}: {duration_in_mins:.2f} mins')
+    prefix = f"{title} duration" if title else "Duration"
+    logging.info(f"{prefix}: {duration_in_mins:.2f} mins")
     if log_to_wandb and title and WANDB_IMPORTED and wandb.run is not None:
         # `wandb.run` is not None when `wandb.init` been called
-        title_ = title.lower().replace(' ', '_') + '_mins'
+        title_ = title.lower().replace(" ", "_") + "_mins"
         wandb.run.summary[title_] = duration_in_mins
 
 
@@ -62,10 +63,10 @@ class OrderedDict(collections.OrderedDict, typing.MutableMapping[_KT, _VT]):
 
     def __repr__(self):
         if len(self):
-            out = '{\n'
+            out = "{\n"
         else:
-            out = '{'
+            out = "{"
         for k, v in self.items():
-            out += f'{k}: {v},\n'
-        out += '}'
+            out += f"{k}: {v},\n"
+        out += "}"
         return out

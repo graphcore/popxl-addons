@@ -27,13 +27,15 @@ logger = logging.getLogger(__name__)
 
 
 class VariableFactory:
-    def __init__(self,
-                 data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                 dtype: Optional[dtypes.dtype] = None,
-                 name: Optional[str] = None,
-                 by_ref: bool = False,
-                 replica_grouping: Optional[ReplicaGrouping] = None,
-                 shard_over: int = 1):
+    def __init__(
+        self,
+        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+        dtype: Optional[dtypes.dtype] = None,
+        name: Optional[str] = None,
+        by_ref: bool = False,
+        replica_grouping: Optional[ReplicaGrouping] = None,
+        shard_over: int = 1,
+    ):
         """
         Generates variable tensors for a subgraph from a host tensor data iterator.
 
@@ -71,9 +73,11 @@ class VariableFactory:
             data_iter_ = data_iter
 
         if not isinstance(data_iter_, Iterable):
-            raise ValueError("`data_iter` must be an iterable or callable. "
-                             "If you want your data to be the same for all tensor instances "
-                             "wrap it in a lambda function e.g. `lambda: data`")
+            raise ValueError(
+                "`data_iter` must be an iterable or callable. "
+                "If you want your data to be the same for all tensor instances "
+                "wrap it in a lambda function e.g. `lambda: data`"
+            )
 
         self.data_iter: peekable[HostTensor] = peekable(data_iter_)
         self.name = name
@@ -83,8 +87,9 @@ class VariableFactory:
 
         data_peek = self.data_iter.peek()
         if not isinstance(data_peek, tuple(host_scalar_tensor_types)):
-            raise ValueError(f"`data_iter` must be of a numpy array, torch tensor or iterable. "
-                             f"It provided: {data_peek}.")
+            raise ValueError(
+                f"`data_iter` must be of a numpy array, torch tensor or iterable. " f"It provided: {data_peek}."
+            )
 
         self.dtype = dtype or dtypes.dtype.as_dtype(data_peek)
 
@@ -93,22 +98,22 @@ class VariableFactory:
         if self.replica_sharded:
             self.meta_shape = self.shape
             assert shard_over <= self.replica_grouping.group_size
-            self.shape = (int(np.prod(self.meta_shape)) // shard_over, )
+            self.shape = (int(np.prod(self.meta_shape)) // shard_over,)
 
     def create_input(self, prefix: Optional[str] = None) -> popxl.Tensor:
         """Create a subgraph input for the current graph."""
         name = self.name if prefix is None else f"{prefix}.{self.name}"
-        return popxl.graph_input(shape=self.shape,
-                                 dtype=self.dtype,
-                                 name=name,
-                                 by_ref=self.by_ref,
-                                 meta_shape=self.meta_shape)
+        return popxl.graph_input(
+            shape=self.shape, dtype=self.dtype, name=name, by_ref=self.by_ref, meta_shape=self.meta_shape
+        )
 
-    def create_tensor(self,
-                      name: Optional[str] = None,
-                      empty: bool = False,
-                      memmap_dir: Optional[str] = None,
-                      read_only_if_exists: bool = False):
+    def create_tensor(
+        self,
+        name: Optional[str] = None,
+        empty: bool = False,
+        memmap_dir: Optional[str] = None,
+        read_only_if_exists: bool = False,
+    ):
         """
         Create a new tensor for the current graph.
 
@@ -126,13 +131,15 @@ class VariableFactory:
 
         return popxl.variable(data, self.dtype, name, replica_grouping=self.replica_grouping)
 
-    def create_remote_tensor(self,
-                             buffer: popxl.RemoteBuffer,
-                             entry: int,
-                             name: Optional[str] = None,
-                             empty: bool = False,
-                             memmap_dir: Optional[str] = None,
-                             read_only_if_exists: bool = False):
+    def create_remote_tensor(
+        self,
+        buffer: popxl.RemoteBuffer,
+        entry: int,
+        name: Optional[str] = None,
+        empty: bool = False,
+        memmap_dir: Optional[str] = None,
+        read_only_if_exists: bool = False,
+    ):
         name = name or self.name
         if memmap_dir:
             data: HostTensor = self.next_memmap(memmap_dir, name, empty, read_only_if_exists)
@@ -140,12 +147,9 @@ class VariableFactory:
             data: HostTensor = self.next_data(empty)
 
         if buffer.meta_shape:
-            return popxl.remote_replica_sharded_variable(data,
-                                                         buffer,
-                                                         entry,
-                                                         self.dtype,
-                                                         name,
-                                                         replica_grouping=self.replica_grouping)
+            return popxl.remote_replica_sharded_variable(
+                data, buffer, entry, self.dtype, name, replica_grouping=self.replica_grouping
+            )
         else:
             return popxl.remote_variable(data, buffer, entry, self.dtype, name, replica_grouping=self.replica_grouping)
 
@@ -160,7 +164,8 @@ class VariableFactory:
             return next_()
         else:
             return np.concatenate(
-                [to_numpy(next_(), copy=False)[np.newaxis, ...] for _ in range(self.replica_grouping.num_groups)])
+                [to_numpy(next_(), copy=False)[np.newaxis, ...] for _ in range(self.replica_grouping.num_groups)]
+            )
 
     def next_memmap(self, memmap_dir: str, name: str, empty: bool = False, read_only_if_exists: bool = False):
         # Protect against instances racing to create directory
@@ -178,7 +183,7 @@ class VariableFactory:
         # All other ranks will wait for this to finish before reading the file
         if not os.path.exists(path) and popdist.getInstanceIndex() == 0:
             logger.debug(f"Creating new memmaped variable file (w+): {path}")
-            data = np.memmap(path, dtype=self.dtype.as_numpy(), shape=shape, mode='w+')
+            data = np.memmap(path, dtype=self.dtype.as_numpy(), shape=shape, mode="w+")
             if not empty:
                 np.copyto(data, self.next_data(empty))
             if popdist.isPopdistEnvSet():
@@ -186,7 +191,7 @@ class VariableFactory:
         else:
             if popdist.isPopdistEnvSet():
                 MPI.COMM_WORLD.Barrier()
-            mode = 'r' if read_only_if_exists else 'r+'
+            mode = "r" if read_only_if_exists else "r+"
             logger.debug(f"Using existing memmaped variable file ({mode}): {path}")
             data = np.memmap(path, dtype=self.dtype.as_numpy(), shape=shape, mode=mode)
 
@@ -194,18 +199,20 @@ class VariableFactory:
 
 
 class NamedVariableFactories(DotTree[VariableFactory]):
-    """A `DotTree` collection of VariableFactories """
+    """A `DotTree` collection of VariableFactories"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._init_zero_graph: Optional[GraphWithNamedArgs] = None
         self._init_zero_names: Optional[List[str]] = None
 
-    def init(self,
-             prefix: Optional[str] = None,
-             empty: bool = False,
-             memmap_dir: Optional[str] = None,
-             read_only_if_exists: bool = False) -> NamedTensors:
+    def init(
+        self,
+        prefix: Optional[str] = None,
+        empty: bool = False,
+        memmap_dir: Optional[str] = None,
+        read_only_if_exists: bool = False,
+    ) -> NamedTensors:
         """Construct tensors for each VariableFactory.
 
         The tensors are created in alphabetical order to generate the data deterministically.
@@ -229,13 +236,15 @@ class NamedVariableFactories(DotTree[VariableFactory]):
             inputs[name] = value.create_tensor(prefixed, empty, memmap_dir, read_only_if_exists)
         return NamedTensors.from_dict(inputs)
 
-    def init_remote(self,
-                    buffers: "NamedRemoteBuffers",
-                    entry: int = 0,
-                    prefix: Optional[str] = None,
-                    empty: bool = False,
-                    memmap_dir: Optional[str] = None,
-                    read_only_if_exists: bool = False) -> NamedTensors:
+    def init_remote(
+        self,
+        buffers: "NamedRemoteBuffers",
+        entry: int = 0,
+        prefix: Optional[str] = None,
+        empty: bool = False,
+        memmap_dir: Optional[str] = None,
+        read_only_if_exists: bool = False,
+    ) -> NamedTensors:
         """Construct remote variables for each VariableFactory using the buffer with a matching name in `buffers`.
 
         The tensors are created in alphabetical order to generate the data deterministically.
@@ -255,8 +264,9 @@ class NamedVariableFactories(DotTree[VariableFactory]):
         buffers_ = buffers.to_dict()
         for name, factory in sorted(self.to_dict().items()):
             prefixed = f"{prefix}.{name}" if prefix else name
-            variables[name] = factory.create_remote_tensor(buffers_[name], entry, prefixed, empty, memmap_dir,
-                                                           read_only_if_exists)
+            variables[name] = factory.create_remote_tensor(
+                buffers_[name], entry, prefixed, empty, memmap_dir, read_only_if_exists
+            )
         return NamedTensors.from_dict(variables)
 
     def init_zero(self) -> NamedTensors:
@@ -291,11 +301,11 @@ class NamedVariableFactories(DotTree[VariableFactory]):
 
 
 def add_variable_input(
-        name: str,
-        data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-        dtype: Optional[dtypes.dtype] = None,
-        by_ref: bool = False,
-        replica_grouping: Optional[ReplicaGrouping] = None,
+    name: str,
+    data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+    dtype: Optional[dtypes.dtype] = None,
+    by_ref: bool = False,
+    replica_grouping: Optional[ReplicaGrouping] = None,
 ) -> Tuple[popxl.Tensor, VariableFactory]:
     """Create a VariableFactory and graph_input in the current graph."""
     input_f = VariableFactory(data_iter, dtype, name, by_ref, replica_grouping=replica_grouping)
@@ -303,15 +313,17 @@ def add_variable_input(
     return tensor, input_f
 
 
-def add_replica_sharded_variable_input(name: str,
-                                       data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
-                                       dtype: Optional[dtypes.dtype] = None,
-                                       by_ref: bool = False,
-                                       replica_grouping: Optional[ReplicaGrouping] = None,
-                                       shard_over: Optional[int] = None) -> Tuple[popxl.Tensor, VariableFactory]:
-    """Create a VariableFactory and replica sharded graph_input in the current graph. 
-        If no `replica_grouping` is specified, assume the variable is the same on all replicas. 
-        If `shard_over` is not provided, all replicas in replica_grouping will be used for sharding. 
+def add_replica_sharded_variable_input(
+    name: str,
+    data_iter: Union[Callable[[None], HostTensor], Iterable[HostTensor]],
+    dtype: Optional[dtypes.dtype] = None,
+    by_ref: bool = False,
+    replica_grouping: Optional[ReplicaGrouping] = None,
+    shard_over: Optional[int] = None,
+) -> Tuple[popxl.Tensor, VariableFactory]:
+    """Create a VariableFactory and replica sharded graph_input in the current graph.
+    If no `replica_grouping` is specified, assume the variable is the same on all replicas.
+    If `shard_over` is not provided, all replicas in replica_grouping will be used for sharding.
     """
     group = replica_grouping or popxl.gcg().ir.replica_grouping()
     shard_over = shard_over or group.group_size

@@ -30,7 +30,7 @@ def build_session():
         x = popxl.constant(np.random.rand(100))
         facts, g = MockModel().create_graph(x)
         vars = facts.init()
-        x, = g.bind(vars).call(x)
+        (x,) = g.bind(vars).call(x)
 
     session = TaskSession(inputs=[], outputs=[], state=vars, ir=ir, device_desc="ipu_hw")
     return session
@@ -46,10 +46,11 @@ def test_save_load_ckpt():
 
         files = glob.glob(os.path.join(ckpt_dir, "model", "*.npz"))
         assert len(files) == len(
-            session.state.keys_flat()), f"expected {len(session.state.keys_flat())} found {len(files)}"
+            session.state.keys_flat()
+        ), f"expected {len(session.state.keys_flat())} found {len(files)}"
         session2 = build_session()
         try:
-            session2.load_checkpoint(ckpt_dir, report_missing='error')
+            session2.load_checkpoint(ckpt_dir, report_missing="error")
         except ValueError as e:
             assert e is None
 
@@ -64,17 +65,18 @@ def test_missing_key():
 
         files = glob.glob(os.path.join(ckpt_dir, "model", "*.npz"))
         assert len(files) == len(
-            session.state.keys_flat()), f"expected {len(session.state.keys_flat())} found {len(files)}"
+            session.state.keys_flat()
+        ), f"expected {len(session.state.keys_flat())} found {len(files)}"
         os.remove(os.path.join(ckpt_dir, "model", "l2.weight.npz"))
 
         session2 = build_session()
         try:
-            session2.load_checkpoint(ckpt_dir, report_missing='error')
+            session2.load_checkpoint(ckpt_dir, report_missing="error")
         except ValueError as e:
             print(e)
             assert e is not None
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_save_load_ckpt()
     test_missing_key()

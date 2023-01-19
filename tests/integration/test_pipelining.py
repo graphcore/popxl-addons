@@ -76,8 +76,9 @@ class Linear(Module):
 
     def build(self, x: popxl.Tensor) -> popxl.Tensor:
         x = x + 1
-        w = self.add_variable_input("weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)),
-                                    x.dtype)
+        w = self.add_variable_input(
+            "weight", partial(np.random.normal, 0, 0.02, (x.shape[-1], self.out_features)), x.dtype
+        )
         return x @ w
 
 
@@ -153,9 +154,9 @@ def test_pipeline_training():
                     x = x.copy_to_ipu(0)
 
                 with p.stage(2), popxl.ipu(0):
-                    dlinear_graph.bind(dlinear).call(x,
-                                                     args=p.stash_and_restore_activations(
-                                                         call_info, dlinear_graph.grad_graph_info))
+                    dlinear_graph.bind(dlinear).call(
+                        x, args=p.stash_and_restore_activations(call_info, dlinear_graph.grad_graph_info)
+                    )
 
         device_iterations = steps
         ir.num_host_transfers = device_iterations

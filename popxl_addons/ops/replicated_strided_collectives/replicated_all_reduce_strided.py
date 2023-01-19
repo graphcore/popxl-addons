@@ -2,6 +2,7 @@
 
 # Auto compile cpp files
 import cppimport.import_hook
+
 # You need to use `from . import` here and then in the directory `__init__.py` include the necessary functions
 from . import replicated_all_reduce_strided_binding
 
@@ -15,14 +16,17 @@ from popxl_addons import NamedTensors, GraphWithNamedArgs
 from popxl_addons.utils import null_context
 
 __all__ = [
-    "replicated_all_reduce_strided", "replicated_all_reduce_strided_identical_inputs",
-    "replicated_all_reduce_strided_identical_grad_inputs", "replicated_all_reduce_strided_graph"
+    "replicated_all_reduce_strided",
+    "replicated_all_reduce_strided_identical_inputs",
+    "replicated_all_reduce_strided_identical_grad_inputs",
+    "replicated_all_reduce_strided_graph",
 ]
 
 
 @op_debug_context
-def replicated_all_reduce_strided(t: Tensor, op: CollectiveOps = "add",
-                                  group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce_strided(
+    t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None
+) -> Tensor:
     """
     Replicated all reduce.
 
@@ -44,9 +48,9 @@ def replicated_all_reduce_strided(t: Tensor, op: CollectiveOps = "add",
 
 
 @op_debug_context
-def replicated_all_reduce_strided_identical_inputs(t: Tensor,
-                                                   op: CollectiveOps = "add",
-                                                   group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce_strided_identical_inputs(
+    t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None
+) -> Tensor:
     """
     Replicated all reduce.
 
@@ -71,9 +75,9 @@ def replicated_all_reduce_strided_identical_inputs(t: Tensor,
 
 
 @op_debug_context
-def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor,
-                                                        op: CollectiveOps = "add",
-                                                        group: Optional[ReplicaGrouping] = None) -> Tensor:
+def replicated_all_reduce_strided_identical_grad_inputs(
+    t: Tensor, op: CollectiveOps = "add", group: Optional[ReplicaGrouping] = None
+) -> Tensor:
     """
     Replicated all reduce.
 
@@ -98,11 +102,11 @@ def replicated_all_reduce_strided_identical_grad_inputs(t: Tensor,
 
 
 def _replicated_all_reduce_strided(
-        t: Tensor,
-        op: CollectiveOps,
-        group: Optional[ReplicaGrouping],
-        identical_inputs: bool,
-        identical_grad_inputs: bool,
+    t: Tensor,
+    op: CollectiveOps,
+    group: Optional[ReplicaGrouping],
+    identical_inputs: bool,
+    identical_grad_inputs: bool,
 ) -> Tensor:
     op_ = to_collective_op(op)  # Only add is currently supported
 
@@ -140,10 +144,12 @@ def _replicated_all_reduce_strided(
     return Tensor._from_pb_tensor(op.outTensor(0))
 
 
-def replicated_all_reduce_strided_graph(tensors: NamedTensors,
-                                        op: CollectiveOps = 'add',
-                                        group: Optional[ReplicaGrouping] = None,
-                                        use_io_tiles: bool = False) -> Tuple[GraphWithNamedArgs, List[str]]:
+def replicated_all_reduce_strided_graph(
+    tensors: NamedTensors,
+    op: CollectiveOps = "add",
+    group: Optional[ReplicaGrouping] = None,
+    use_io_tiles: bool = False,
+) -> Tuple[GraphWithNamedArgs, List[str]]:
     """Create a GraphWithNamedArgs that reduces each Tensor in `tensors` using op.
     The Graph with have a NamedArg for each the tensors in `tensors`.
 

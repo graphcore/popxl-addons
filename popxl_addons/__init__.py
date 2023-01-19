@@ -14,6 +14,7 @@ from .debugging import *
 from .array_munging import *
 
 import git
+
 try:
     repo = git.Repo(search_parent_directories=True)
     sha = repo.head.object.hexsha

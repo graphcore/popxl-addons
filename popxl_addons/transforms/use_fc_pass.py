@@ -5,9 +5,9 @@ __all__ = ["disable_fc_pass", "enable_fc_pass"]
 
 
 def disable_fc_pass(ir: popxl.Ir):
-    """Transform to disable automatic transposition of weights in matmuls.  This 
-    is enabled by default as transposed weights are typically used in the backwards 
-    graph, so are prepared in advanced. However, for inference-only, this consumes 
+    """Transform to disable automatic transposition of weights in matmuls.  This
+    is enabled by default as transposed weights are typically used in the backwards
+    graph, so are prepared in advanced. However, for inference-only, this consumes
     extra memory and can be disabled with `disable_fc_pass`.
 
     Args:

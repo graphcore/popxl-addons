@@ -58,7 +58,7 @@ def test_rotary_embed(rotary_dim):
         info = ops.call_with_info(rot_graph, q_xl, sin, cos)
         q_xl = info.outputs[0]
 
-        dq_xl, = ops.call(drot_info.graph, popxl.constant(to_numpy(q_grad)), inputs_dict=drot_info.inputs_dict(info))
+        (dq_xl,) = ops.call(drot_info.graph, popxl.constant(to_numpy(q_grad)), inputs_dict=drot_info.inputs_dict(info))
 
         q_d2h = addons.host_store(q_xl)
         dq_d2h = addons.host_store(dq_xl)

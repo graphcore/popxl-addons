@@ -23,7 +23,7 @@ def test_run_module():
     def weight_mapping(variables: NamedTensors):
         return {variables.weight: to_numpy(torch_linear.weight.data.T), variables.bias: to_numpy(torch_linear.bias)}
 
-    output_popxl, = run_module(popxl_linear, input_t, weights=weight_mapping)
+    (output_popxl,) = run_module(popxl_linear, input_t, weights=weight_mapping)
 
     np.testing.assert_allclose(output_popxl, output_torch.reshape(output_popxl.shape), rtol=10e-3)
 
@@ -46,11 +46,11 @@ def test_run_module_in_place():
 
     popxl_layer = InPlaceAdd()
 
-    output_popxl, = run_module(popxl_layer, input_t, add_t)
+    (output_popxl,) = run_module(popxl_layer, input_t, add_t)
 
     np.testing.assert_allclose(output_popxl, input_torch, rtol=10e-3)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_run_module()
     test_run_module_in_place()

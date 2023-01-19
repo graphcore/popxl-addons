@@ -6,14 +6,16 @@ import popxl.ops as ops
 import numpy as np
 
 from popxl_addons.ops.replicated_all_reduce_TP.replicated_all_reduce_TP import (
-    replicated_all_reduce_identical_inputs, replicated_all_reduce_identical_grad_inputs)
+    replicated_all_reduce_identical_inputs,
+    replicated_all_reduce_identical_grad_inputs,
+)
 from popxl_addons.patterns import apply_pre_alias_patterns
 
 
 def test_all_reduce_identical_inputs_op():
     n_ipus = 4
 
-    inputs = np.arange(n_ipus * 2 * 3, dtype='float32').reshape((n_ipus, 2, 3))
+    inputs = np.arange(n_ipus * 2 * 3, dtype="float32").reshape((n_ipus, 2, 3))
 
     ir = popxl.Ir()
     ir.replication_factor = n_ipus
@@ -21,7 +23,7 @@ def test_all_reduce_identical_inputs_op():
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         y = replicated_all_reduce_identical_inputs(x)
 
@@ -29,7 +31,7 @@ def test_all_reduce_identical_inputs_op():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    apply_pre_alias_patterns(ir, level='default')
+    apply_pre_alias_patterns(ir, level="default")
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -44,7 +46,7 @@ def test_all_reduce_identical_inputs_op():
 def test_all_reduce_identical_inputs_op_backwards():
     n_ipus = 4
 
-    inputs = np.arange(n_ipus * 2 * 3, dtype='float32').reshape((n_ipus, 2, 3))
+    inputs = np.arange(n_ipus * 2 * 3, dtype="float32").reshape((n_ipus, 2, 3))
 
     ir = popxl.Ir()
     ir.replication_factor = 4
@@ -52,7 +54,7 @@ def test_all_reduce_identical_inputs_op_backwards():
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         all_reduce_graph = ir.create_graph(replicated_all_reduce_identical_inputs, x)
 
@@ -62,13 +64,13 @@ def test_all_reduce_identical_inputs_op_backwards():
 
     with main:
         # call backwards
-        y, = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    apply_pre_alias_patterns(ir, level='default')
+    apply_pre_alias_patterns(ir, level="default")
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -84,7 +86,7 @@ def test_all_reduce_identical_inputs_op_backwards():
 def test_all_reduce_identical_grad_inputs_op():
     n_ipus = 4
 
-    inputs = np.arange(n_ipus * 2 * 3, dtype='float32').reshape((n_ipus, 2, 3))
+    inputs = np.arange(n_ipus * 2 * 3, dtype="float32").reshape((n_ipus, 2, 3))
 
     ir = popxl.Ir()
     ir.replication_factor = n_ipus
@@ -92,7 +94,7 @@ def test_all_reduce_identical_grad_inputs_op():
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         y = replicated_all_reduce_identical_grad_inputs(x)
 
@@ -100,7 +102,7 @@ def test_all_reduce_identical_grad_inputs_op():
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    apply_pre_alias_patterns(ir, level='default')
+    apply_pre_alias_patterns(ir, level="default")
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -116,7 +118,7 @@ def test_all_reduce_identical_grad_inputs_op():
 def test_all_reduce_identical_grad_inputs_op_backwards():
     n_ipus = 4
 
-    inputs = np.arange(n_ipus * 2 * 3, dtype='float32').reshape((n_ipus, 2, 3))
+    inputs = np.arange(n_ipus * 2 * 3, dtype="float32").reshape((n_ipus, 2, 3))
 
     ir = popxl.Ir()
     ir.replication_factor = 4
@@ -124,7 +126,7 @@ def test_all_reduce_identical_grad_inputs_op_backwards():
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         all_reduce_graph = ir.create_graph(replicated_all_reduce_identical_grad_inputs, x)
 
@@ -134,13 +136,13 @@ def test_all_reduce_identical_grad_inputs_op_backwards():
 
     with main:
         # call backwards
-        y, = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
 
     # Run `OpToIdentityPattern` among others part of `PreAliasPatterns`
-    apply_pre_alias_patterns(ir, level='default')
+    apply_pre_alias_patterns(ir, level="default")
 
     with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})
@@ -155,7 +157,7 @@ def test_all_reduce_identical_grad_inputs_op_backwards():
 def test_error_need_to_run_pattern():
     n_ipus = 4
 
-    inputs = np.arange(n_ipus * 2 * 3, dtype='float32').reshape((n_ipus, 2, 3))
+    inputs = np.arange(n_ipus * 2 * 3, dtype="float32").reshape((n_ipus, 2, 3))
 
     ir = popxl.Ir()
     ir.replication_factor = 4
@@ -163,7 +165,7 @@ def test_error_need_to_run_pattern():
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         all_reduce_graph = ir.create_graph(replicated_all_reduce_identical_grad_inputs, x)
 
@@ -173,7 +175,7 @@ def test_error_need_to_run_pattern():
 
     with main:
         # call backwards
-        y, = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)

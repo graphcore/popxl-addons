@@ -13,8 +13,7 @@ namespace popart {
 
 class CrossEntropyShardedOp : public Op {
 public:
-  CrossEntropyShardedOp(const OperatorIdentifier &_opid,
-                        ReplicaGrouping group,
+  CrossEntropyShardedOp(const OperatorIdentifier &_opid, ReplicaGrouping group,
                         float availableMemoryProportion_,
                         const Op::Settings &settings_);
 
@@ -25,18 +24,12 @@ public:
   float getSubgraphValue() const override { return getHighSubgraphValue(); }
 
   static CrossEntropyShardedOp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  ReplicaGrouping group,
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, ReplicaGrouping group,
                   float availableMemoryProportion,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<CrossEntropyShardedOp>(
-        in,
-        out,
-        CrossEntropySharded,
-        group,
-        availableMemoryProportion,
+        in, out, CrossEntropySharded, group, availableMemoryProportion,
         settings);
   }
 

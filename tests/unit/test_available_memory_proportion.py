@@ -40,14 +40,14 @@ def test_graph_available_memory_proportion_by_ipu():
             g = ir.create_graph(mul, a, b)
             c = b
             for i in range(3):
-                c, = ops.call(g, a, c)
+                (c,) = ops.call(g, a, c)
         c1 = c.copy_to_ipu(1)
         with popxl.ipu(1):
             d = popxl.variable(np.ones((2, 2)), dtype=popxl.float32)
             c1 @ d
 
     addons.set_graph_available_memory_proportion_by_ipu(main, [0.1, 0.2])
-    session = popxl.Session(ir, 'ipu_hw')
+    session = popxl.Session(ir, "ipu_hw")
     with session:
         session.run()
 

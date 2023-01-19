@@ -34,7 +34,7 @@ def test_init_memmap():
 
             variables = facts.init("test_model", memmap_dir=memmap_dir)
 
-            y, = g.bind(variables).call(x)
+            (y,) = g.bind(variables).call(x)
             outputs = [host_store(y)]
 
             delta = np.random.normal(0, 1, size=variables.l1.weight.shape)
@@ -57,7 +57,7 @@ def test_reuse_init_memmap():
     with TemporaryDirectory() as memmap_dir:
         ir0 = popxl.Ir()
         with ir0.main_graph:
-            facts0, _ = TestModel().create_graph(popxl.TensorSpec((100, ), popxl.float32))
+            facts0, _ = TestModel().create_graph(popxl.TensorSpec((100,), popxl.float32))
             variables0 = facts0.init("test_model", memmap_dir=memmap_dir)
             # Flush values
             variables0.l1.weight._memmap_arr.base.flush()
@@ -69,7 +69,7 @@ def test_reuse_init_memmap():
             facts, g = TestModel().create_graph(x)
 
             variables = facts.init("test_model", memmap_dir=memmap_dir)
-            y, = g.bind(variables).call(x)
+            (y,) = g.bind(variables).call(x)
             outputs = [host_store(y)]
 
         session = TaskSession(inputs=[x_h2d], outputs=outputs, state=variables, ir=ir, device_desc="ipu_hw")
@@ -95,7 +95,7 @@ def test_init_remote_memmap():
             variables = facts.init_remote(buffers, 0, "test_model", memmap_dir=memmap_dir)
 
             loaded = load_remote(buffers)
-            y, = g.bind(loaded).call(x)
+            (y,) = g.bind(loaded).call(x)
             outputs = [host_store(y)]
 
             delta = np.random.normal(0, 1, size=loaded.l1.weight.shape)
@@ -116,7 +116,7 @@ def test_init_remote_memmap():
         np.testing.assert_almost_equal(before + delta, session.get_tensor_data(session.state.l1.weight), 6)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_init_memmap()
     test_reuse_init_memmap()
     test_init_remote_memmap()

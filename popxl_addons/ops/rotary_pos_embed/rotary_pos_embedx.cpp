@@ -1,11 +1,11 @@
 // Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-#include <poplar/Tensor.hpp>
 #include <popart/error.hpp>
 #include <popart/popx/devicex.hpp>
 #include <popart/popx/irlowering.hpp>
 #include <popart/popx/opx.hpp>
 #include <popart/popx/opxmanager.hpp>
 #include <popart/util.hpp>
+#include <poplar/Tensor.hpp>
 
 #include <poplar/Graph.hpp>
 #include <poplar/Tensor.hpp>
@@ -46,59 +46,47 @@ namespace {
 
 namespace pe = popops::expr;
 
-poplar::Tensor rotateTensor(poplar::Graph &graph,
-                            poplar::Tensor &x,
-                            poplar::Tensor &sin,
-                            poplar::Tensor &cos,
+poplar::Tensor rotateTensor(poplar::Graph &graph, poplar::Tensor &x,
+                            poplar::Tensor &sin, poplar::Tensor &cos,
                             poplar::program::Sequence &prog) {
   // Get interleave real/img parts
   std::vector<size_t> new_shape(x.shape());
   new_shape[3] = x.shape()[3] / 2;
   new_shape.push_back(2);
   auto x_reshaped = x.reshape(new_shape);
-  auto x_real     = x_reshaped.slice({0, 1}, 4);
-  auto x_img      = x_reshaped.slice({1, 2}, 4);
+  auto x_real = x_reshaped.slice({0, 1}, 4);
+  auto x_img = x_reshaped.slice({1, 2}, 4);
   // Include broadcast dims
   sin = sin.expand({2, 3});
   cos = cos.expand({2, 3});
   // y_real = x_real * cos - x_img * sin;
-  auto y_real = popops::map(graph,
-                            (pe::_1 * pe::_4) - (pe::_2 * pe::_3),
-                            {x_real, x_img, sin, cos},
-                            prog);
+  auto y_real = popops::map(graph, (pe::_1 * pe::_4) - (pe::_2 * pe::_3),
+                            {x_real, x_img, sin, cos}, prog);
   // y_img = x_img * cos + x_real * sin;
-  auto y_img = popops::map(graph,
-                           (pe::_2 * pe::_4) + (pe::_1 * pe::_3),
-                           {x_real, x_img, sin, cos},
-                           prog);
+  auto y_img = popops::map(graph, (pe::_2 * pe::_4) + (pe::_1 * pe::_3),
+                           {x_real, x_img, sin, cos}, prog);
 
   return poplar::concat({y_real, y_img}, 4).reshape(x.shape());
 }
-poplar::Tensor rotateGradTensor(poplar::Graph &graph,
-                                poplar::Tensor &x,
-                                poplar::Tensor &sin,
-                                poplar::Tensor &cos,
+poplar::Tensor rotateGradTensor(poplar::Graph &graph, poplar::Tensor &x,
+                                poplar::Tensor &sin, poplar::Tensor &cos,
                                 poplar::program::Sequence &prog) {
   // Get interleave real/img parts
   std::vector<size_t> new_shape(x.shape());
   new_shape[3] = x.shape()[3] / 2;
   new_shape.push_back(2);
   auto x_reshaped = x.reshape(new_shape);
-  auto x_real     = x_reshaped.slice({0, 1}, 4);
-  auto x_img      = x_reshaped.slice({1, 2}, 4);
+  auto x_real = x_reshaped.slice({0, 1}, 4);
+  auto x_img = x_reshaped.slice({1, 2}, 4);
   // Include broadcast dims
   sin = sin.expand({2, 3});
   cos = cos.expand({2, 3});
   // y_real = x_real * cos_reshape + x_img * sin_reshape;
-  auto y_real = popops::map(graph,
-                            (pe::_1 * pe::_4) + (pe::_2 * pe::_3),
-                            {x_real, x_img, sin, cos},
-                            prog);
+  auto y_real = popops::map(graph, (pe::_1 * pe::_4) + (pe::_2 * pe::_3),
+                            {x_real, x_img, sin, cos}, prog);
   // y_img = x_img * cos_reshape - x_real * sin_reshape;
-  auto y_img = popops::map(graph,
-                           (pe::_2 * pe::_4) - (pe::_1 * pe::_3),
-                           {x_real, x_img, sin, cos},
-                           prog);
+  auto y_img = popops::map(graph, (pe::_2 * pe::_4) - (pe::_1 * pe::_3),
+                           {x_real, x_img, sin, cos}, prog);
 
   return poplar::concat({y_real, y_img}, 4).reshape(x.shape());
 }
@@ -116,7 +104,7 @@ RotaryPosEmbedOpx::RotaryPosEmbedOpx(Op *op, Devicex *devicex)
 void RotaryPosEmbedOpx::grow(poplar::program::Sequence &prog) const {
   auto rotary_dim = getOp<RotaryPosEmbedOp>().rotary_dim;
 
-  auto x   = getInTensor(0);
+  auto x = getInTensor(0);
   auto sin = getInTensor(1);
   auto cos = getInTensor(2);
 
@@ -150,8 +138,8 @@ void RotaryPosEmbedGradOpx::grow(poplar::program::Sequence &prog) const {
   auto rotary_dim = getOp<RotaryPosEmbedGradOp>().rotary_dim;
 
   auto dx_rotated = getInTensor(0);
-  auto sin        = getInTensor(1);
-  auto cos        = getInTensor(2);
+  auto sin = getInTensor(1);
+  auto cos = getInTensor(2);
 
   auto dx = dx_rotated;
   if (rotary_dim < dx_rotated.dim(3)) {

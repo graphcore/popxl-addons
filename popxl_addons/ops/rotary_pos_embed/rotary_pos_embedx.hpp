@@ -2,9 +2,9 @@
 #ifndef GUARD_NEURALNET_ROTARYPOSEMBEDX_HPP
 #define GUARD_NEURALNET_ROTARYPOSEMBEDX_HPP
 
-#include <vector>
 #include <popart/names.hpp>
 #include <popart/popx/opx.hpp>
+#include <vector>
 
 namespace popart {
 namespace popx {

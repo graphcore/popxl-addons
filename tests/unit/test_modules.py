@@ -16,7 +16,7 @@ class Linear(Module):
 
     def build(self, x: popxl.Tensor):
         w = self.add_variable_input("w", partial(np.zeros, (x.shape[-1], self.features)), popxl.float32)
-        b = self.add_variable_input("b", partial(np.zeros, (self.features, )), popxl.float32)
+        b = self.add_variable_input("b", partial(np.zeros, (self.features,)), popxl.float32)
         return (x @ w) + b
 
 
@@ -48,8 +48,8 @@ def test_linear_reuse_module():
         layer1 = graph.bind(args.init())
         layer2 = graph.bind(args.init())
 
-        y, = layer1.call(x)
-        z, = layer2.call(y)
+        (y,) = layer1.call(x)
+        (z,) = layer2.call(y)
 
     assert len(ir._pb_ir.getAllGraphs()) == 2
 
@@ -63,17 +63,17 @@ def test_linear_autodiff():
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph,
-                                                           graph.args.tensors,
-                                                           grads_required=[graph.graph.inputs[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(
+            graph, graph.args.tensors, grads_required=[graph.graph.inputs[0]]
+        )
 
         layer = graph.bind(args.init())
         grad_layer = grad_graph.bind(grad_args.init())
 
         call_info = layer.call_with_info(x)
-        y, = call_info.outputs
+        (y,) = call_info.outputs
 
-        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
+        (dx,) = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
 
     assert len(ir._pb_ir.getAllGraphs()) == 3
 
@@ -87,9 +87,9 @@ def test_linear_recompute():
 
         args, graph = Linear(10).create_graph(x)
 
-        grad_args, grad_graph = autodiff_with_accumulation(graph,
-                                                           graph.args.tensors,
-                                                           grads_required=[graph.graph.inputs[0]])
+        grad_args, grad_graph = autodiff_with_accumulation(
+            graph, graph.args.tensors, grads_required=[graph.graph.inputs[0]]
+        )
 
         grad_graph = recompute_graph(grad_graph)
 
@@ -97,9 +97,9 @@ def test_linear_recompute():
         grad_layer = grad_graph.bind(grad_args.init())
 
         call_info = layer.call_with_info(x)
-        y, = call_info.outputs
+        (y,) = call_info.outputs
 
-        dx, = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
+        (dx,) = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
 
     assert len(ir._pb_ir.getAllGraphs()) == 4
 
@@ -143,7 +143,7 @@ class DoubleLinearOutlined(Module):
         args, graph = Linear(10).create_graph(x)
 
         args1 = self.add_variable_inputs("linear1", args)
-        x, = graph.bind(args1).call(x)
+        (x,) = graph.bind(args1).call(x)
 
         args2 = self.add_variable_inputs("linear2", args)
         return graph.bind(args2).call(x)
@@ -216,7 +216,7 @@ class LinearsOutlined(Module):
 
         for i in range(self.n):
             args_nt = self.add_variable_inputs(i, args)
-            x, = graph.bind(args_nt).call(x)
+            (x,) = graph.bind(args_nt).call(x)
         return x
 
 
@@ -248,7 +248,8 @@ class MultiMatMul(Module):
 
     def build(self, x):
         self.weights = Module.from_variable_factories(
-            self.n * [VariableFactory(lambda: np.random.normal(0, 0.02, (10, 10)), popxl.float16)])
+            self.n * [VariableFactory(lambda: np.random.normal(0, 0.02, (10, 10)), popxl.float16)]
+        )
 
         for i in range(self.n):
             x = x @ self.weights[i]
@@ -289,7 +290,7 @@ class SubModuleWithMerge(Module):
             overwrite=True,  # You have to merge the DotTrees as both are in the `fwd` namespace
         )
 
-        y, = lin_graph.bind(lin_vars).call(x)
+        (y,) = lin_graph.bind(lin_vars).call(x)
         z = y + self.offset
 
         return z

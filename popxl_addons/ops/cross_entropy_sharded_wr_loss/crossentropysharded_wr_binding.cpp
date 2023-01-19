@@ -4,8 +4,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -21,6 +19,8 @@
 #include <popart/region.hpp>
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
@@ -37,23 +37,17 @@ namespace py = pybind11;
 // `crossentropysharded_wr_binding` must equal filename
 PYBIND11_MODULE(crossentropysharded_wr_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::CrossEntropyShardedWROp,
-             popart::Op,
+  py::class_<popart::CrossEntropyShardedWROp, popart::Op,
              std::shared_ptr<popart::CrossEntropyShardedWROp>>
       binding(m, "CrossEntropyShardedOp");
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       const std::vector<int64_t>,
-                                       const popart::Op::Settings &>(
-                         &popart::CrossEntropyShardedWROp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("ipus"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        const std::vector<int64_t>,
+                        const popart::Op::Settings &>(
+          &popart::CrossEntropyShardedWROp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"), py::arg("ipus"),
+      py::arg("settings"), py::return_value_policy::reference);
   binding.def(
       "outTensor",
       py::overload_cast<OutIndex>(&popart::CrossEntropyShardedWROp::outTensor),

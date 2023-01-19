@@ -4,8 +4,6 @@
 
 #include <map>
 #include <memory>
-#include <vector>
-#include <poplar/Tensor.hpp>
 #include <popart/alias/aliasmodel.hpp>
 #include <popart/basicoptionals.hpp>
 #include <popart/error.hpp>
@@ -22,6 +20,8 @@
 #include <popart/tensor.hpp>
 #include <popart/util.hpp>
 #include <popart/vendored/optional.hpp>
+#include <poplar/Tensor.hpp>
+#include <vector>
 
 #include <popart/op/collectives/collectives.hpp>
 
@@ -40,25 +40,18 @@ namespace py = pybind11;
 // `layer_norm_distributed_binding` must equal filename
 PYBIND11_MODULE(layer_norm_distributed_binding, m) {
   // Bindings the parameters of the op: constructor + fields.
-  py::class_<popart::LayerNormDistributedOp,
-             popart::Op,
+  py::class_<popart::LayerNormDistributedOp, popart::Op,
              std::shared_ptr<popart::LayerNormDistributedOp>>
       binding(m, "LayerNormDistributedOp");
-  binding.def_static("createOpInGraph",
-                     py::overload_cast<popart::Graph &,
-                                       const InMapType &,
-                                       const OutMapType &,
-                                       float,
-                                       const popart::ReplicaGrouping &,
-                                       const popart::Op::Settings &>(
-                         &popart::LayerNormDistributedOp::createOpInGraph),
-                     py::arg("graph"),
-                     py::arg("inputs"),
-                     py::arg("outputs"),
-                     py::arg("epsilon"),
-                     py::arg("group"),
-                     py::arg("settings"),
-                     py::return_value_policy::reference);
+  binding.def_static(
+      "createOpInGraph",
+      py::overload_cast<popart::Graph &, const InMapType &, const OutMapType &,
+                        float, const popart::ReplicaGrouping &,
+                        const popart::Op::Settings &>(
+          &popart::LayerNormDistributedOp::createOpInGraph),
+      py::arg("graph"), py::arg("inputs"), py::arg("outputs"),
+      py::arg("epsilon"), py::arg("group"), py::arg("settings"),
+      py::return_value_policy::reference);
   binding.def(
       "outTensor",
       py::overload_cast<OutIndex>(&popart::LayerNormDistributedOp::outTensor),

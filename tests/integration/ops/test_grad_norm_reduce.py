@@ -10,14 +10,14 @@ from popxl_addons.ops.grad_reduce_square_add import grad_reduce_square_add
 
 def test_grad_norm_reduce_op():
 
-    inputs = np.arange(2 * 3, dtype='float32').reshape((2, 3))
+    inputs = np.arange(2 * 3, dtype="float32").reshape((2, 3))
 
     ir = popxl.Ir()
     main = ir.main_graph
     with main:
 
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
-        x = ops.host_load(x_h2d, name='x')
+        x = ops.host_load(x_h2d, name="x")
 
         y = grad_reduce_square_add(x, loss_scaling=64)
 
@@ -29,7 +29,7 @@ def test_grad_norm_reduce_op():
     for g in ir._pb_ir.getAllGraphs():
         ir._pb_ir.applyPreAliasPatterns(g)
 
-    with popxl.Session(ir, device_desc='ipu_hw') as session:
+    with popxl.Session(ir, device_desc="ipu_hw") as session:
         y_host = session.run({x_h2d: inputs})[y_d2h]
 
     np.testing.assert_equal(np.sum(np.square(inputs / 64)), y_host)

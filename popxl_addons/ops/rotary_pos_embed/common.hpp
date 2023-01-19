@@ -7,9 +7,9 @@
 #include <popart/names.hpp>
 #include <popart/operatoridentifier.hpp>
 
-using InMapType  = std::map<popart::InIndex, popart::TensorId>;
+using InMapType = std::map<popart::InIndex, popart::TensorId>;
 using OutMapType = std::map<popart::OutIndex, popart::TensorId>;
-using OutIndex   = int;
+using OutIndex = int;
 
 namespace popart {
 

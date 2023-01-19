@@ -18,8 +18,8 @@ def read(*paths, **kwargs):
 
     content = ""
     with io.open(
-            os.path.join(os.path.dirname(__file__), *paths),
-            encoding=kwargs.get("encoding", "utf8"),
+        os.path.join(os.path.dirname(__file__), *paths),
+        encoding=kwargs.get("encoding", "utf8"),
     ) as open_file:
         content = open_file.read().strip()
     return content
@@ -30,7 +30,7 @@ def read_requirements(path):
 
 
 setup(
-    name='popxl-addons',
+    name="popxl-addons",
     description="popxl.addons",
     long_description="file: README.md",
     long_description_content_type="text/markdown",
@@ -52,12 +52,13 @@ setup(
     install_requires=read_requirements("requirements.txt"),
     extras_require={"dev": read_requirements("requirements-dev.txt")},
     python_requires=">=3.6",
-    packages=['popxl_addons'],
+    packages=["popxl_addons"],
     package_data={
-        'popxl_addons':
+        "popxl_addons":
         # Paths need to be relative to `popxl_addons/` folder
         [
-            os.path.join(*Path(f).parts[1:]) for ext in [".py", ".cpp", ".hpp"]
+            os.path.join(*Path(f).parts[1:])
+            for ext in [".py", ".cpp", ".hpp"]
             for f in glob(f"popxl_addons/**/*{ext}", recursive=True)
         ]
     },

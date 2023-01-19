@@ -26,12 +26,10 @@ class LayerNormDistributed(addons.Module):
         self.replica_grouping = replica_grouping
 
     def build(self, x: popxl.Tensor, eps: float = 1e-5) -> popxl.Tensor:
-        w = self.add_variable_input("weight",
-                                    partial(np.ones, x.shape[-1]),
-                                    x.dtype,
-                                    replica_grouping=self.replica_grouping.transpose())
-        b = self.add_variable_input("bias",
-                                    partial(np.zeros, x.shape[-1]),
-                                    x.dtype,
-                                    replica_grouping=self.replica_grouping.transpose())
+        w = self.add_variable_input(
+            "weight", partial(np.ones, x.shape[-1]), x.dtype, replica_grouping=self.replica_grouping.transpose()
+        )
+        b = self.add_variable_input(
+            "bias", partial(np.zeros, x.shape[-1]), x.dtype, replica_grouping=self.replica_grouping.transpose()
+        )
         return layer_norm_distributed(x, w, b, epsilon=eps, group=self.replica_grouping)

@@ -18,8 +18,9 @@ class BoundGraph:
         self.args = dict(args or {})
 
     @debug_context_frame_offset(1)
-    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
-             args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
+    def call(
+        self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float], args: Optional[TensorMap] = None
+    ) -> Tuple[popxl.Tensor, ...]:
         """Call the bound graph.
 
         Args:
@@ -34,9 +35,9 @@ class BoundGraph:
         return call_info.outputs
 
     @debug_context_frame_offset(1)
-    def call_with_info(self,
-                       *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
-                       args: Optional[TensorMap] = None) -> CallSiteInfo:
+    def call_with_info(
+        self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float], args: Optional[TensorMap] = None
+    ) -> CallSiteInfo:
         """Call the bound graph and return call info object.
 
         Args:
@@ -50,7 +51,7 @@ class BoundGraph:
         inputs_dict = {**self.args, **(args or {})}
         return ops.call_with_info(self.graph, *targs, inputs_dict=inputs_dict)
 
-    def bind(self, args: TensorMap) -> 'BoundGraph':
+    def bind(self, args: TensorMap) -> "BoundGraph":
         """Rebind the graph. The new bound Tensors will be the current bound tensors and args
 
         Args:
@@ -61,10 +62,9 @@ class BoundGraph:
         """
         return BoundGraph(self.graph, {**self.args, **args})
 
-    def subgraph_io_map(self,
-                        *targs: popxl.Tensor,
-                        args: Optional[TensorMap] = None,
-                        outs: Iterable[popxl.Tensor] = None):
+    def subgraph_io_map(
+        self, *targs: popxl.Tensor, args: Optional[TensorMap] = None, outs: Iterable[popxl.Tensor] = None
+    ):
         """Return a map of:
             * graph input Tensors to call inputs (*targs, args, self.args)
             * graph output Tensors to call outputs (outs)
@@ -89,10 +89,9 @@ class BoundGraph:
 
 
 class GraphWithNamedArgs:
-    def __init__(self,
-                 graph: popxl.Graph,
-                 args: Optional[NamedTensors] = None,
-                 grad_graph_info: Optional[GradGraphInfo] = None):
+    def __init__(
+        self, graph: popxl.Graph, args: Optional[NamedTensors] = None, grad_graph_info: Optional[GradGraphInfo] = None
+    ):
         """
         Container of `popxl.Graph` and `NamedTensors`. The named tensors are members of the graph.
         Method 'bind' can be used to create BoundGraphs.
@@ -125,8 +124,9 @@ class GraphWithNamedArgs:
         tensor_map = to_mapping(self.args, args) if args else {}
         return BoundGraph(self.graph, tensor_map)
 
-    def call(self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
-             args: Optional[TensorMap] = None) -> Tuple[popxl.Tensor, ...]:
+    def call(
+        self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float], args: Optional[TensorMap] = None
+    ) -> Tuple[popxl.Tensor, ...]:
         """Call self.graph with no bound arguments.
 
         Args:
@@ -138,9 +138,9 @@ class GraphWithNamedArgs:
         """
         return self.bind().call(*targs, args=args)
 
-    def call_with_info(self,
-                       *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float],
-                       args: Optional[TensorMap] = None) -> CallSiteInfo:
+    def call_with_info(
+        self, *targs: Union[popxl.Tensor, List[popxl.Tensor], int, float], args: Optional[TensorMap] = None
+    ) -> CallSiteInfo:
         """Call self.graph with no bound arguments. Output call with info object.
 
         Args:
@@ -165,7 +165,7 @@ class GraphWithNamedArgs:
         """GradGraphInfo is available if the graph is a gradient graph (created using autodiff)"""
         if self._grad_graph_info is not None:
             return self._grad_graph_info
-        raise AttributeError(f'`grad_graph_info` attribute does not exist. Not a gradient graph.')
+        raise AttributeError(f"`grad_graph_info` attribute does not exist. Not a gradient graph.")
 
     @grad_graph_info.setter
     def grad_graph_info(self, grad_graph_info: GradGraphInfo):

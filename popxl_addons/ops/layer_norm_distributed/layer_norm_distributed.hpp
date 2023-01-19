@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <vector>
 #include <popart/op.hpp>
+#include <vector>
 
 #include "popart/names.hpp"
 #include "popart/tensorinfo.hpp"
@@ -24,8 +24,7 @@ struct OperatorIdentifier;
 // TODO: add replica grouping
 class LayerNormDistributedOp : public CollectivesBaseOp {
 public:
-  LayerNormDistributedOp(const OperatorIdentifier &opid_,
-                         float epsilon_,
+  LayerNormDistributedOp(const OperatorIdentifier &opid_, float epsilon_,
                          const ReplicaGrouping &group,
                          const Op::Settings &settings);
 
@@ -34,10 +33,8 @@ public:
   void setup() final;
 
   static LayerNormDistributedOp *
-  createOpInGraph(popart::Graph &graph,
-                  const InMapType &in,
-                  const OutMapType &out,
-                  float epsilon_,
+  createOpInGraph(popart::Graph &graph, const InMapType &in,
+                  const OutMapType &out, float epsilon_,
                   const ReplicaGrouping &group,
                   const popart::Op::Settings &settings) {
     return graph.createConnectedOp<LayerNormDistributedOp>(

@@ -19,7 +19,7 @@ def test_reduce_scatter_strided_op():
     replica_size = math.ceil(data_size / group_size)
     target = np.zeros(n_ipus * replica_size, dtype="float32").reshape((n_ipus, replica_size))
     for o in range(n_ipus // inner_size):
-        inner_inputs = inputs[o * inner_size:(o + 1) * inner_size]
+        inner_inputs = inputs[o * inner_size : (o + 1) * inner_size]
         for i in range(stride):
             psum = inner_inputs[i::stride].sum(axis=0)
             psum.resize((group_size, replica_size), refcheck=False)
@@ -30,7 +30,7 @@ def test_reduce_scatter_strided_op():
     ir.replication_factor = n_ipus
     main = ir.main_graph
     with main:
-        x_h2d = popxl.h2d_stream((data_size, ), popxl.float32, name="x_stream")
+        x_h2d = popxl.h2d_stream((data_size,), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
         y = replicated_reduce_scatter_strided(x, group=ir.replica_grouping(stride, group_size))

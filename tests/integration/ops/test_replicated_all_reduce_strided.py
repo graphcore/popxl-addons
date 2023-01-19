@@ -66,9 +66,9 @@ def test_all_reduce_strided_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided,
-                                           x,
-                                           group=ir.replica_grouping(stride, group_size))
+        all_reduce_graph = ir.create_graph(
+            replicated_all_reduce_strided, x, group=ir.replica_grouping(stride, group_size)
+        )
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -76,7 +76,7 @@ def test_all_reduce_strided_op_backwards():
 
     with main:
         # call backwards
-        (y, ) = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
@@ -146,9 +146,9 @@ def test_all_reduce_strided_identical_inputs_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_inputs,
-                                           x,
-                                           group=ir.replica_grouping(stride, group_size))
+        all_reduce_graph = ir.create_graph(
+            replicated_all_reduce_strided_identical_inputs, x, group=ir.replica_grouping(stride, group_size)
+        )
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -156,7 +156,7 @@ def test_all_reduce_strided_identical_inputs_op_backwards():
 
     with main:
         # call backwards
-        (y, ) = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
@@ -232,9 +232,9 @@ def test_all_reduce_strided_identical_grad_inputs_op_backwards():
         x_h2d = popxl.h2d_stream((2, 3), popxl.float32, name="x_stream")
         x = ops.host_load(x_h2d, name="x")
 
-        all_reduce_graph = ir.create_graph(replicated_all_reduce_strided_identical_grad_inputs,
-                                           x,
-                                           group=ir.replica_grouping(stride, group_size))
+        all_reduce_graph = ir.create_graph(
+            replicated_all_reduce_strided_identical_grad_inputs, x, group=ir.replica_grouping(stride, group_size)
+        )
 
     # Auto diff
     all_reduce_graph_grad_info = popxl.transforms.autodiff(all_reduce_graph)
@@ -242,7 +242,7 @@ def test_all_reduce_strided_identical_grad_inputs_op_backwards():
 
     with main:
         # call backwards
-        (y, ) = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
@@ -289,7 +289,7 @@ def test_error_need_to_run_pattern():
 
     with main:
         # call backwards
-        (y, ) = ops.call(all_reduce_graph_grad, x)
+        (y,) = ops.call(all_reduce_graph_grad, x)
 
         y_d2h = popxl.d2h_stream(y.shape, y.dtype, name="y_stream")
         ops.host_store(y_d2h, y)
