@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Graphcore Ltd. All rights reserved.
 
-from typing import Optional, Literal
+from typing import Optional
+from typing_extensions import Literal
 import os
 import logging
 
