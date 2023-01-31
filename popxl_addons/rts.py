@@ -7,12 +7,7 @@ from popxl import ReplicaGrouping, ops
 from popxl.ops.collectives.collectives import CollectiveOps
 
 from popxl_addons import GraphWithNamedArgs, NamedTensors
-from popxl_addons.named_replica_grouping import (
-    NamedReplicaGrouping,
-    get_ild_replica_grouping,
-    get_ild_size_from_popdist,
-    is_cross_ild,
-)
+from popxl_addons.named_replica_grouping import NamedReplicaGrouping
 from popxl_addons.utils import null_context
 from popxl_addons.ops.replicated_strided_collectives import (
     replicated_all_gather_strided,
@@ -96,7 +91,7 @@ def all_gather_replica_sharded_graph(
     names = []
     args = {}
     replica_groups = replica_groups or NamedReplicaGrouping.build_groups(
-        tensors.named_tensors.keys(), value=get_ild_replica_grouping()
+        tensors.named_tensors.keys(), value=ir.replica_grouping()
     )
     replica_groups = replica_groups.to_dict()
 
@@ -136,24 +131,16 @@ def reduce_replica_sharded_tensor(
 
     # RTS
     if shard_group.group_size > 1 and t.nelms % shard_group.group_size == 0:
-        # A multi stage collective is required to keep the RTS behaviour within an ild
-        second_stage = ir.replica_grouping(stride=get_ild_size_from_popdist()) if is_cross_ild(replica_group) else None
-        reduce_group = get_ild_replica_grouping(replica_group)
-        # RTS reduction
-        if reduce_group == shard_group and reduce_group.group_size > 1:
+        # RTS reduction, if replica_group == shard_group we can optimise to a reduce scatter
+        if replica_group == shard_group and replica_group.group_size > 1:
             t = replicated_reduce_scatter_strided(
-                t, op=op, group=reduce_group, configure_output_for_replicated_tensor_sharding=True
+                t, op=op, group=replica_group, configure_output_for_replicated_tensor_sharding=True
             )
         else:
-            if reduce_group.group_size > 1:
-                t = replicated_all_reduce_strided(
-                    t, group=reduce_group, op=op
-                )  # all reduce across single ild reduce group only
+            if replica_group.group_size > 1:
+                t = replicated_all_reduce_strided(t, group=replica_group, op=op)
             t = ops.collectives.replica_sharded_slice(t, group=shard_group)  # slice in rts group
 
-        # if the replica group spans across multiple ilds, complete the reduction
-        if second_stage:
-            t = replicated_all_reduce_strided(t, op=op, group=second_stage)
     else:
         t = replicated_all_reduce_strided(t, group=replica_group, op=op)
 
@@ -198,10 +185,7 @@ def reduce_replica_sharded_graph(
     args = {}
 
     tile_context = popxl.io_tiles() if use_io_tiles else null_context()
-    shard_groups = shard_groups or NamedReplicaGrouping.build_groups(
-        tensors.named_tensors.keys(), value=get_ild_replica_grouping()
-    )
-    shard_groups = shard_groups.to_dict()
+    shard_groups = shard_groups.to_dict() if shard_groups else {}
 
     with graph, popxl.in_sequence(False), tile_context:
         for name, tensor in zip(*tensors.unpack()):
@@ -213,7 +197,9 @@ def reduce_replica_sharded_graph(
             if use_io_tiles:
                 sg_t = ops.io_tile_copy(sg_t)
 
-            sg_t = reduce_replica_sharded_tensor(sg_t, op, replica_group=replica_group, shard_group=shard_groups[name])
+            sg_t = reduce_replica_sharded_tensor(
+                sg_t, op, replica_group=replica_group, shard_group=shard_groups.get(name, replica_group)
+            )
 
             popxl.graph_output(sg_t)
 
