@@ -5,10 +5,13 @@ from math import ceil
 import numpy as np
 from scipy.stats import truncnorm
 import popxl
+from popxl.utils import to_numpy
 from popxl import ops, ReplicaGrouping
 from typing import Optional
 
 import popxl_addons as addons
+from popxl_addons import NamedTensors
+from popxl_addons.utils import WeightsDict
 
 
 class Linear(addons.Module):
@@ -32,3 +35,16 @@ class Linear(addons.Module):
             )
             y = y + b
         return y
+
+    @staticmethod
+    def torch_mapping(variables: NamedTensors, nn_layer, dtype: popxl.dtype = popxl.float32) -> WeightsDict:
+        """
+        Returns a mapping from the layer variables to the corresponding torch nn.LayerNorm parameters.
+        """
+        state_dict = {
+            variables.weight: to_numpy(nn_layer.weight.data, dtype).T,
+        }
+        if "bias" in variables.keys():
+            state_dict[variables.bias] = to_numpy(nn_layer.bias.data, dtype)
+
+        return WeightsDict(state_dict)

@@ -5,10 +5,13 @@ from math import ceil
 import numpy as np
 from scipy.stats import truncnorm
 import popxl
+from popxl.utils import to_numpy
 from popxl import ops, ReplicaGrouping
 from typing import Optional, Tuple, List, Union
 from popxl.ops.conv import PadType
 import popxl_addons as addons
+from popxl_addons import NamedTensors
+from popxl_addons.utils import WeightsDict
 
 
 class Conv2D(addons.Module):
@@ -126,3 +129,16 @@ class Conv2D(addons.Module):
             )
             x = x + self.bias
         return x
+
+    @staticmethod
+    def torch_mapping(variables: NamedTensors, nn_layer, dtype: popxl.dtype = popxl.float32) -> WeightsDict:
+        """
+        Returns a mapping from the layer variables to the corresponding torch nn.LayerNorm parameters.
+        """
+        state_dict = WeightsDict(
+            {
+                variables.weight: to_numpy(nn_layer.weight.data, dtype),
+                variables.bias: to_numpy(nn_layer.bias.data.reshape(variables.bias.shape), dtype),
+            }
+        )
+        return state_dict

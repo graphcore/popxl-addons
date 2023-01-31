@@ -7,6 +7,10 @@ import typing
 import collections
 import typing_extensions
 from contextlib import contextmanager
+from popxl.tensor import Variable
+from typing import MutableMapping
+import numpy as np
+import popxl
 
 WANDB_IMPORTED = False
 try:
@@ -70,3 +74,35 @@ class OrderedDict(collections.OrderedDict, typing.MutableMapping[_KT, _VT]):
             out += f"{k}: {v},\n"
         out += "}"
         return out
+
+
+class WeightsDict(MutableMapping[Variable, np.ndarray]):
+    def __init__(self, *args, **kwargs):
+        """A dictionary that maps `popxl.Variable`s to `numpy.ndarry`s and validates the corresponding items have
+        the equivalent dtypes and shape."""
+        super().__init__()
+        self.dict = dict()
+        if len(args) + len(kwargs) > 0:
+            self.update(*args, **kwargs)
+
+    def __getitem__(self, key: Variable) -> np.ndarray:
+        return self.dict.__getitem__(key)
+
+    def __setitem__(self, key: Variable, value: np.ndarray):
+        # Validate
+        value_dtype = popxl.dtype.as_dtype(value.dtype)
+        if key.dtype != value_dtype:
+            raise ValueError(f"{key}: tensor and weight dtypes do not equal {key.dtype} != {value_dtype}")
+        if key.shape_on_host != value.shape:
+            raise ValueError(f"{key}: tensor and weight shapes do not equal {key.shape_on_host} != {value.shape}")
+
+        return self.dict.__setitem__(key, value)
+
+    def __delitem__(self, key: Variable):
+        return self.dict.__delitem__(key)
+
+    def __len__(self):
+        return self.dict.__len__()
+
+    def __iter__(self):
+        return self.dict.__iter__()

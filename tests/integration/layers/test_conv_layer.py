@@ -1,6 +1,7 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
 from popxl_addons.layers import Conv2D
 from torch import nn
+from functools import partial
 from popxl_addons.testing_utils import run_module, TensorInput
 from popxl_addons import NamedTensors
 import popxl
@@ -28,14 +29,11 @@ def test_conv2D_layer():
     torch_output = torch_layer(torch.Tensor(images)).detach().numpy()
     popxl_layer = Conv2D(out_channels, kernel_size, strides=strides)
 
-    def weights_mapping(variables: NamedTensors):
-        state_dict = {
-            variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
-        }
-        return state_dict
-
-    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(
+        popxl_layer,
+        TensorInput(images),
+        weights=partial(Conv2D.torch_mapping, nn_layer=torch_layer, dtype=popxl.float32),
+    )
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
 
 
@@ -55,14 +53,11 @@ def test_conv2D_padding():
     torch_output = torch_layer(torch.Tensor(images)).detach().numpy()
     popxl_layer = Conv2D(out_channels, kernel_size, paddings="same_upper")
 
-    def weights_mapping(variables: NamedTensors):
-        state_dict = {
-            variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
-        }
-        return state_dict
-
-    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(
+        popxl_layer,
+        TensorInput(images),
+        weights=partial(Conv2D.torch_mapping, nn_layer=torch_layer, dtype=popxl.float32),
+    )
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
 
     # test explicit paddng
@@ -71,17 +66,9 @@ def test_conv2D_padding():
     torch_output = torch_layer(torch.Tensor(images)).detach().numpy()
     popxl_layer = Conv2D(out_channels, kernel_size, paddings=(4, 4, 4, 4))
 
-    def weights_mapping(variables: NamedTensors):
-        state_dict = {
-            variables.weight: to_numpy(torch_layer.weight.data),
-            variables.bias: to_numpy(torch_layer.bias.data.reshape(variables.bias.shape)),
-        }
-        return state_dict
-
-    (popxl_out,) = run_module(popxl_layer, TensorInput(images), weights=weights_mapping)
+    (popxl_out,) = run_module(
+        popxl_layer,
+        TensorInput(images),
+        weights=partial(Conv2D.torch_mapping, nn_layer=torch_layer, dtype=popxl.float32),
+    )
     np.testing.assert_allclose(popxl_out, torch_output, rtol=10e-4)
-
-
-if __name__ == "__main__":
-    test_conv2D_layer()
-    test_conv2D_padding()
