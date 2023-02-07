@@ -5,4 +5,3 @@ gitpython
 cppimport>=22.07.17
 pybind11==2.6.2
 mpi4py
-typing_extensions
