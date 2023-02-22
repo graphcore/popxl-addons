@@ -312,3 +312,70 @@ def test_merging_variables():
         assert vars.fwd.offset
 
     assert len(ir._pb_ir.getAllGraphs()) == 3
+
+
+class IterableModule(Module):
+    def __init__(self, n):
+        super().__init__()
+        self.n = n
+        self.linears = Module.from_list([Linear(10) for _ in range(self.n)])
+
+    def build(self, x):
+        for m in self.linears:
+            x = m(x)
+        return x
+
+
+def test_iterable_module_inlined():
+    ir = popxl.Ir()
+    main = ir.main_graph
+
+    with main:
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 10)), popxl.float32)
+
+        n = 3
+        linear = IterableModule(n)
+        args, graph = linear.create_graph(x)
+
+        for m in graph.args.linears.values():
+            assert m.w in graph.graph
+            assert m.b in graph.graph
+
+        layer = graph.bind(args.init())
+
+        layer.call(x)
+
+    assert len(ir._pb_ir.getAllGraphs()) == 2
+
+
+def test_iterable_module_grad_inlined():
+    ir = popxl.Ir()
+    main = ir.main_graph
+
+    with main:
+        x = popxl.variable(np.random.normal(0, 0.02, (2, 10)), popxl.float32)
+
+        n = 3
+        linear = IterableModule(n)
+        args, graph = linear.create_graph(x)
+        grad_args, grad_graph = autodiff_with_accumulation(
+            graph, graph.args.tensors, grads_required=[graph.graph.inputs[0]]
+        )
+
+        for m in graph.args.linears.values():
+            assert m.w in graph.graph
+            assert m.b in graph.graph
+
+        for m_acc in grad_graph.args.accum.linears.values():
+            assert m_acc.w in grad_graph.graph
+            assert m_acc.b in grad_graph.graph
+
+        layer = graph.bind(args.init())
+        grad_layer = grad_graph.bind(grad_args.init())
+
+        call_info = layer.call_with_info(x)
+        y = call_info.outputs[0]
+
+        _ = grad_layer.call(y, args=grad_graph.grad_graph_info.inputs_dict(call_info))
+
+    assert len(ir._pb_ir.getAllGraphs()) == 3

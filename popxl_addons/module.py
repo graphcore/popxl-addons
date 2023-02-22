@@ -59,12 +59,21 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         if self._graph_cache is not None:
             graph = self._graph_cache.create_graph(self, *args, **kwargs)
             if graph not in self._args_cache:
-                self._args_cache[graph] = self._variable_factories.copy(), self._named_inputs.copy()
+                self._args_cache[graph] = (
+                    self._variable_factories.copy(),
+                    self._named_inputs.copy(),
+                )
             variable_factories, named_inputs = self._args_cache[graph]
         else:
             graph = popxl.gcg().ir.create_graph(self, *args, **kwargs)
-            variable_factories, named_inputs = self._variable_factories, self._named_inputs
-        result = (variable_factories.copy(), GraphWithNamedArgs(graph, named_inputs.copy()))
+            variable_factories, named_inputs = (
+                self._variable_factories,
+                self._named_inputs,
+            )
+        result = (
+            variable_factories.copy(),
+            GraphWithNamedArgs(graph, named_inputs.copy()),
+        )
         self._reset()
         return result
 
@@ -157,7 +166,10 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         return super().__setattr__(__name, __value)
 
     def add_variable_inputs(
-        self, name: Union[str, int], variable_f: NamedVariableFactories, overwrite: bool = False
+        self,
+        name: Union[str, int],
+        variable_f: NamedVariableFactories,
+        overwrite: bool = False,
     ) -> NamedTensors:
         """Add NamedVariableFactories as inputs tensors. Returns NamedTensors which can be used in the graph.
             This is useful for reusing a Module within another module. Usage:
@@ -197,6 +209,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         self = cls()
         for i, module in enumerate(sub_modules):
             setattr(self, str(i), module)
+        self._sub_modules = sub_modules
         return self
 
     @classmethod
@@ -215,3 +228,13 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
 
     def __getitem__(self, item: Union[str, int]):
         return self.get(item)
+
+    def __iter__(self):
+        try:
+            sub_modules = self._sub_modules
+        except AttributeError as e:
+            raise AttributeError(
+                e,
+                "Iterating over `popxl_addons.Module` not created using `popxl_addons.Module.from_list` is not supported.",
+            )
+        return iter(sub_modules)
