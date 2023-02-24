@@ -15,22 +15,19 @@ jobs:
         with:
           access_token: ${{ github.token }}
   pytest-ci:
-    runs-on: [self-hosted, applications, isolated]
+    runs-on: [self-hosted, pod16, public]
     container: 
       image: localhost:5000/graphcore/pytorch:3.2.0-EA.1-ubuntu-20.04
       options: --ulimit memlock=-1:-1 --cap-add=IPC_LOCK --device=/dev/infiniband/ -e IPUOF_VIPU_API_HOST -e IPUOF_VIPU_API_PARTITION_ID --shm-size=128G
     steps:
       - name: Install prerequisites
         run: |
-          # Install an upto date version of git
+          # Install system requirements
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
-          apt-get install -y software-properties-common
-          add-apt-repository ppa:git-core/ppa
-          apt-get update
-          apt-get install -y git
+          apt-get install -y git libopenmpi-dev
           # Update pip
-          pip3 install --upgrade pip
+          pip3 install --upgrade pip setuptools wheel
           echo "Python version: $(python3 --version)"
           echo "Pip version: $(python3 -m pip --version)"
       - name: Attach RDMA Network
