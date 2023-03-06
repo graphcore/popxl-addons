@@ -135,10 +135,7 @@ class Conv2D(addons.Module):
         """
         Returns a mapping from the layer variables to the corresponding torch nn.LayerNorm parameters.
         """
-        state_dict = WeightsDict(
-            {
-                variables.weight: to_numpy(nn_layer.weight.data, dtype),
-                variables.bias: to_numpy(nn_layer.bias.data.reshape(variables.bias.shape), dtype),
-            }
-        )
-        return state_dict
+        state_dict = {variables.weight: to_numpy(nn_layer.weight.data, dtype)}
+        if "bias" in variables:
+            state_dict.update({variables.bias: to_numpy(nn_layer.bias.data.reshape(variables.bias.shape), dtype)})
+        return WeightsDict(state_dict)
