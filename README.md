@@ -2,6 +2,7 @@
 
 <!--
 SDK release checklist:
+- Change Python version requirements in this readme and setup.py if that has changed
 - Change SDK version number in Installation section
 - Remove comment in Installation section that includes ssh address 
 - Remove Phabricator header above
@@ -30,6 +31,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 
 ## Installation
 
+- `popxl.addons` requires Python 3.8 or later
 - Install the Poplar SDK >=3.1 and source the enable.sh scripts for both PopART and Poplar as described in the [Getting Started guide](https://docs.graphcore.ai/en/latest/getting-started.html) for your IPU system
 - Create a Python virtual environment: `python3 -m venv <virtual_env>`
 - Activate the virtual environment: `. <virtual_env>/bin/activate`
