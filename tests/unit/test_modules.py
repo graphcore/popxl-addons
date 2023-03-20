@@ -4,7 +4,7 @@ import numpy as np
 
 import popxl
 
-from popxl_addons import VariableFactory, NamedTensors, Module
+from popxl_addons import VariableFactory, Module
 from popxl_addons.transforms.autodiff import autodiff_with_accumulation
 from popxl_addons.transforms.recomputation import recompute_graph
 

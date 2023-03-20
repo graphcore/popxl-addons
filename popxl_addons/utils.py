@@ -4,11 +4,9 @@ import re
 import logging
 import time
 import typing
-import collections
-import typing_extensions
 from contextlib import contextmanager
 from popxl.tensor import Variable
-from typing import MutableMapping
+from typing import MutableMapping, Iterable, List
 import numpy as np
 import popxl
 
@@ -106,3 +104,16 @@ class WeightsDict(MutableMapping[Variable, np.ndarray]):
 
     def __iter__(self):
         return self.dict.__iter__()
+
+
+def overrides(cls, base_cls, method: str) -> bool:
+    """Does class `cls` override method from a parent class"""
+    return getattr(cls, method) != getattr(base_cls, method)
+
+
+E = typing.TypeVar("E")
+
+
+def duplicate_items(iterable: Iterable[E]) -> List[E]:
+    """Find duplicate items in an iterable in first seen order. e.g. [7,5,5,1,2,7] -> [7,5]"""
+    return [item for item, count in collections.Counter(iterable).items() if count > 1]

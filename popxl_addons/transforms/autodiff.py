@@ -1,6 +1,6 @@
 # Copyright (c) 2021 Graphcore Ltd. All rights reserved.
 from functools import partial
-from typing import Dict, Iterable, List, Optional, Mapping, Tuple
+from typing import Dict, Iterable, List, Optional, Mapping, Tuple, Union
 
 import numpy as np
 import popart._internal.ir as _ir
@@ -29,7 +29,7 @@ def _autodiff_with_patterns(
     grad graph is lowerable.
 
     Args:
-        graph (popxl.Graph)
+        graph (popxl.Graph): Graph to derive a gradient graph from
         grads_provided (Optional[Iterable[popxl.Tensor]], optional). Defaults to all outputs of the provided graph.
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
         called_graphs_grad_info (Optional[Mapping[popxl.Graph, GradGraphInfo]], optional). Defaults to None.
@@ -60,7 +60,7 @@ def _autodiff_with_patterns(
 
 
 def autodiff(
-    graph: GraphWithNamedArgs,
+    graph: Union[GraphWithNamedArgs, popxl.Graph],
     grads_provided: Optional[Iterable[popxl.Tensor]] = None,
     grads_required: Optional[Iterable[popxl.Tensor]] = None,
     called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
@@ -80,7 +80,7 @@ def autodiff(
         GraphWithNamedArgs: grad graph of `graph` wrapped in a GraphWithNamedArgs with grad graph info
     """
     grad_info = _autodiff_with_patterns(
-        graph.graph,
+        graph if isinstance(graph, popxl.Graph) else graph.graph,
         grads_provided=grads_provided,
         grads_required=grads_required,
         called_graphs_grad_info=called_graphs_grad_info,
