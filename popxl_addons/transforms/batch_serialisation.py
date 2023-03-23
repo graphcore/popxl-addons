@@ -2,7 +2,7 @@
 import logging
 from contextlib import contextmanager
 from itertools import chain
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Callable, Dict, List, Optional, Tuple, Union, Any
 from functools import partial
 import numpy as np
 from typing_extensions import Literal
@@ -25,12 +25,13 @@ class RemoteHandle:
     """
     The RemoteHandle class gathers necessary info to deal with remote tensors.
     @param buffer (popxl.RemoteBuffer): the remote buffer for the tensor
-    @param row_offset (int): the row offset index to access the tensor in the buffer. See batch_serialise for more on that. Default is 0.
+    @param row_offset (Union[int, Callable[[popxl.Tensor], popxl.Tensor]]): the row offset index to access the tensor in the buffer. See batch_serialise for more on that. Default is 0.
+                                                          It can also be a function, mapping from the row offset given when called to the actual row offset to use for this buffer.
     @param shard_group (Optional[popxl.ReplicaGrouping]): shard group for rts, used to create the buffer. None indicates no-RTS (see remote.create_remote_buffer)
     """
 
     buffer: popxl.RemoteBuffer
-    row_offset: int = 0
+    row_offset: Union[int, Callable[[popxl.Tensor], popxl.Tensor]] = 0
     shard_group: Optional[popxl.ReplicaGrouping] = None
 
 
@@ -127,6 +128,21 @@ def _add_passed_through_inputs(
     return passed_through
 
 
+def _transform_index(index: popxl.Tensor, f: Callable[[popxl.Tensor], popxl.Tensor], steps: int) -> popxl.Tensor:
+    """When the batch-serialised graph is called with a given row offset n, the tensor `index` is
+    going to be (n * steps) + i, for i in [0, steps). The function `f` maps from row offset n
+    to a new row offset N. This method returned the index with offset transformed by `f`.
+    """
+    steps_t = popxl.constant(steps)
+    # Given x = (n * steps) + i:
+    # i = x % steps
+    # n = x // steps
+    i = index % steps_t
+    # For integer tensors this is floor division
+    n = index / steps_t
+    return (f(n) * steps) + i
+
+
 def _apply_load_offsets(
     index: popxl.Tensor,
     ts: List[popxl.Tensor],
@@ -151,6 +167,9 @@ def _apply_load_offsets(
             if row_offset is None:
                 index_with_offset = index_with_offset % steps
                 buffer_size = steps
+            elif isinstance(row_offset, Callable):
+                index_with_offset = _transform_index(index_with_offset, row_offset, steps)
+                buffer_size = steps * rows
             elif row_offset != 0:
                 index_with_offset = index_with_offset + (row_offset * steps)
                 buffer_size = steps * (row_offset + rows)
@@ -177,6 +196,9 @@ def _apply_store_offsets(
             if row_offset is None:
                 index_with_offset = index_with_offset % steps
                 buffer_size = steps
+            elif isinstance(row_offset, Callable):
+                index_with_offset = _transform_index(index_with_offset, row_offset, steps)
+                buffer_size = steps * rows
             elif row_offset != 0:
                 index_with_offset = index_with_offset + (row_offset * steps)
                 buffer_size = steps * (row_offset + rows)

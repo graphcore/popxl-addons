@@ -127,6 +127,55 @@ def test_batch_serialisation_entries(io_mode):
 
 
 @pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
+def test_batch_serialisation_entries_func_offset(io_mode):
+    ir = popxl.Ir()
+    opts = ir._pb_ir.getSessionOptions()
+    opts.numIOTiles = 64
+    main = ir.main_graph
+
+    cb = 2
+    bf = 4
+
+    with main, popxl.in_sequence(True):
+        in_h2d = popxl.h2d_stream((cb, 2), popxl.float32, name="x_stream")
+        # Create graphs
+        args, graph = Scale().create_graph(in_h2d.spec)
+
+        # Transform graphs
+        buffer = batch_serial_buffer(graph.graph.outputs[0], steps=bf, rows=2)
+        bs_result = batch_serialise(
+            graph,
+            bf,
+            load_handles={graph.graph.inputs[0]: in_h2d},
+            store_streams={},
+            # Pass a function as offset
+            store_buffers={graph.graph.outputs[0]: RemoteHandle(buffer, lambda i: popxl.constant(1))},
+            rows=2,
+            io_mode=io_mode,
+        )
+
+        # Create variables and bind
+        scale = bs_result.graph.bind(args.init())
+
+        # Create Program
+        scale.call(0)  # Call with offset=0
+
+        # Load values out of the remote buffers
+        out_buffer = bs_result.stored_buffers[graph.graph.outputs[0]].buffer
+        out = popxl.d2h_stream(in_h2d.shape, in_h2d.dtype)
+        for i in range(bf):
+            y = ops.remote_load(out_buffer, bf + i)
+            ops.host_store(out, y)
+
+    inputs = np.arange(bf * np.prod(in_h2d.shape)).reshape((bf, *in_h2d.shape)).astype(in_h2d.dtype.as_numpy())
+
+    ir.num_host_transfers = bf
+    with popxl.Session(ir, "ipu_hw") as session:
+        outputs = session.run({in_h2d: inputs})[out]
+    np.testing.assert_equal(inputs * 2, outputs)
+
+
+@pytest.mark.parametrize("io_mode", ["compute", "io", "io_overlapped"])
 def test_batch_serialisation_sequence(io_mode):
     ir = popxl.Ir()
     opts = ir._pb_ir.getSessionOptions()
