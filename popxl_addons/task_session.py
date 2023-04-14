@@ -245,9 +245,8 @@ class TaskSession(popxl.Session):
         # write variables data to IPU for existing keys
         data = {}
         for var_name in variables:
-            filename = var_name.replace(".", "_")
-            if filename in ckpt:
-                data[variables[var_name]] = ckpt[filename]
+            if var_name in ckpt:
+                data[variables[var_name]] = ckpt[var_name]
 
         self.write_variables_data(data)
         logging.info("\t Loaded model state")
