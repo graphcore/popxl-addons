@@ -9,4 +9,5 @@ recommonmark
 sphinx-rtd-theme
 yapf==0.27.0
 clang-format==14.0.1
+torchvision
 transformers==4.18.0
