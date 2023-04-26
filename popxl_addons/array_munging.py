@@ -196,7 +196,7 @@ def shard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int) -> np.n
     return np.concatenate(arrays)
 
 
-def unshard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int):
+def unshard2D(x: np.ndarray, n_1: int, n_2: int, axis_1: int, axis_2: int) -> np.ndarray:
     """Opposite to shard2D. Split along first dimension and concat on given axes.
     (axis_1 and axis_2 disregard the first dim which is split on).
 
@@ -257,7 +257,7 @@ def repeat_shard(
 
 def tensor_parallel_input(
     input_data: np.ndarray, tp: int, rf: int, repeat_fn: Optional[Callable[[np.ndarray, int], np.ndarray]] = None
-):
+) -> np.ndarray:
     """Repeat the data in `input_data` such that consecutive replicas with groupSize tp get the same data
     (optionally modified by repeat_fn)
 
@@ -313,7 +313,7 @@ def tensor_parallel_input(
     return data
 
 
-def pad_axis(x: np.ndarray, n: int, axis: int, value: Union[int, float] = 0):
+def pad_axis(x: np.ndarray, n: int, axis: int, value: Union[int, float] = 0) -> np.ndarray:
     """Pad an axis until length `n` with value `value`.
 
     Example:
@@ -335,7 +335,7 @@ def pad_axis(x: np.ndarray, n: int, axis: int, value: Union[int, float] = 0):
     return np.pad(x, padding, constant_values=value)
 
 
-def squeeze_safe(x: np.ndarray, axis: Optional[Union[int, Sequence[int]]] = None):
+def squeeze_safe(x: np.ndarray, axis: Optional[Union[int, Sequence[int]]] = None) -> np.ndarray:
     """Squeeze axes that are 1 - same as np.squeeze but doesn't throw an error if you specify
     axes that are not squeezable."""
     if axis is None:

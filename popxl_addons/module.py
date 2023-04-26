@@ -21,10 +21,15 @@ from popxl_addons.variable_factory import (
 )
 from popxl_addons.graph import GraphWithNamedArgs, BoundGraph
 from popxl_addons.utils import OrderedDict, overrides, duplicate_items
+from popxl_addons.graph_common import (
+    _normalise_called_graphs_grad_info,
+    _normalise_called_graphs_grad_info_dict,
+    CalledGraphsGradInfoLike,
+    CalledGraphsGradInfo,
+    GraphLike,
+    GradGraphInfoLike,
+)
 from contextlib import contextmanager
-
-GraphLike = Union[popxl.Graph, GraphWithNamedArgs, BoundGraph]
-GradGraphInfoLike = Union[GradGraphInfo, GraphWithNamedArgs]
 
 _BUILD_CONTEXT: List["Module"] = []
 _BUILD_GRAD_CONTEXT: List["Module"] = []
@@ -162,12 +167,10 @@ class _VarGrads:
 
 
 class _CalledGraphsGradInfoRefs:
-    def __init__(self, map: Optional[Mapping[GraphLike, GradGraphInfoLike]] = None):
+    def __init__(self, map: Optional[CalledGraphsGradInfoLike] = None):
         """Container to hold a list of dictionaries that map called graphs to grad graph info objects.
         The container saves the dicts by reference so that sub-modules can continue to modify the dicts inplace"""
-        self.map: Dict[GraphLike, GradGraphInfoLike] = (
-            _normalise_called_graphs_grad_info_dict(map) if map is not None else {}
-        )
+        self.map: CalledGraphsGradInfo = _normalise_called_graphs_grad_info_dict(map) if map is not None else {}
         self.submaps: List[_CalledGraphsGradInfoRefs] = []
 
     def consolidate(self) -> Dict[popxl.Graph, GradGraphInfo]:
@@ -184,9 +187,7 @@ class _CalledGraphsGradInfoRefs:
         fwd_graph, grad_graph = _normalise_called_graphs_grad_info(fwd_graph, grad_graph)
         self.map[fwd_graph] = grad_graph
 
-    def add_submap(
-        self, called_graphs_grad_info: Union["_CalledGraphsGradInfoRefs", Mapping[GraphLike, GradGraphInfoLike]]
-    ):
+    def add_submap(self, called_graphs_grad_info: Union["_CalledGraphsGradInfoRefs", CalledGraphsGradInfoLike]):
         """Add a mapping"""
         if not isinstance(called_graphs_grad_info, _CalledGraphsGradInfoRefs):
             called_graphs_grad_info = _CalledGraphsGradInfoRefs(called_graphs_grad_info)
@@ -367,7 +368,7 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
                 "If you dont want to output all gradients specify `grads_required` when calling autodiff."
             )
         if len(grad_graph.outputs) < len(grads_required_not_vars):
-            missing = grad_graph.outputs[len(grad_graph.outputs) :]
+            missing = grad_graph.outputs[len(grad_graph.outputs) - 1 :]
             raise Exception(
                 "Not all forward graph inputs have been specified as outputs in the grad graph. "
                 "If you dont want to output all gradients specify `grads_required` when calling autodiff. "
@@ -642,6 +643,8 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
         module: "Module",
         name: Optional[str] = None,
         autodiff: Literal["auto", "build_grad", "autodiff", "none"] = "auto",
+        grads_provided: Optional[Callable[[GraphWithNamedArgs], Iterable[popxl.Tensor]]] = None,
+        grads_required: Optional[Callable[[GraphWithNamedArgs], Iterable[popxl.Tensor]]] = None,
     ):
         """Outline a module and call it: create a graph, create a gradient graph if needed and call the forward graph.
 
@@ -657,8 +660,9 @@ class Module(popxl.Module, metaclass=NameScopeMeta):
             module (Module): Module to call
             name (Optional[str], optional): Name to use for the module. Defaults to name of the Module's class.
             autodiff: auto: autodiff if grad_graph is implemented otherwise dont. build_grad or autodiff: force autodiff and use this mode. none: don't autodiff Use. Defaults to "auto".
+            grads_provided/grads_required: See autodiff for detail on usage. Here you supply a function that takes the GraphWithNamedArgs as an input and outputs the grads_provided/grads_required tensors
         """
-        return _CallModule(self, module, name, autodiff)
+        return _CallModule(self, module, name, autodiff, grads_provided, grads_required)
 
 
 class _CallModule:
@@ -668,8 +672,8 @@ class _CallModule:
         callee: "Module",
         name: Optional[str],
         autodiff: Literal["auto", "build_grad", "autodiff", "none"],
-        grads_provided: Optional[Iterable[popxl.Tensor]] = None,
-        grads_required: Optional[Iterable[popxl.Tensor]] = None,
+        grads_provided: Optional[Callable[[GraphWithNamedArgs], Iterable[popxl.Tensor]]] = None,
+        grads_required: Optional[Callable[[GraphWithNamedArgs], Iterable[popxl.Tensor]]] = None,
     ):
         self.caller = caller
         self.callee = callee
@@ -684,10 +688,13 @@ class _CallModule:
         self.caller.called_graphs_grad_info.add_submap(graph.called_graphs_grad_info)  # Inherit called_graphs_grad_info
         n_outputs_pre_autodiff = len(graph.graph.outputs)
 
+        grads_provided = self.grads_provided(graph) if self.grads_provided else None
+        grads_required = self.grads_required(graph) if self.grads_required else None
+
         # If does not implement grad_graph and autodiff==auto no need to autodiff here as autodiff will do that automatically
         if not (self.autodiff == "none" or (self.autodiff == "auto" and not self.callee.implements_grad_graph)):
             grad_graph = graph.autodiff(
-                method=self.autodiff, grads_provided=self.grads_provided, grads_required=self.grads_required
+                method=self.autodiff, grads_provided=grads_provided, grads_required=grads_required
             )
             self.caller.called_graphs_grad_info.add(graph, grad_graph)
 
@@ -744,25 +751,3 @@ def create_grad_graph_info(
     grad_info = GradGraphInfo._from_pb(ir._pb_ir, fwd_graph._pb_graph, bwd_info)
 
     return grad_info
-
-
-def _normalise_called_graphs_grad_info(
-    fwd_graph: GraphLike, grad_graph: GradGraphInfoLike
-) -> Tuple[popxl.Graph, GradGraphInfo]:
-    """Normalise a (GraphLike, GradGraphInfoLike) association to (popxl.Graph, GradGraphInfo)"""
-    fwd_graph = fwd_graph if isinstance(fwd_graph, popxl.Graph) else fwd_graph.graph
-    grad_graph = grad_graph if isinstance(grad_graph, GradGraphInfo) else grad_graph.grad_graph_info
-    return fwd_graph, grad_graph
-
-
-def _normalise_called_graphs_grad_info_dict(
-    called_graphs_grad_info: Optional[Mapping[GraphLike, GradGraphInfoLike]] = None
-) -> Dict[popxl.Graph, GradGraphInfo]:
-    """Normalise a (GraphLike, GradGraphInfoLike) dictionary to (popxl.Graph, GradGraphInfo)"""
-    called_graphs_grad_info = called_graphs_grad_info if called_graphs_grad_info is not None else {}
-    return dict(
-        [
-            _normalise_called_graphs_grad_info(fwd_graph, grad_graph)
-            for fwd_graph, grad_graph in called_graphs_grad_info.items()
-        ]
-    )

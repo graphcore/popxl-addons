@@ -9,9 +9,10 @@ from popxl.ops.call import CallSiteInfo
 from popxl_addons.dot_tree import to_mapping
 from popxl_addons.named_tensors import NamedTensors, TensorMap
 from popxl.transforms.autodiff import GradGraphInfo
+from popxl_addons.graph_common import GraphLike, GradGraphInfoLike
 
 if TYPE_CHECKING:
-    from popxl_addons.module import GraphLike, GradGraphInfoLike, Module, _Aux
+    from popxl_addons.module import Module, _Aux
 
 
 class BoundGraph:
@@ -192,7 +193,6 @@ class GraphWithNamedArgs:
             GraphWithNamedArgs: Gradient graph which also holds the `grad_graph_info` object
         """
         from popxl_addons.transforms.autodiff import autodiff
-        from popxl_addons.module import _normalise_called_graphs_grad_info_dict
 
         if method not in ("auto", "build_grad", "autodiff"):
             raise ValueError(f"`method` should be one of 'auto', 'build_grad' or 'autodiff'. Not: {method}")
@@ -215,14 +215,6 @@ class GraphWithNamedArgs:
                 raise Exception(
                     "The default implementation of `build_graph` should be overridden and `from_module` is specified when this object was initialised."
                 )
-
-        # Merge called_graphs_grad_info from user and module
-        called_graphs_grad_info = (
-            _normalise_called_graphs_grad_info_dict(called_graphs_grad_info)  # type: ignore
-            if called_graphs_grad_info is not None
-            else {}
-        )
-        called_graphs_grad_info = {**called_graphs_grad_info, **self.called_graphs_grad_info}  # type:ignore
 
         grad_graph = autodiff(
             graph=self,

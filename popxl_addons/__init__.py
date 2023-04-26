@@ -12,6 +12,7 @@ from .task_session import *
 from .performance_utils import *
 from .debugging import *
 from .array_munging import *
+from .utils import *
 
 import git
 

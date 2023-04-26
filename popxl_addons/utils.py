@@ -10,6 +10,8 @@ from typing import MutableMapping, Iterable, List
 import numpy as np
 import popxl
 
+__all__ = ["timer", "OrderedDict", "WeightsDict"]
+
 WANDB_IMPORTED = False
 try:
     import wandb

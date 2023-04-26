@@ -13,6 +13,7 @@ from popxl.transforms.autodiff import GradGraphInfo
 
 np.random.seed(42)
 
+
 ## Utils
 def equal_grad_graph_info(true: GradGraphInfo, test: GradGraphInfo, true_ir: popxl.Ir, test_ir: popxl.Ir):
     """Test if two GradGraphInfo are the same. You also need to pass the Irs so they are not garbage collected before"""
@@ -317,6 +318,28 @@ def test_outlining(x_, dy_, linear_result):
         (y, dLdx, dLdw, dLdb), (y_linear, dLdx_linear, dLdw_linear, dLdb_linear), ("y", "dLdx", "dLdw", "dLdb")
     ):
         np.testing.assert_equal(actual, true, err_msg=f"{name} not equal")
+
+
+def test_outlining_using_autodiff_function(x_, dy_):
+    """Test outlining behaviour (module being created into a graph that calls another graph)"""
+
+    ir = popxl.Ir()
+    with ir.main_graph:
+        x = popxl.variable(x_, popxl.float32)
+        dy = popxl.variable(dy_, popxl.float32)
+
+        facts, fwd_graph = LinearOutlined().create_graph(x)
+
+        grad_graph = addons.transforms.autodiff(fwd_graph)
+
+        vars = facts.init()
+        fwd_call = fwd_graph.bind(vars).call_with_info(x)
+        y, *_ = fwd_call.outputs
+
+        outputs = grad_graph.call(dy, args=grad_graph.grad_graph_info.inputs_dict(fwd_call))
+        dLdx, dLdw, dLdb = outputs
+
+        assert len(outputs) == len(grad_graph.graph.outputs)
 
 
 def test_outlining_inline_nesting(x_, dy_, linear_result):

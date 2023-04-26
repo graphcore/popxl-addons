@@ -13,15 +13,30 @@ from popxl_addons.variable_factory import VariableFactory, NamedVariableFactorie
 from popxl_addons.named_tensors import NamedTensors
 from popxl_addons.graph import GraphWithNamedArgs
 from popxl_addons.named_replica_grouping import NamedReplicaGrouping
+from popxl_addons.graph_common import (
+    CalledGraphsGradInfo,
+    CalledGraphsGradInfoLike,
+    _normalise_called_graphs_grad_info_dict,
+)
+
 
 __all__ = ["autodiff", "autodiff_with_accumulation"]
+
+
+def _merge_called_graphs_grad_info(
+    graph: GraphWithNamedArgs, called_graphs_grad_info: Optional[CalledGraphsGradInfoLike] = None
+) -> CalledGraphsGradInfo:
+    """Merge called_graphs_grad_info from Graph and user argument. User argument takes precedence"""
+    called_graphs_grad_info = _normalise_called_graphs_grad_info_dict(called_graphs_grad_info)
+    output = {**graph.called_graphs_grad_info, **called_graphs_grad_info}
+    return output
 
 
 def _autodiff_with_patterns(
     graph: popxl.Graph,
     grads_provided: Optional[Iterable[popxl.Tensor]] = None,
     grads_required: Optional[Iterable[popxl.Tensor]] = None,
-    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+    called_graphs_grad_info: Optional[CalledGraphsGradInfoLike] = None,
 ) -> GradGraphInfo:
     """
     Extension Autodiff.
@@ -32,7 +47,7 @@ def _autodiff_with_patterns(
         graph (popxl.Graph): Graph to derive a gradient graph from
         grads_provided (Optional[Iterable[popxl.Tensor]], optional). Defaults to all outputs of the provided graph.
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
-        called_graphs_grad_info (Optional[Mapping[popxl.Graph, GradGraphInfo]], optional). Defaults to None.
+        called_graphs_grad_info (CalledGraphsGradInfoLike, optional). Defaults to None.
 
     Returns:
         GradGraphInfo: grad graph of `graph`
@@ -63,7 +78,7 @@ def autodiff(
     graph: Union[GraphWithNamedArgs, popxl.Graph],
     grads_provided: Optional[Iterable[popxl.Tensor]] = None,
     grads_required: Optional[Iterable[popxl.Tensor]] = None,
-    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+    called_graphs_grad_info: Optional[CalledGraphsGradInfoLike] = None,
 ) -> GraphWithNamedArgs:
     """
     Extension Autodiff.
@@ -74,13 +89,15 @@ def autodiff(
         graph (popxl.Graph)
         grads_provided (Optional[Iterable[popxl.Tensor]], optional). Defaults to all outputs of the provided graph.
         grads_required (Optional[Iterable[popxl.Tensor]], optional). Defaults to all inputs of the provided graph.
-        called_graphs_grad_info (Optional[Mapping[popxl.Graph, GradGraphInfo]], optional) The gradient graph information for the subgraphs. Defaults to None.
+        called_graphs_grad_info (CalledGraphsGradInfoLike, optional) The gradient graph information for the subgraphs. Defaults to None.
 
     Returns:
         GraphWithNamedArgs: grad graph of `graph` wrapped in a GraphWithNamedArgs with grad graph info
     """
+    graph = graph if isinstance(graph, GraphWithNamedArgs) else GraphWithNamedArgs(graph)
+    called_graphs_grad_info = _merge_called_graphs_grad_info(graph, called_graphs_grad_info)
     grad_info = _autodiff_with_patterns(
-        graph if isinstance(graph, popxl.Graph) else graph.graph,
+        graph.graph,
         grads_provided=grads_provided,
         grads_required=grads_required,
         called_graphs_grad_info=called_graphs_grad_info,
@@ -93,7 +110,7 @@ def autodiff_with_accumulation(
     tensors_to_accumulate_grads: Iterable[popxl.Tensor],
     grads_provided: Optional[Iterable[popxl.Tensor]] = None,
     grads_required: Optional[Iterable[popxl.Tensor]] = None,
-    called_graphs_grad_info: Optional[Mapping[popxl.Graph, GradGraphInfo]] = None,
+    called_graphs_grad_info: Optional[CalledGraphsGradInfo] = None,
     replica_groupings: Optional[NamedReplicaGrouping] = None,
 ) -> Tuple[NamedVariableFactories, GraphWithNamedArgs]:
     """
@@ -125,6 +142,8 @@ def autodiff_with_accumulation(
     replica_groupings = replica_groupings.to_dict()
     grads_required = list(grads_required or [])
     grads_required += tensors_to_accumulate_grads
+
+    called_graphs_grad_info = _merge_called_graphs_grad_info(graph, called_graphs_grad_info)
 
     # Autodiff the graph.
     grad_info = _autodiff_with_patterns(
