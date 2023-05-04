@@ -1,5 +1,5 @@
 # Copyright (c) 2022 Graphcore Ltd. All rights reserved.
-from typing import Optional, Callable, List, Sequence, Union
+from typing import Optional, Callable, List, Sequence, Union, Tuple
 from typing_extensions import Literal
 
 import numpy as np
@@ -261,44 +261,54 @@ def tensor_parallel_input(
     """Repeat the data in `input_data` such that consecutive replicas with groupSize tp get the same data
     (optionally modified by repeat_fn)
 
-    Take data of shape [host_loads, *data_shape]
-    Output [host_loads, replication_factor, *data_shape]
-    Where host_loads = device_iterations * gradient_accumulation_step
+    Input shape: `[n, *data_shape]`
+    Output shape: `[num_host_transfers, replication_factor, *data_shape]`
+    Where `num_host_transfers = device_iterations * gradient_accumulation_step` and `replication_factor = dp * tp`
+    `data_shape` includes micro batch size if applicable, e.g. `data_shape = [micro_batch_size, *]`
+
+    Note: the raw data usually has shape `[samples, *shape]`, then it is transformed to
+    `data_shape=[n, micro_batch_size, *shape]=[n, *data_shape]` before passing it to this function.
+
+    Note: when a model changes the micro batch size, this effects the number of gradient accumulation steps as the
+    global batch size remains constant. This will change the sample set each replica consumes as inputs; however
+    the global ordering of the samples remains unchanged.
 
     Examples:
         a = np.arange(4)
         [0, 1, 2, 3]
         shape: (4,)
 
-        tensor_parallel_input(a, 1, 2)  # tp = 1, dp = 2
+        tensor_parallel_input(a, 1, 2)  # tp = 1, dp = 2, rf=2
         # [[0, 1],
         #  [2, 3]]
         shape: (2, 2)
 
-        tensor_parallel_input(a, 2, 2)  # tp = 2, dp = 1
+        tensor_parallel_input(a, 2, 2)  # tp = 2, dp = 1, rf=2
         # [[0, 0],
         #  [1, 1],
         #  [2, 2],
         #  [3, 3]]
         shape: (4, 2)
 
-        tensor_parallel_input(a, 2, 4)  # tp = 2, dp = 2
+        tensor_parallel_input(a, 2, 4)  # tp = 2, dp = 2, rf=4
         # [[0, 0, 1, 1],
         #  [2, 2, 3, 3]]
         shape: (2, 4)
 
     Args:
-        input_data (np.ndarray): Data to repeat. Shape: [host_loads, *data_shape]
+        input_data (np.ndarray): Data to repeat. Shape: [n, *data_shape]
         tp (int): Tensor parallel replicas
         rf (int): Total Replicas
         repeat_fn (Optional[Callable[[np.ndarray, int], np.ndarray]], optional):
             Optional function to modify each repeat by. Defaults to None.
 
     Returns:
-        data: Data repeated for DP and TP. Shape: [host_loads, replication_factor, *data_shape]
+        data: Data repeated for DP and TP. Shape: `[num_host_transfers, replication_factor, *data_shape]`
     """
-    assert tp <= rf
-    assert (rf / tp).is_integer()
+    if not (tp <= rf):
+        raise ValueError(f"tensor parallel factor `tp` is not less than replication factor `rf`: {tp} > {rf}")
+    if not (rf / tp).is_integer():
+        raise ValueError(f"tensor parallel factor `tp` does not equally divide replication factor `rf`: rf/tp={rf/tp}")
 
     data = np.expand_dims(input_data, axis=1)
     repeats: List[np.ndarray] = []
@@ -311,6 +321,60 @@ def tensor_parallel_input(
     data = data.reshape(-1, rf, *input_data.shape[1:])
     data = squeeze_safe(data, [0, 1])  # Squeeze host loads or replica axis if 1
     return data
+
+
+def tensor_parallel_output(
+    output_data: np.ndarray,
+    num_host_transfers: int,
+    tp: int,
+    rf: int,
+    data_shape: Tuple[int, ...],
+    tp_identical: bool = True,
+    true_num_host_transfers: Optional[int] = None,
+) -> np.ndarray:
+    """Transform output data to `[samples, *data_shape]` (or `[samples, tp, *data_shape]` if each tensor parallel
+    replica does not provide the same output).
+
+    popxl.Session output data is provided in the following format: `[num_host_transfers, replication_factor, *data_shape]`
+    Where `num_host_transfers = device_iterations * gradient_accumulation_step`
+    Usually `replication_factor = dp * tp`
+    `data_shape` includes micro batch size if applicable, e.g. `data_shape = [micro_batch_size, *]`
+
+    Args:
+        output_data (np.ndarray): Data to transform
+        num_host_transfers (int): Maximum number of host transfers in IR
+        tp (int): Tensor parallel replicas
+        rf (int): Total replicas
+        data_shape: Shape of tensor in IR
+        tp_identical (bool, optional): If each TP replica provides identical output then only provide the first.
+            Defaults to True.
+        true_num_host_transfers (Optional[int], optional): Not all host transfers use the maximum number but all output
+            arrays are initialised with the max number. If not all host transfers are used then the remaining data will
+            be garbage. Include the true number here to remove garbage data. Defaults to None.
+
+    Returns:
+        np.ndarray: output data in format `[samples, *data_shape]` (or `[samples, tp, *data_shape]` if `tp_identical==False`)
+    """
+    if not (tp <= rf):
+        raise ValueError(f"tensor parallel factor `tp` is not less than replication factor `rf`: {tp} > {rf}")
+    if not (rf / tp).is_integer():
+        raise ValueError(f"tensor parallel factor `tp` does not equally divide replication factor `rf`: rf/tp={rf/tp}")
+    dp = rf // tp
+
+    output_data = output_data.reshape(num_host_transfers, dp, tp, *data_shape)
+
+    # Remove garbage data if not all host transfer slots are utilised
+    if true_num_host_transfers is not None:
+        output_data = output_data[:true_num_host_transfers]
+
+    # Flatten samples
+    output_data = output_data.reshape(-1, tp, *data_shape)
+
+    if tp_identical:
+        output_data = output_data[:, 0]
+
+    # Output: [samples, tp?, *data_shape]
+    return output_data
 
 
 def pad_axis(x: np.ndarray, n: int, axis: int, value: Union[int, float] = 0) -> np.ndarray:
