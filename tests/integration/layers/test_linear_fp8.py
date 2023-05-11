@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Graphcore Ltd. All rights reserved.
-from popxl_addons.layers import Linear, LinearFP8
+from popxl_addons.layers.linear_fp8 import LinearFP8
 from popxl_addons.testing_utils import run_module, TensorInput
 import popxl
 import numpy as np
