@@ -30,7 +30,7 @@ def test_fp8_scale_mse(format, from_dtype):
             bias = fp8_mse_scale(src, format)
             bias_d2h = addons.host_store(bias)
 
-        with popxl.Session(ir, "ipu_hw") as session:
+        with popxl.Session(ir, "ipu_model") as session:
             outputs = session.run()
         return (outputs[bias_d2h],)
 
@@ -66,7 +66,7 @@ def test_fp8_scale_amax(format, from_dtype):
             bias = fp8_amax_scale(src, format)
             bias_d2h = addons.host_store(bias)
 
-        with popxl.Session(ir, "ipu_hw") as session:
+        with popxl.Session(ir, "ipu_model") as session:
             outputs = session.run()
         return (outputs[bias_d2h],)
 
@@ -75,6 +75,7 @@ def test_fp8_scale_amax(format, from_dtype):
     print(f"python scale on host: {python_scale}")
     print(f"popxl scale on IPU: {ipu_scale}")
     assert python_scale == ipu_scale
+    assert ipu_scale[0] >= -31 and ipu_scale[0] <= 31
 
 
 test_fp8_scale_amax(popxl.float8_152, np.float32)

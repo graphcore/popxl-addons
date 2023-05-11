@@ -40,5 +40,6 @@ def fp8_amax_scale(
     amax = ops.max(ops.abs(src))
     log2_max = ops.log2(dest_ftype.max_value / amax)
     log2_max = ops.cast(ops.floor(log2_max), popxl.int32)
+    log2_max = ops.clip(log2_max, -31, 31)
 
     return log2_max
