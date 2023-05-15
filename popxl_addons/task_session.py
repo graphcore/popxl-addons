@@ -112,7 +112,13 @@ class TaskSession(popxl.Session):
         finite_mask = np.isfinite(data)
         finite_data = data[finite_mask]
         n_non_finite = np.sum(~finite_mask)
-        wandb.log({f"{name}:histogram": wandb.Histogram(finite_data), f"{name}:not_finite": n_non_finite}, step=step)
+        wandb.log(
+            {
+                f"{name}:histogram": wandb.Histogram(finite_data),
+                f"{name}:not_finite": n_non_finite,
+            },
+            step=step,
+        )
 
     def wandb_variable_histograms(self, step: int = 0):
         """Track all variables as a histogram in Weights & Biases"""
@@ -167,7 +173,10 @@ class TaskSession(popxl.Session):
                     self.__checkpoints.append(checkpoint_dir)
 
     def load_checkpoint(
-        self, checkpoint_dir: str, report_missing: ReportMissingMethods = "warn", skip_memmap: bool = False
+        self,
+        checkpoint_dir: str,
+        report_missing: ReportMissingMethods = "warn",
+        skip_memmap: bool = False,
     ):
         """
         Load a checkpoint for the task, consisting of the model state (weights), the optimiser state, the dataloader state and
@@ -197,7 +206,10 @@ class TaskSession(popxl.Session):
         for name, var in state.items():
             if isinstance(var.base, np.memmap):
                 mmap_path: str = var.base.filename
-                shutil.copyfile(mmap_path, os.path.join(checkpoint_dir, "model", os.path.basename(mmap_path)))
+                shutil.copyfile(
+                    mmap_path,
+                    os.path.join(checkpoint_dir, "model", os.path.basename(mmap_path)),
+                )
             else:
                 np.savez(os.path.join(checkpoint_dir, "model", f"{name}.npz"), **{name: var})
 
@@ -212,7 +224,10 @@ class TaskSession(popxl.Session):
             json.dump(self.session_state, f)
 
     def __load_checkpoint_from_file(
-        self, checkpoint_dir: str, report_missing: ReportMissingMethods = "warn", skip_memmap: bool = False
+        self,
+        checkpoint_dir: str,
+        report_missing: ReportMissingMethods = "warn",
+        skip_memmap: bool = False,
     ):
         """
         Load checkpoint from a file in .npz format or from wandb.
@@ -259,10 +274,12 @@ class TaskSession(popxl.Session):
             )
 
         # session info
-        with open(os.path.join(checkpoint_dir, self.__session_filename), "r") as f:
-            loaded_state = json.load(f)
-            self.__report_missing(loaded_state.keys(), self.session_state.keys(), report_missing)
-            self.session_state = loaded_state
+        try:
+            loaded_state = json.load(open(os.path.join(checkpoint_dir, self.__session_filename), "r"))
+        except FileNotFoundError:
+            loaded_state = {"steps": 0}  # set empty loaded_state if no session_info.json found.
+        self.__report_missing(loaded_state.keys(), self.session_state.keys(), report_missing)
+        self.session_state = loaded_state
         logging.info(f"\t Loaded session state: {self.session_state}")
 
     def __load_from_tensors(
@@ -277,7 +294,12 @@ class TaskSession(popxl.Session):
 
         self.write_variables_data({src_dst[src_t]: t for src_t, t in loaded.items() if src_t in src_dst.keys()})
 
-    def __report_missing(self, ckpt_keys: Iterable[str], state_keys: Iterable[str], method: ReportMissingMethods):
+    def __report_missing(
+        self,
+        ckpt_keys: Iterable[str],
+        state_keys: Iterable[str],
+        method: ReportMissingMethods,
+    ):
         if method != "none":
             ckpt_keys = set(ckpt_keys)
             state_keys = set(state_keys)

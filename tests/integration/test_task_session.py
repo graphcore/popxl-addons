@@ -77,6 +77,20 @@ def test_missing_key():
             assert e is not None
 
 
+def test_missing_session_info_json():
+    with TemporaryDirectory() as ckpt_dir:
+        session = build_session()
+        with session:
+            session.run()
+            session.save_checkpoint(ckpt_dir)
+
+        os.remove(os.path.join(ckpt_dir, "session_info.json"))
+
+        session2 = build_session()
+        session2.load_checkpoint(ckpt_dir, report_missing="error")
+        assert True
+
+
 if __name__ == "__main__":
     test_save_load_ckpt()
     test_missing_key()
