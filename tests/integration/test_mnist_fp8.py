@@ -170,7 +170,7 @@ def test_mnist_accuracy(scale_metric):
     opts["test_batch_size"] = 32
     opts["epochs"] = 2
     opts["lr"] = 0.005
-    opts["datsets_dir"] = ".graphcore/datasets"
+    opts["datsets_dir"] = "/home/svcswjenkins/.torch/datasets"
     opts["n_classes"] = 10
     opts["scale_metric"] = scale_metric
 

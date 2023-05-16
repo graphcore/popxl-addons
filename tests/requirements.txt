@@ -1,0 +1,4 @@
+numpy
+typing_extensions
+transformers==4.18.0
+git+ssh://git@phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL/popxladdonsinternal.git#egg=popxl-addons
