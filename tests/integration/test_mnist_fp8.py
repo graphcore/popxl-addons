@@ -7,9 +7,10 @@ from tqdm import tqdm
 import popxl
 import popxl.ops as ops
 from mnist_utils import Timer, get_mnist_data
-from popxl_addons.layers import LinearFP8
+from popxl_addons.layers.linear_fp8 import LinearFP8
 import popxl_addons as addons
 import pytest
+import os
 
 
 class LinearFP8GELU(addons.Module):
@@ -170,7 +171,7 @@ def test_mnist_accuracy(scale_metric):
     opts["test_batch_size"] = 32
     opts["epochs"] = 2
     opts["lr"] = 0.005
-    opts["datsets_dir"] = "/home/svcswjenkins/.torch/datasets"
+    opts["datsets_dir"] = os.environ.get("MNIST_DATASET_LOCATION", ".graphcore/datasets")
     opts["n_classes"] = 10
     opts["scale_metric"] = scale_metric
 
