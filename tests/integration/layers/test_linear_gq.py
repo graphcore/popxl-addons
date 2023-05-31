@@ -16,12 +16,13 @@ np.random.seed(42)
 
 
 class LinearGQTorch(torch.nn.Linear):
-    def __init__(self, group_size, *args, **kwargs):
+    def __init__(self, group_size, dim, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.weight = torch.nn.Parameter(
             torch.from_numpy(
                 group_quantize_decompress_numpy(
-                    *group_quantize_compress_numpy(self.weight.T.detach().numpy(), group_size)
+                    *group_quantize_compress_numpy(self.weight.T.detach().numpy(), group_size, dim=dim),
+                    dim=dim,
                 )
             )
             .T.to(self.bias.dtype)
@@ -29,7 +30,8 @@ class LinearGQTorch(torch.nn.Linear):
         )
 
 
-def test_linear_gq():
+@pytest.mark.parametrize("dim", [0, -1])
+def test_linear_gq(dim):
     in_features = 128
     out_features = 256
     group_size = 16
@@ -45,10 +47,11 @@ def test_linear_gq():
         in_features=in_features,
         out_features=out_features,
         bias=bias,
+        dim=dim,
     )
     torch_output = torch_layer(torch.from_numpy(input).to(torch.float)).detach().numpy().astype(np.float16)
 
-    popxl_gq_layer = LinearGQ(out_features, bias, group_size=group_size)
+    popxl_gq_layer = LinearGQ(out_features, bias, group_size=group_size, dim=dim)
 
     (popxl_gq_out,) = run_module(
         popxl_gq_layer,
@@ -58,6 +61,7 @@ def test_linear_gq():
             nn_layer=torch_layer,
             dtype=popxl.float16,
             group_size=group_size,
+            dim=dim,
         ),
     )
 
@@ -67,4 +71,4 @@ def test_linear_gq():
 
 
 if __name__ == "__main__":
-    test_linear_gq()
+    test_linear_gq(dim=0)
