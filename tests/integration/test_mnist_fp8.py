@@ -164,7 +164,7 @@ def compute_validation_accuracy(test_session, test_data, opts, input_streams, ou
     return sum_acc / len(test_data)
 
 
-@pytest.mark.parametrize("scale_metric", ["amax", "no_scale"])  # mse not included since it takes more than 10 mins
+@pytest.mark.parametrize("scale_metric", ["amax", "manual_scale"])  # mse not included since it takes more than 10 mins
 def test_mnist_accuracy(scale_metric):
     opts = {}
     opts["batch_size"] = 32

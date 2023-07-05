@@ -10,7 +10,7 @@ from functools import partial
 np.random.seed(42)
 
 
-@pytest.mark.parametrize("scale_metric", ["amax", "mse", "no_scale"])
+@pytest.mark.parametrize("scale_metric", ["amax", "mse", "manual_scale"])
 def test_linear_fp8(scale_metric):
     in_features = 10
     out_features = 10

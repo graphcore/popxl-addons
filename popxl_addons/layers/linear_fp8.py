@@ -21,6 +21,7 @@ class LinearFP8(addons.Module):
         out_features: int,
         bias: bool = True,
         scale_metric: str = "amax",
+        scale: int = 0,
         replica_grouping: Optional[ReplicaGrouping] = None,
     ):
         super().__init__()
@@ -28,16 +29,22 @@ class LinearFP8(addons.Module):
         self.bias = bias
         self.replica_grouping = replica_grouping
         self.scale_metric = scale_metric
+        self.scale = scale
         self.forward_fp8_type = popxl.float8_143
         self.grad_fp8_type = popxl.float8_152
 
         # Let the user pass a fp8_scale function
-        if scale_metric == "amax":
+        if self.scale_metric == "amax":
             self.fp8_scale = lambda x, y: fp8_amax_scale(x, y)
         elif self.scale_metric == "mse":
             self.fp8_scale = lambda x, y: fp8_mse_scale(x, y)
-        elif self.scale_metric == "no_scale":
-            self.fp8_scale = lambda x, y: popxl.constant(0)
+        elif self.scale_metric == "manual_scale":
+            self.fp8_scale = lambda x, y: popxl.constant(self.scale)
+        else:
+            raise ValueError(
+                f"The scale_metric option {self.scale_metric} is not available. "
+                "Please provide one of the following options: amax, mse or manual_scale."
+            )
 
     def build(self, x: popxl.Tensor):
         w = self.add_variable_input(
