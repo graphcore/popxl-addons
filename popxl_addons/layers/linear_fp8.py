@@ -93,7 +93,7 @@ class LinearFP8(addons.Module):
         # Compute optimal scale for incoming F16 dLdy following scale_metric
         # The scale is substracted -3 to leave some margin and prevent overflow in the matmul_pow2scaled
         dLdy_log2scale = self.fp8_scale(dLdy, popxl.float8_152) - popxl.constant(3)
-
+        dLdy_log2scale = ops.clip(dLdy_log2scale, -31, 31)
         # Cast activation grad dLdy from FP16 to FP8 using dLdy_log2scale
         dLdy_fp8 = ops.pow2scale_cast_to_fp8(dLdy, data_type=self.grad_fp8_type, log2_scale=dLdy_log2scale)
 
