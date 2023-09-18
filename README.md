@@ -1,4 +1,4 @@
-**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons-internal) AND READ-ONLY MIRRORED TO [PHABRICATOR](https://phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL)**
+**THIS REPO IS HOSTED ON [GITHUB](https://github.com/graphcore/popxl-addons-internal) AND READ-ONLY MIRRORED TO [GITHUB EMU](https://github.com/Software-GCAI/popxl-addons-internal)**
 
 <!--
 SDK release checklist:
@@ -36,7 +36,7 @@ Please note we are not currently accepting pull requests or issues on this repos
 - Create a Python virtual environment: `python3 -m venv <virtual_env>`
 - Activate the virtual environment: `. <virtual_env>/bin/activate`
 - Update `pip`: `pip3 install --upgrade pip`
-- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@github.com:graphcore/popxl-addons-internal.git`.
+- If you cloned the `popxl.addons` repo, install its requirements in `popxl-addons` with `pip3 install -r requirements.txt` and add the repo to the python path. Otherwise, you can pip install `popxl.addons`: `pip3 install git+ssh://git@github.com/graphcore/popxl-addons-internal.git`.
 
 ## Development
 

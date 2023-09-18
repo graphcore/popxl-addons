@@ -1,4 +1,4 @@
 numpy
 typing_extensions
 transformers==4.18.0
-git+ssh://git@phabricator.sourcevertex.net/diffusion/POPXLADDONSINTERNAL/popxladdonsinternal.git#egg=popxl-addons
+git+ssh://git@github.com/Software-GCAI/popxl-addons-internal.git#egg=popxl-addons
